@@ -5,3 +5,11 @@
     Header set Expires "0"
   </FilesMatch>
 </IfModule>
+
+# Python CGI execution
+AddHandler cgi-script .py
+Options +ExecCGI
+
+# Rewrite rule for /vis to vis.php
+RewriteEngine On
+RewriteRule ^vis$ vis.php [L]
