@@ -18,56 +18,74 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
 }
 
 // Paths
-$pythonScript = __DIR__ . '/../pythonscripts/todays_dsos_web.py';
+$pythonDir = dirname(__DIR__) . DIRECTORY_SEPARATOR .  'pythonscripts';
+$pythonScript = $pythonDir . DIRECTORY_SEPARATOR . 'todays_dsos_web.py';
+if (!file_exists($pythonScript)) {
+    http_response_code(500);
+    echo "<!DOCTYPE html><html><body><h1>Error</h1><p>Python script not found at: $pythonScript</p><p>OS: " . PHP_OS . "</p></body></html>";
+    exit;
+}
 
 // Detect operating system and set Python path accordingly
 if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
     // Windows environment (local development)
-    $venvPath = 'C:\Astronomy\Apps\pythonScripts\venv';
-    $pythonExe = $venvPath . '\Scripts\python.exe';
+    $ds = DIRECTORY_SEPARATOR;
+    $pythonExe = $pythonDir . $ds . 'venv' . $ds . 'Scripts' . $ds . 'python.exe';
+    if (!file_exists($pythonExe)) {
+        http_response_code(500);
+        echo "<!DOCTYPE html><html><body><h1>Error</h1><p>Python executable not found at: $pythonExe</p><p>OS: " . PHP_OS . "</p></body></html>";
+        exit;
+    }
+    $command = sprintf('"%s" "%s" 2>&1', $pythonExe, $pythonScript);
+    $output = shell_exec($command);
+
+    // Check if we got output
+    if ($output === null || trim($output) === '') {
+        http_response_code(500);
+        echo "<!DOCTYPE html><html><body><h1>Error</h1><p>No output from Python script. Command: <pre>" . htmlspecialchars($command) . "</pre></p></body></html>";
+        exit;
+    }
+
+    // Check for Python errors in output
+    if (stripos($output, 'Traceback') !== false || stripos($output, 'Error:') !== false) {
+        http_response_code(500);
+        echo "<!DOCTYPE html><html><body><h1>Python Error</h1><pre>" . htmlspecialchars($output) . "</pre></body></html>";
+        exit;
+    }
 } else {
     // Linux/Unix environment (production server)
-    // Use system Python or specify your venv path
-    $pythonExe = '/../pythonscripts/venv/bin/python3';  // Or '/home/yourusername/venv/bin/python3' if using venv
-}
+    $venvDir = $pythonDir . '/venv';
+    $activateScript = $venvDir . '/bin/activate';
 
-// Check if Python executable exists
-if (!file_exists($pythonExe)) {
-    http_response_code(500);
-    echo "<!DOCTYPE html><html><body><h1>Error</h1><p>Python executable not found at: $pythonExe</p><p>OS: " . PHP_OS . "</p></body></html>";
-    exit;
-}
+    // Check if venv exists
+    if (!is_dir($venvDir) || !file_exists($activateScript)) {
+        http_response_code(500);
+        echo "<!DOCTYPE html><html><body><h1>Error</h1><p>Virtual environment not found at: $venvDir</p></body></html>";
+        exit;
+    }
 
-// Check if Python script exists
-if (!file_exists($pythonScript)) {
-    http_response_code(500);
-    echo "<!DOCTYPE html><html><body><h1>Error</h1><p>Python script not found at: $pythonScript</p></body></html>";
-    exit;
-}
+    // Build command that activates venv and runs Python script
+    // Use bash to source activate and then run python
+    $command = sprintf(
+        'bash -c "source %s && python %s" 2>&1',
+        escapeshellarg($activateScript),
+        escapeshellarg($pythonScript)
+    );
 
-// Build command to execute Python script
-// No need to activate venv - just use the venv's python.exe directly
-$command = sprintf(
-    '"%s" "%s" 2>&1',
-    $pythonExe,
-    $pythonScript
-);
+    $output = shell_exec($command);
 
-// Execute Python script and capture output
-$output = shell_exec($command);
+    if ($output === null || trim($output) === '') {
+        http_response_code(500);
+        echo "<!DOCTYPE html><html><body><h1>Error</h1><p>No output from Python script.</p><p>Command: <pre>" . htmlspecialchars($command) . "</pre></p></body></html>";
+        exit;
+    }
 
-// Check if we got output
-if ($output === null || trim($output) === '') {
-    http_response_code(500);
-    echo "<!DOCTYPE html><html><body><h1>Error</h1><p>No output from Python script. Command: <pre>" . htmlspecialchars($command) . "</pre></p></body></html>";
-    exit;
-}
-
-// Check for Python errors in output
-if (stripos($output, 'Traceback') !== false || stripos($output, 'Error:') !== false) {
-    http_response_code(500);
-    echo "<!DOCTYPE html><html><body><h1>Python Error</h1><pre>" . htmlspecialchars($output) . "</pre></body></html>";
-    exit;
+    // Check for Python errors
+    if (stripos($output, 'Traceback') !== false || stripos($output, 'ModuleNotFoundError') !== false) {
+        http_response_code(500);
+        echo "<!DOCTYPE html><html><body><h1>Python Error</h1><pre>" . htmlspecialchars($output) . "</pre></body></html>";
+        exit;
+    }
 }
 
 // Set content type to HTML

@@ -1,7 +1,6 @@
 """
 Calculates and lists deep-sky objects (DSOs) visible from a specified location on a given date.
-Web version: Outputs HTML for browser display.
-Sorted by viewing duration (longest first).
+Web version with sortable output: Outputs HTML for browser display with dropdown to change sort order.
 """
 import csv
 import datetime
@@ -12,6 +11,7 @@ from skyfield.api import load, Topos, Star, Angle
 from skyfield.almanac import dark_twilight_day, find_discrete
 from astropy.coordinates import SkyCoord
 import sys
+import json
 
 # --- Configuration ---
 CSV_FILE = r"G:\My Drive\Astronomy\dso_watchlist.csv"
@@ -57,7 +57,7 @@ def get_viewing_window(target_date, ts, eph, observer):
 
 def calculate_visibility():
     """
-    Main function to calculate visibility of objects and output HTML.
+    Main function to calculate visibility of objects and output HTML with sorting capability.
     """
     target_date = datetime.date.today()
 
@@ -91,7 +91,7 @@ def calculate_visibility():
         sheet_name = 'dso_watchlist'
         csv_url = f'https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}'
         df = pd.read_csv(csv_url)
-        
+
         for index, row in df.iterrows():
             name = row['Name']
             aka = row['Aka']
@@ -101,7 +101,7 @@ def calculate_visibility():
             magnitude = row['Mag']
             most_recent = row['MostRecent']
             do_me = '&#9733;' if len(str(most_recent)) < 4 else ''
-            
+
             try:
                 obj = SkyCoord.from_name(name)
                 star = Star(ra=Angle(degrees=obj.ra.deg), dec=Angle(degrees=obj.dec.deg))
@@ -124,13 +124,14 @@ def calculate_visibility():
                 obj_start = time_range[start_idx].astimezone(tz)
                 obj_end = time_range[end_idx].astimezone(tz)
                 time_span = (obj_end - obj_start).total_seconds() / 60
-                
+
                 if time_span >= 60:
                     visible_objects.append({
                         'do_me': do_me,
                         'name': name,
                         'aka': aka,
                         'start': obj_start,
+                        'start_minutes': obj_start.hour * 60 + obj_start.minute,  # For sorting
                         'end': obj_end,
                         'duration': time_span,
                         'size': size,
@@ -143,18 +144,30 @@ def calculate_visibility():
         print(f"<p>Error reading data: {e}</p>")
         return
 
-    # Sort by viewing duration in descending order
-    visible_objects.sort(key=lambda x: x['duration'], reverse=True)
+    # Convert to JSON for JavaScript
+    objects_json = json.dumps([{
+        'do_me': obj['do_me'],
+        'name': obj['name'],
+        'aka': obj['aka'],
+        'start': obj['start'].strftime('%H:%M'),
+        'start_minutes': obj['start_minutes'],
+        'end': obj['end'].strftime('%H:%M'),
+        'duration': obj['duration'],
+        'size': obj['size'],
+        'magnitude': obj['magnitude'],
+        'constellation': obj['constellation'],
+        'type_desc': obj['type_desc']
+    } for obj in visible_objects])
 
     # Output HTML
     target_date_str = target_date.strftime('%Y-%m-%d')
-    
-    print("""<!DOCTYPE html>
+
+    print(f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>DSO Visibility Report - {}</title>
+    <title>DSO Visibility Report - {target_date_str}</title>
     <style>
         body {{
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -178,6 +191,31 @@ def calculate_visibility():
         }}
         .info p {{
             margin: 5px 0;
+        }}
+        .controls {{
+            background: #1a1f3a;
+            padding: 15px;
+            border-radius: 8px;
+            margin: 20px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }}
+        .controls label {{
+            color: #4a9eff;
+            font-weight: 600;
+        }}
+        .controls select {{
+            padding: 8px 12px;
+            background: #2a3f5f;
+            color: #e0e0e0;
+            border: 1px solid #4a9eff;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+        }}
+        .controls select:hover {{
+            background: #3a4f6f;
         }}
         table {{
             width: 100%;
@@ -224,28 +262,39 @@ def calculate_visibility():
             th, td {{
                 padding: 6px;
             }}
+            .controls {{
+                flex-direction: column;
+                align-items: flex-start;
+            }}
         }}
     </style>
 </head>
 <body>
-    <h1>DSO Visibility Report for {}</h1>
+    <h1>DSO Visibility Report for {target_date_str}</h1>
     <div class="info">
-        <p><strong>Location:</strong> {}</p>
-        <p><strong>Viewing Window:</strong> {} to {}</p>
-        <p><strong>Criteria:</strong> Altitude &gt;= {}&deg;, Azimuth {}&deg;-{}&deg;</p>
-        <p><strong>Sorted by:</strong> Viewing Duration (longest first)</p>
+        <p><strong>Location:</strong> {LOCATION_NAME}</p>
+        <p><strong>Viewing Window:</strong> {start_local.strftime('%H:%M %Z')} to {end_local.strftime('%H:%M %Z')}</p>
+        <p><strong>Criteria:</strong> Altitude &gt;= {MIN_ALTITUDE_DEG}&deg;, Azimuth {AZ_MIN_DEG}&deg;-{AZ_MAX_DEG}&deg;</p>
     </div>
-""".format(
-        target_date_str, target_date_str, LOCATION_NAME,
-        start_local.strftime('%H:%M %Z'), end_local.strftime('%H:%M %Z'),
-        MIN_ALTITUDE_DEG, AZ_MIN_DEG, AZ_MAX_DEG
-    ))
+
+    <div class="controls">
+        <label for="sortOrder">Sort by:</label>
+        <select id="sortOrder" onchange="sortTable()">
+            <option value="duration">Duration (longest first)</option>
+            <option value="start">Start Time (earliest first)</option>
+            <option value="magnitude">Magnitude (brightest first)</option>
+            <option value="size">Size (largest first)</option>
+            <option value="name">Name (A-Z)</option>
+            <option value="aka">Friendly Name</option>
+        </select>
+    </div>
+""")
 
     if not visible_objects:
         print("<p>No objects meet the visibility criteria for this date.</p>")
     else:
         print("""
-    <table>
+    <table id="dsoTable">
         <thead>
             <tr>
                 <th>Priority</th>
@@ -260,38 +309,79 @@ def calculate_visibility():
                 <th>Type</th>
             </tr>
         </thead>
-        <tbody>
-""")
-        
-        for obj in visible_objects:
-            duration_hrs = obj['duration'] / 60
-            duration_str = f"{duration_hrs:.1f}h" if duration_hrs >= 1 else f"{obj['duration']:.0f}m"
-            
-            print(f"""
-            <tr>
-                <td class="priority">{obj['do_me']}</td>
-                <td><strong>{obj['name']}</strong></td>
-                <td>{obj['aka']}</td>
-                <td class="time">{obj['start'].strftime('%H:%M')}</td>
-                <td class="time">{obj['end'].strftime('%H:%M')}</td>
-                <td class="duration">{duration_str}</td>
-                <td>{obj['size']:.0f}</td>
-                <td>{obj['magnitude']:.1f}</td>
-                <td>{obj['constellation']}</td>
-                <td>{obj['type_desc']}</td>
-            </tr>
-""")
-        
-        print("""
+        <tbody id="tableBody">
         </tbody>
     </table>
     <div class="info" style="margin-top: 20px;">
-        <p><strong>Total visible objects:</strong> {}</p>
+        <p><strong>Total visible objects:</strong> <span id="totalCount"></span></p>
         <p><strong>&#9733;</strong> = Priority target (not recently observed)</p>
     </div>
+
+    <script>
+        const objectsData = """ + objects_json + """;
+
+        function formatDuration(minutes) {
+            const hours = minutes / 60;
+            return hours >= 1 ? `${hours.toFixed(1)}h` : `${minutes.toFixed(0)}m`;
+        }
+
+        function renderTable(data) {
+            const tbody = document.getElementById('tableBody');
+            tbody.innerHTML = '';
+
+            data.forEach(obj => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td class="priority">${obj.do_me}</td>
+                    <td><strong>${obj.name}</strong></td>
+                    <td>${obj.aka}</td>
+                    <td class="time">${obj.start}</td>
+                    <td class="time">${obj.end}</td>
+                    <td class="duration">${formatDuration(obj.duration)}</td>
+                    <td>${obj.size.toFixed(0)}</td>
+                    <td>${obj.magnitude.toFixed(1)}</td>
+                    <td>${obj.constellation}</td>
+                    <td>${obj.type_desc}</td>
+                `;
+            });
+
+            document.getElementById('totalCount').textContent = data.length;
+        }
+
+        function sortTable() {
+            const sortBy = document.getElementById('sortOrder').value;
+            const sortedData = [...objectsData];
+
+            switch(sortBy) {
+                case 'duration':
+                    sortedData.sort((a, b) => b.duration - a.duration);
+                    break;
+                case 'start':
+                    sortedData.sort((a, b) => a.start_minutes - b.start_minutes);
+                    break;
+                case 'magnitude':
+                    sortedData.sort((a, b) => a.magnitude - b.magnitude);
+                    break;
+                case 'size':
+                    sortedData.sort((a, b) => b.size - a.size);
+                    break;
+                case 'name':
+                    sortedData.sort((a, b) => a.name.localeCompare(b.name));
+                    break;
+                case 'aka':
+                    sortedData.sort((a, b) => a.aka.localeCompare(b.aka));
+                    break;
+            }
+
+            renderTable(sortedData);
+        }
+
+        // Initial render with default sort (duration)
+        sortTable();
+    </script>
 </body>
 </html>
-""".format(len(visible_objects)))
+""")
 
 
 if __name__ == '__main__':
