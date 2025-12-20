@@ -124,15 +124,21 @@ def calculate_visibility():
                 obj_start = time_range[start_idx].astimezone(tz)
                 obj_end = time_range[end_idx].astimezone(tz)
                 time_span = (obj_end - obj_start).total_seconds() / 60
-
+                start_minutes = obj_start.hour * 60 + obj_start.minute
+                if obj_start.hour < 12:
+                    start_minutes += 24 * 60  # Adjust for sorting past midnight
+                end_minutes = obj_end.hour * 60 + obj_end.minute
+                if obj_end.hour < 12:
+                    end_minutes += 24 * 60  # Adjust for sorting past midnight
                 if time_span >= 60:
                     visible_objects.append({
                         'do_me': do_me,
                         'name': name,
                         'aka': aka,
                         'start': obj_start,
-                        'start_minutes': obj_start.hour * 60 + obj_start.minute,  # For sorting
+                        'start_minutes': start_minutes,  # For sorting
                         'end': obj_end,
+                        'end_minutes': end_minutes,
                         'duration': time_span,
                         'size': size,
                         'magnitude': magnitude,
@@ -152,6 +158,7 @@ def calculate_visibility():
         'start': obj['start'].strftime('%H:%M'),
         'start_minutes': obj['start_minutes'],
         'end': obj['end'].strftime('%H:%M'),
+        'end_minutes': obj['end_minutes'],
         'duration': obj['duration'],
         'size': obj['size'],
         'magnitude': obj['magnitude'],
@@ -282,6 +289,7 @@ def calculate_visibility():
         <select id="sortOrder" onchange="sortTable()">
             <option value="duration">Duration (longest first)</option>
             <option value="start">Start Time (earliest first)</option>
+            <option value="end">End Time (earliest first)</option>
             <option value="magnitude">Magnitude (brightest first)</option>
             <option value="size">Size (largest first)</option>
             <option value="name">Name (A-Z)</option>
@@ -358,6 +366,9 @@ def calculate_visibility():
                     break;
                 case 'start':
                     sortedData.sort((a, b) => a.start_minutes - b.start_minutes);
+                    break;
+                case 'end':
+                    sortedData.sort((a, b) => a.end_minutes - b.end_minutes);
                     break;
                 case 'magnitude':
                     sortedData.sort((a, b) => a.magnitude - b.magnitude);
