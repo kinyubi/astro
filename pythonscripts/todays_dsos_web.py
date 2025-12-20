@@ -19,7 +19,7 @@ LOCATION_NAME = 'Star, Idaho'
 LAT_DEG = 43.69
 LON_DEG = -116.49
 TIME_ZONE = 'America/Boise'
-MIN_ALTITUDE_DEG = 25.0
+MIN_ALTITUDE_DEG = 18.0
 AZ_MIN_DEG = 10.0  # Due North
 AZ_MAX_DEG = 145.0  # Due South (Eastern Sky)
 
