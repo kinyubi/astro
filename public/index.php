@@ -50,12 +50,8 @@ $wallJson = json_encode($wallImages);
             object-fit: contain; object-position: center;
             display: block;
         }
-        .arrow-btn {
+        .arrow-btn, .play-pause-btn {
             position: absolute;
-            top: 90%;
-            transform: translateY(-50%);
-            width: calc(8vh + 8px);
-            height: calc(8vh + 8px);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -70,6 +66,12 @@ $wallJson = json_encode($wallImages);
             padding: 0;
             pointer-events: auto;
         }
+        .arrow-btn {
+            top: 90%;
+            transform: translateY(-50%);
+            width: calc(8vh + 8px);
+            height: calc(8vh + 8px);
+        }
         .arrow-btn:active {
             transform: translateY(-50%) scale(.98);
             background: rgba(0,0,0,0.4);
@@ -82,7 +84,24 @@ $wallJson = json_encode($wallImages);
             object-fit: contain;
             pointer-events: none;
         }
-        .arrow-btn.hidden { display: none; }
+        .play-pause-btn {
+            bottom: 3vh;
+            left: 50%;
+            transform: translateX(-50%);
+            width: calc(5vh + 5px);
+            height: calc(5vh + 5px);
+        }
+        .play-pause-btn:active {
+            transform: translateX(-50%) scale(.98);
+            background: rgba(0,0,0,0.4);
+        }
+        .play-pause-btn svg {
+            width: 50%;
+            height: 50%;
+            fill: white;
+            pointer-events: none;
+        }
+        .hidden { display: none; }
 
         @media (min-width:768px) {
             .arrow-btn {
@@ -91,6 +110,10 @@ $wallJson = json_encode($wallImages);
             }
             .arrow-left { left: calc(1.0vw + 2px); }
             .arrow-right { right: calc(1.0vw + 2px); }
+            .play-pause-btn {
+                width: calc(6vh + 6px);
+                height: calc(6vh + 6px);
+            }
         }
     </style>
 </head>
@@ -103,6 +126,10 @@ $wallJson = json_encode($wallImages);
     <button id="nextBtn" class="arrow-btn arrow-right" aria-label="Next image" type="button">
         <img src="right-arrow.png" alt="Next">
     </button>
+    <button id="playPauseBtn" class="play-pause-btn" aria-label="Pause or resume slideshow" type="button">
+        <svg id="pauseIcon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
+        <svg id="playIcon" class="hidden" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"></path></svg>
+    </button>
 </div>
 
 <script>
@@ -114,11 +141,15 @@ $wallJson = json_encode($wallImages);
     let activeList = [];
     let currentIndex = 0;
     let autoAdvanceTimer = null;
+    let isPaused = false;
     const AUTO_ADVANCE_DELAY = 5000;
 
     const slideImg = document.getElementById('slide');
     const prevBtn = document.getElementById('prevBtn');
     const nextBtn = document.getElementById('nextBtn');
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    const pauseIcon = document.getElementById('pauseIcon');
+    const playIcon = document.getElementById('playIcon');
 
     function shuffleArray(arr) {
         const a = arr.slice();
@@ -179,7 +210,6 @@ $wallJson = json_encode($wallImages);
     }
 
     function nextImage() {
-        console.log("Next image requested.");
         if (activeList.length < 2) return;
         currentIndex = (currentIndex + 1) % activeList.length;
         showImage();
@@ -187,7 +217,6 @@ $wallJson = json_encode($wallImages);
     }
 
     function prevImage() {
-        console.log("Previous image requested.");
         if (activeList.length < 2) return;
         currentIndex = (currentIndex - 1 + activeList.length) % activeList.length;
         showImage();
@@ -198,33 +227,59 @@ $wallJson = json_encode($wallImages);
         const show = activeList && activeList.length > 1;
         prevBtn.classList.toggle('hidden', !show);
         nextBtn.classList.toggle('hidden', !show);
+        playPauseBtn.classList.toggle('hidden', !show);
     }
 
     function stopAutoAdvance() {
-        // if (autoAdvanceTimer) clearTimeout(autoAdvanceTimer);
-        // autoAdvanceTimer = null;
+        if (autoAdvanceTimer) clearTimeout(autoAdvanceTimer);
+        autoAdvanceTimer = null;
     }
 
     function resetAutoAdvance() {
-        // stopAutoAdvance();
-        // if (activeList.length > 1) {
-        //     autoAdvanceTimer = setTimeout(nextImage, AUTO_ADVANCE_DELAY);
-        // }
+        stopAutoAdvance();
+        if (!isPaused && activeList.length > 1) {
+            autoAdvanceTimer = setTimeout(nextImage, AUTO_ADVANCE_DELAY);
+        }
+    }
+
+    function togglePlayPause() {
+        isPaused = !isPaused;
+        if (isPaused) {
+            stopAutoAdvance();
+        } else {
+            resetAutoAdvance();
+        }
+        updatePlayPauseButton();
+    }
+
+    function updatePlayPauseButton() {
+        pauseIcon.classList.toggle('hidden', isPaused);
+        playIcon.classList.toggle('hidden', !isPaused);
+        playPauseBtn.setAttribute('aria-label', isPaused ? 'Resume slideshow' : 'Pause slideshow');
     }
 
     prevBtn.addEventListener('click', prevImage);
     nextBtn.addEventListener('click', nextImage);
+    playPauseBtn.addEventListener('click', togglePlayPause);
 
     document.addEventListener('keydown', (e) => {
         if (e.key === 'ArrowRight') nextImage();
         else if (e.key === 'ArrowLeft') prevImage();
+        else if (e.key === ' ') {
+            e.preventDefault();
+            togglePlayPause();
+        }
     });
 
     window.addEventListener('resize', chooseListByOrientation);
     window.addEventListener('orientationchange', () => setTimeout(chooseListByOrientation, 120));
 
     document.addEventListener('visibilitychange', () => {
-        document.hidden ? stopAutoAdvance() : resetAutoAdvance();
+        if (document.hidden) {
+            stopAutoAdvance();
+        } else {
+            resetAutoAdvance();
+        }
     });
 
     chooseListByOrientation();
