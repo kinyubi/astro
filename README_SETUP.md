@@ -57,9 +57,9 @@ In Laragon, ensure mod_rewrite is enabled:
 
 2. SSH into your server and install dependencies:
    ```bash
-   cd /path/to/astro/pythonscripts
-   python3 -m venv venv
-   source venv/bin/activate
+   cd astro.wiibopp.com/pythonscripts
+   python3 -m venv venv  # if need to create environment
+   . ./venv/bin/activate
    pip install -r requirements.txt
    deactivate
    ```

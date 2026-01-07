@@ -17,7 +17,13 @@ from profile_manager import load_profile
 
 # No longer hardcoded - these come from profiles now
 # See profile_manager.py for profile management
-
+LOCATION_NAME = 'Star, Idaho'
+LAT_DEG = 43.69
+LON_DEG = -116.49
+TIME_ZONE = 'America/Boise'
+MIN_ALTITUDE_DEG = 25.0
+AZ_MIN_DEG = 10.0  # Due North
+AZ_MAX_DEG = 145.0  # Due South (Eastern Sky)
 
 def get_viewing_window(target_date, ts, eph, observer):
     """

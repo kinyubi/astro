@@ -112,7 +112,10 @@ if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
     // Check if venv exists
     if (!is_dir($venvDir) || !file_exists($activateScript)) {
         http_response_code(500);
-        echo "<!DOCTYPE html><html><body><h1>Error</h1><p>Virtual environment not found at: $venvDir</p></body></html>";
+        echo "<!DOCTYPE html><html><body><h1>Error</h1><p>Virtual environment not found at: $venvDir</p>";
+        echo "<p><strong>Solution:</strong> SSH to your server and run:<br>";
+        echo "<code>cd " . htmlspecialchars($pythonDir) . " && python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt</code></p>";
+        echo "</body></html>";
         exit;
     }
 

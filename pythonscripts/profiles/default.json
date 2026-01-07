@@ -1,0 +1,10 @@
+{
+  "name": "default",
+  "location": "Star, Idaho",
+  "latitude": 43.69,
+  "longitude": -116.49,
+  "timezone": "America/Boise",
+  "min_altitude": 18.0,
+  "az_min": 10.0,
+  "az_max": 165.0
+}
