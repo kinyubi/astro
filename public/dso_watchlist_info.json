@@ -1,0 +1,966 @@
+{
+  "HD34078": {
+    "OtherNames": [
+      "Ae Aurigae",
+      "AE Aurigae"
+    ],
+    "Constellation": "Auriga",
+    "Type": "Runaway O-type star illuminating a bow-shock reflection nebula (IC 405 region)",
+    "Distance": "~1,500 light-years away",
+    "Size": "The star is point-like; its surrounding bow-shock arc is a few light-years across and spans only a small fraction of the Moon in typical images.",
+    "FunFacts": [
+      "Also known as AE Aurigae, it was likely ejected from the Orion region after a gravitational interaction.",
+      "Its high space velocity creates a visible bow shock as it rams into interstellar material."
+    ],
+    "Composition": "Hot massive star plowing through interstellar gas; UV light and stellar wind create a bow shock and excite nearby dust/gas."
+  },
+  "IC59": {
+    "OtherNames": [
+      "Ghost of Cassiopeia",
+      "IC 59"
+    ],
+    "Constellation": "Cassiopeia",
+    "Type": "Emission & reflection nebula (H II region + dust reflection)",
+    "Distance": "~600 light-years away",
+    "Size": "Roughly a few light-years across; on the sky it's small—well under the apparent width of the full Moon.",
+    "FunFacts": [
+      "Often photographed together with IC 63 as a faint, wispy complex near Gamma Cassiopeiae.",
+      "Its glow is a mix of red hydrogen emission and blue dust reflection."
+    ],
+    "Composition": "Gas and dust illuminated and ionized by the nearby bright star Gamma Cassiopeiae."
+  },
+  "IC63": {
+    "OtherNames": [
+      "Ghost of Cassiopeia",
+      "IC 63"
+    ],
+    "Constellation": "Cassiopeia",
+    "Type": "Emission & reflection nebula (H II region + dust reflection)",
+    "Distance": "~600 light-years away",
+    "Size": "A few light-years across; appears as a compact patch—far smaller than the full Moon.",
+    "FunFacts": [
+      "Nicknamed the 'Ghost of Cassiopeia' (often for the IC 59/63 complex).",
+      "Dense dust lanes give it a spooky, sculpted look in long exposures."
+    ],
+    "Composition": "Interstellar gas and dust shaped and lit by Gamma Cassiopeiae’s intense radiation."
+  },
+  "IC405": {
+    "OtherNames": [
+      "Flaming Star Nebula"
+    ],
+    "Constellation": "Auriga",
+    "Type": "Emission nebula with reflection components",
+    "Distance": "~1,500 light-years away",
+    "Size": "~30–40 light-years across; spans about 1° on the sky—around 2× the full Moon’s diameter.",
+    "FunFacts": [
+      "The bright star AE Aurigae is a runaway that now lights the nebula.",
+      "Dark dust lanes cut through the glowing gas, creating the 'flames'."
+    ],
+    "Composition": "Hydrogen gas glowing in emission plus dust reflecting starlight; energized by AE Aurigae (HD 34078)."
+  },
+  "IC443": {
+    "OtherNames": [
+      "Jellyfish Nebula",
+      "SNR G189.1+3.0"
+    ],
+    "Constellation": "Gemini",
+    "Type": "Supernova remnant interacting with molecular clouds",
+    "Distance": "~5,000 light-years away",
+    "Size": "~70 light-years across; about 45 arcminutes on the sky—roughly the size of the full Moon.",
+    "FunFacts": [
+      "Its complex filaments come from the shock running into dense interstellar clouds.",
+      "Associated with high-energy gamma-ray emission from particle acceleration in the shock."
+    ],
+    "Composition": "Expanding supernova shock wave compressing and heating surrounding gas; strong in Hα/OIII and radio/X-ray."
+  },
+  "IC410": {
+    "OtherNames": [
+      "Tadpoles",
+      "Tadpoles Nebula"
+    ],
+    "Constellation": "Auriga",
+    "Type": "Emission nebula (H II region) with embedded open cluster (NGC 1893)",
+    "Distance": "~12,000 light-years away",
+    "Size": "~100 light-years across; about 40 arcminutes—close to the full Moon’s apparent size.",
+    "FunFacts": [
+      "The 'Tadpoles' are star-forming globules being eroded by radiation from hot young stars.",
+      "It’s a great narrowband target (Hα/OIII) due to strong emission and contrast."
+    ],
+    "Composition": "Ionized hydrogen surrounding young cluster NGC 1893; includes the famous 'Tadpoles' (dense dusty globules)."
+  },
+  "IC417": {
+    "OtherNames": [
+      "Spider Nebula",
+      "Spider and Fly Nebula"
+    ],
+    "Constellation": "Auriga",
+    "Type": "Emission nebula (H II region) associated with star-forming regions in Auriga",
+    "Distance": "~6,000 light-years away",
+    "Size": "Tens of light-years across; around 40–50 arcminutes—about the full Moon’s size.",
+    "FunFacts": [
+      "Often imaged as part of the Auriga nebula mosaic with IC 405 and IC 410 nearby.",
+      "Contains regions of ongoing star formation embedded in dusty clouds."
+    ],
+    "Composition": "Ionized hydrogen mixed with dust; powered by young massive stars in the Auriga star-forming complex."
+  },
+  "IC434": {
+    "OtherNames": [
+      "Horsehead Nebula",
+      "Horsehead region",
+      "Barnard 33 (Horsehead Nebula)"
+    ],
+    "Constellation": "Orion",
+    "Type": "Emission nebula (H II region) / background glow behind a dark nebula (Barnard 33)",
+    "Distance": "~1,300–1,500 light-years away",
+    "Size": "The emission curtain is tens of light-years long; the Horsehead area spans ~1°—about 2× the full Moon’s diameter.",
+    "FunFacts": [
+      "Home to the Horsehead Nebula (Barnard 33), a famous dark nebula silhouette.",
+      "Also includes NGC 2023 nearby, a bright reflection nebula in the same field."
+    ],
+    "Composition": "Ionized hydrogen gas lit by σ Orionis; silhouetted dust clouds create the Horsehead and surrounding dark lanes."
+  },
+  "IC1318": {
+    "OtherNames": [
+      "Sadr Region"
+    ],
+    "Constellation": "Cygnus",
+    "Type": "Emission nebula complex (H II region) around Gamma Cygni (Sadr region)",
+    "Distance": "~4,900 light-years away",
+    "Size": "~100 light-years across; spans several degrees—many times larger than the full Moon.",
+    "FunFacts": [
+      "Often called the 'Sadr Region' and packed with intricate dark lanes in narrowband imaging.",
+      "Part of a much larger Cygnus star-forming complex rich in Hα emission."
+    ],
+    "Composition": "Large hydrogen emission region with dark dust lanes; energized by massive stars in Cygnus."
+  },
+  "IC1340": {
+    "OtherNames": [
+      "Bat Nebula"
+    ],
+    "Constellation": "Cygnus",
+    "Type": "Emission nebula (H II region) / faint nebular complex in Cygnus",
+    "Distance": "~4,000–5,000 light-years away",
+    "Size": "Tens to ~100 light-years; appears as a diffuse region that can span over a degree—several Moons across.",
+    "FunFacts": [
+      "A challenging widefield target—its low surface brightness rewards long integration.",
+      "Sits in a sky region crowded with nebulae and dust lanes."
+    ],
+    "Composition": "Ionized hydrogen and dust in the rich Cygnus Milky Way background."
+  },
+  "IC1396": {
+    "OtherNames": [
+      "Elephant's Trunk Nebula",
+      "Elephant's Trunk Nebula (IC 1396A)"
+    ],
+    "Constellation": "Cepheus",
+    "Type": "Emission nebula (H II region) with embedded cluster; includes dark globules",
+    "Distance": "~2,400 light-years away",
+    "Size": "~100 light-years across; ~3° on the sky—about 6× the full Moon’s diameter.",
+    "FunFacts": [
+      "Contains the Elephant’s Trunk Nebula, a star-forming pillar of gas and dust.",
+      "So large it’s best framed with widefield optics; narrowband makes its structure pop."
+    ],
+    "Composition": "Ionized hydrogen surrounding an open cluster; numerous dark globules (including the Elephant’s Trunk, IC 1396A)."
+  },
+  "IC1805": {
+    "OtherNames": [
+      "Heart Nebula",
+      "Melotte 15"
+    ],
+    "Constellation": "Cassiopeia",
+    "Type": "Emission nebula (H II region) with embedded open cluster (Melotte 15)",
+    "Distance": "~7,500 light-years away",
+    "Size": "~150 light-years across; ~2° wide—about 4× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Heart Nebula; paired on the sky with IC 1848 (Soul Nebula).",
+      "Its central cluster is carving cavities and pillars into the gas."
+    ],
+    "Composition": "Ionized hydrogen and dust sculpted by winds from young massive stars in Melotte 15."
+  },
+  "IC1848": {
+    "OtherNames": [
+      "Soul Nebula"
+    ],
+    "Constellation": "Cassiopeia",
+    "Type": "Emission nebula (H II region) with embedded clusters and dark clouds",
+    "Distance": "~7,500 light-years away",
+    "Size": "~100 light-years across; ~2°—about 4× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Soul Nebula; together with the Heart it forms a famous widefield pair.",
+      "Contains multiple bright rims and dust pillars ideal for Hα/OIII imaging."
+    ],
+    "Composition": "Ionized hydrogen plus dust and dark nebula structures; energized by young stars across the region."
+  },
+  "IC2118": {
+    "OtherNames": [
+      "Witch Head Nebula"
+    ],
+    "Constellation": "Eridanus",
+    "Type": "Reflection nebula (blue dust reflection)",
+    "Distance": "~900–1,000 light-years away",
+    "Size": "~50 light-years across; about 2.5° long—~5× the full Moon’s diameter.",
+    "FunFacts": [
+      "Nicknamed the Witch Head Nebula due to its distinctive silhouette.",
+      "Its blue color comes from starlight scattered by fine interstellar dust."
+    ],
+    "Composition": "Dust clouds reflecting light from nearby stars, often associated with the Orion/Eridanus region."
+  },
+  "IC5070": {
+    "OtherNames": [
+      "Pelican Nebula"
+    ],
+    "Constellation": "Cygnus",
+    "Type": "Emission nebula (H II region) in a larger complex",
+    "Distance": "~1,800–2,000 light-years away",
+    "Size": "~20–30 light-years; ~1° on the sky—about 2× the full Moon’s diameter.",
+    "FunFacts": [
+      "Called the Pelican Nebula; it shares the sky with NGC 7000 (North America Nebula).",
+      "Dark dust between it and NGC 7000 creates the 'Gulf of Mexico' gap."
+    ],
+    "Composition": "Ionized hydrogen and dust; part of the Pelican / North America nebula region."
+  },
+  "IC5146": {
+    "OtherNames": [
+      "Cocoon Nebula",
+      "Barnard 168"
+    ],
+    "Constellation": "Cygnus",
+    "Type": "Emission nebula (H II region) with associated dark nebula (Barnard 168)",
+    "Distance": "~3,300 light-years away",
+    "Size": "~15 light-years across; ~12 arcminutes—about 0.4× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Cocoon Nebula; the adjacent dark lane is a star-forming cloud.",
+      "The nebula is relatively compact but the surrounding dust extends much farther."
+    ],
+    "Composition": "Ionized gas around a young cluster, connected to a long dusty molecular cloud (dark lane)."
+  },
+  "LDN1235": {
+    "OtherNames": [
+      "Dark Shark Nebula",
+      "Shark Nebula",
+      "LBN 111.07+14.08"
+    ],
+    "Constellation": "Cepheus",
+    "Type": "Dark nebula / molecular cloud complex (Lynds Dark Nebula)",
+    "Distance": "~650 light-years away",
+    "Size": "~15 light-years across; about ~3° long—roughly 6× the full Moon’s diameter.",
+    "FunFacts": [
+      "Often nicknamed the 'Dark Shark' because of its silhouette against the Milky Way star field.",
+      "It’s essentially a 'hole in the sky'—a dense dust cloud seen in absorption."
+    ],
+    "Composition": "Cold molecular gas and dust blocking background starlight; part of the Cepheus Flare star-forming region."
+  },
+  "LDN1622": {
+    "OtherNames": [
+      "Boogeyman Nebula"
+    ],
+    "Constellation": "Orion",
+    "Type": "Dark nebula with illuminated rims (reflection/emission edges)",
+    "Distance": "~1,300 light-years away",
+    "Size": "A few light-years across; about 1°—~2× the full Moon’s diameter.",
+    "FunFacts": [
+      "Often called the 'Boogeyman Nebula' for its face-like dark structure.",
+      "Its dusty edges can show both reddish emission and bluish reflection depending on processing."
+    ],
+    "Composition": "Dense dust cloud on the edge of the Orion complex; edges are lit by nearby hot stars and the Orion region glow."
+  },
+  "M1": {
+    "OtherNames": [
+      "Crab Nebula",
+      "NGC 1952"
+    ],
+    "Constellation": "Taurus",
+    "Type": "Supernova remnant (pulsar wind nebula)",
+    "Distance": "~6,500 light-years away",
+    "Size": "~11 light-years across; about 6×4 arcminutes—~0.2× the full Moon’s diameter.",
+    "FunFacts": [
+      "The supernova was recorded by Chinese astronomers in 1054 as a 'guest star.'",
+      "At its core is the Crab Pulsar spinning ~30 times per second, energizing the nebula."
+    ],
+    "Composition": "Expanding debris from the 1054 CE supernova; synchrotron emission from relativistic particles powered by the Crab Pulsar."
+  },
+  "M8": {
+    "OtherNames": [
+      "Lagoon Nebula",
+      "NGC 6523"
+    ],
+    "Constellation": "Sagittarius",
+    "Type": "Emission nebula (H II region) with embedded cluster",
+    "Distance": "~4,100 light-years away",
+    "Size": "~110×50 light-years; spans ~1.5°—about 3× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Lagoon Nebula; one of the brightest nebulae in the sky.",
+      "Contains the dense 'Hourglass' region, a hotbed of newborn stars."
+    ],
+    "Composition": "Ionized hydrogen and dust lanes with active star formation; includes bright cores and dark rifts."
+  },
+  "M13": {
+    "OtherNames": [
+      "Great Hercules Cluster",
+      "NGC 6205"
+    ],
+    "Constellation": "Hercules",
+    "Type": "Globular cluster",
+    "Distance": "~22,000–25,000 light-years away",
+    "Size": "~145 light-years across; ~20 arcminutes—~0.7× the full Moon’s diameter.",
+    "FunFacts": [
+      "Often called the Great Hercules Cluster and visible in binoculars under dark skies.",
+      "It was the target of the 1974 Arecibo message broadcast toward space."
+    ],
+    "Composition": "Hundreds of thousands of old stars packed into a spherical halo cluster."
+  },
+  "M16": {
+    "OtherNames": [
+      "Eagle Nebula",
+      "NGC 6611"
+    ],
+    "Constellation": "Serpens",
+    "Type": "Emission nebula (H II region) + embedded open cluster (NGC 6611)",
+    "Distance": "~7,000 light-years away",
+    "Size": "~70 light-years; ~35 arcminutes—slightly larger than the full Moon.",
+    "FunFacts": [
+      "Home to the famous 'Pillars of Creation' imaged by Hubble.",
+      "A classic narrowband target with strong Hα and OIII structure."
+    ],
+    "Composition": "Ionized hydrogen and dust pillars sculpted by young massive stars in NGC 6611."
+  },
+  "M17": {
+    "OtherNames": [
+      "Swan (Omega) Nebula",
+      "Omega Nebula",
+      "Swan Nebula",
+      "NGC 6618"
+    ],
+    "Constellation": "Sagittarius",
+    "Type": "Emission nebula (H II region) / star-forming region",
+    "Distance": "~5,500 light-years away",
+    "Size": "~15 light-years across; ~20 arcminutes—~0.7× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Omega, Swan, or Checkmark Nebula depending on the view.",
+      "Its bright ridge is a blister of ionized gas on the edge of a molecular cloud."
+    ],
+    "Composition": "Ionized gas and dust; active massive-star formation."
+  },
+  "M20": {
+    "OtherNames": [
+      "Trifid Nebula",
+      "NGC 6514"
+    ],
+    "Constellation": "Sagittarius",
+    "Type": "Composite: emission nebula + reflection nebula + dark nebula lanes",
+    "Distance": "~5,200 light-years away",
+    "Size": "~40 light-years across; ~28 arcminutes—about the full Moon’s size.",
+    "FunFacts": [
+      "The dark lanes give it the classic 'trifid' (three-lobed) appearance.",
+      "A great example of multiple nebula types in one object."
+    ],
+    "Composition": "Red Hα emission, blue reflection regions, and dark dust lanes dividing the nebula."
+  },
+  "M27": {
+    "OtherNames": [
+      "Dumbbell Nebula",
+      "NGC 6853"
+    ],
+    "Constellation": "Vulpecula",
+    "Type": "Planetary nebula",
+    "Distance": "~1,360 light-years away",
+    "Size": "~2.5 light-years across; ~8 arcminutes—~0.25× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Dumbbell Nebula; one of the brightest planetary nebulae.",
+      "Its central white dwarf is the exposed core of the original star."
+    ],
+    "Composition": "Expanding shells of ionized gas expelled by a dying Sun-like star; strong OIII emission."
+  },
+  "M31": {
+    "OtherNames": [
+      "Andromeda Galaxy",
+      "NGC 224"
+    ],
+    "Constellation": "Andromeda",
+    "Type": "Spiral galaxy (Andromeda Galaxy)",
+    "Distance": "~2.5 million light-years away",
+    "Size": "~220,000 light-years across; ~3° wide—about 6× the full Moon’s diameter.",
+    "FunFacts": [
+      "The nearest major spiral galaxy to the Milky Way and visible to the naked eye under dark skies.",
+      "On a collision course with the Milky Way in several billion years."
+    ],
+    "Composition": "Hundreds of billions of stars, gas, dust, and dark matter; includes satellite galaxies M32 and M110 nearby."
+  },
+  "M33": {
+    "OtherNames": [
+      "Triangulum Galaxy",
+      "NGC 598"
+    ],
+    "Constellation": "Triangulum",
+    "Type": "Spiral galaxy (Triangulum Galaxy)",
+    "Distance": "~2.7–3.0 million light-years away",
+    "Size": "~60,000 light-years across; ~1°—about 2× the full Moon’s diameter.",
+    "FunFacts": [
+      "One of the most distant objects visible to the naked eye under excellent skies.",
+      "NGC 604 in M33 is one of the largest star-forming regions in the Local Group."
+    ],
+    "Composition": "Star-rich spiral disk with prominent H II regions (like NGC 604)."
+  },
+  "M42": {
+    "OtherNames": [
+      "Orion Nebula",
+      "NGC 1976"
+    ],
+    "Constellation": "Orion",
+    "Type": "Emission nebula (H II region) / star-forming complex",
+    "Distance": "~1,350 light-years away",
+    "Size": "~24 light-years across; ~1°—about 2× the full Moon’s diameter.",
+    "FunFacts": [
+      "The closest massive star-forming region to Earth, making it a benchmark for astrophysics.",
+      "The Trapezium cluster at its core is visible in small telescopes."
+    ],
+    "Composition": "Ionized hydrogen and dust; powered by the Trapezium stars; part of the larger Orion Molecular Cloud Complex."
+  },
+  "M44": {
+    "OtherNames": [
+      "Beehive Cluster",
+      "Praesepe",
+      "NGC 2632"
+    ],
+    "Constellation": "Cancer",
+    "Type": "Open cluster",
+    "Distance": "~600 light-years away",
+    "Size": "~15 light-years across; ~1.5°—about 3× the full Moon’s diameter.",
+    "FunFacts": [
+      "Visible to the naked eye as a hazy patch under dark skies.",
+      "One of the nearest and richest open clusters."
+    ],
+    "Composition": "A loose grouping of young-to-middle-aged stars (the Beehive Cluster)."
+  },
+  "M45": {
+    "OtherNames": [
+      "Pleiades",
+      "Seven Sisters"
+    ],
+    "Constellation": "Taurus",
+    "Type": "Reflection nebula + open cluster (Pleiades)",
+    "Distance": "~440 light-years away",
+    "Size": "~40 light-years across; ~2°—about 4× the full Moon’s diameter.",
+    "FunFacts": [
+      "The blue nebulosity is dust the cluster is currently passing through—not leftover birth material.",
+      "A classic naked-eye object and frequent calibration target in astrophotography."
+    ],
+    "Composition": "Hot young stars with surrounding interstellar dust reflecting blue starlight."
+  },
+  "M51": {
+    "OtherNames": [
+      "Whirlpool Galaxy",
+      "NGC 5194",
+      "NGC 5195"
+    ],
+    "Constellation": "Canes Venatici",
+    "Type": "Interacting spiral galaxies (Whirlpool Galaxy + NGC 5195)",
+    "Distance": "~23 million light-years away",
+    "Size": "~60,000 light-years across; ~11 arcminutes—~0.35× the full Moon’s diameter.",
+    "FunFacts": [
+      "One of the best galaxies for seeing spiral structure in small telescopes.",
+      "The companion galaxy NGC 5195 is actively interacting with M51, shaping the arms."
+    ],
+    "Composition": "Spiral galaxy undergoing tidal interaction, triggering star formation in its arms."
+  },
+  "M57": {
+    "OtherNames": [
+      "Ring Nebula",
+      "NGC 6720"
+    ],
+    "Constellation": "Lyra",
+    "Type": "Planetary nebula",
+    "Distance": "~2,300 light-years away",
+    "Size": "~1–2 light-years; ~1.4 arcminutes—tiny (much smaller than the Moon).",
+    "FunFacts": [
+      "Known as the Ring Nebula; the 'ring' is a barrel-shaped shell seen nearly end-on.",
+      "Long exposures can reveal a faint outer halo from earlier mass-loss episodes."
+    ],
+    "Composition": "Ionized gas shell around a central white dwarf; strong OIII emission forms the bright ring."
+  },
+  "M74": {
+    "OtherNames": [
+      "Phantom Galaxy",
+      "NGC 628"
+    ],
+    "Constellation": "Pisces",
+    "Type": "Face-on spiral galaxy",
+    "Distance": "~30–35 million light-years away",
+    "Size": "~95,000 light-years; ~10 arcminutes—~0.3× the full Moon’s diameter.",
+    "FunFacts": [
+      "A classic 'challenge' Messier galaxy due to its faint surface brightness.",
+      "Its nearly face-on orientation makes its spiral pattern photogenic."
+    ],
+    "Composition": "Grand-design spiral with low surface brightness arms."
+  },
+  "M78": {
+    "OtherNames": [
+      "NGC2068",
+      "NGC 2068"
+    ],
+    "Constellation": "Orion",
+    "Type": "Reflection nebula with embedded star formation",
+    "Distance": "~1,350 light-years away",
+    "Size": "~5 light-years; ~8×6 arcminutes—~0.25× the full Moon’s diameter.",
+    "FunFacts": [
+      "One of the brightest reflection nebulae, often showing blue tones.",
+      "Dusty environment hosts young stellar objects and faint emission features."
+    ],
+    "Composition": "Dust reflecting starlight from young stars; part of the Orion molecular cloud complex."
+  },
+  "M81": {
+    "OtherNames": [
+      "Bode's Galaxy",
+      "NGC 3031"
+    ],
+    "Constellation": "Ursa Major",
+    "Type": "Spiral galaxy (Bode's Galaxy)",
+    "Distance": "~12 million light-years away",
+    "Size": "~90,000 light-years; ~26 arcminutes—~0.9× the full Moon’s diameter.",
+    "FunFacts": [
+      "Forms a famous galaxy pair/group with M82 nearby.",
+      "Its structure resembles a scaled version of the Milky Way’s classic spiral form."
+    ],
+    "Composition": "Large spiral galaxy with a bright central bulge and well-defined arms."
+  },
+  "M97": {
+    "OtherNames": [
+      "Owl Nebula",
+      "NGC 3587"
+    ],
+    "Constellation": "Ursa Major",
+    "Type": "Planetary nebula",
+    "Distance": "~2,000 light-years away",
+    "Size": "~2 light-years; ~3 arcminutes—~0.1× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Owl Nebula due to two darker 'eye' cavities.",
+      "Often observed in the same field/region as galaxy M108 (not in this list)."
+    ],
+    "Composition": "Expanding ionized gas shell around a central white dwarf; OIII gives it a greenish cast in images."
+  },
+  "M101": {
+    "OtherNames": [
+      "Pinwheel Galaxy",
+      "NGC 5457"
+    ],
+    "Constellation": "Ursa Major",
+    "Type": "Face-on spiral galaxy (Pinwheel Galaxy)",
+    "Distance": "~21 million light-years away",
+    "Size": "~170,000 light-years; ~28 arcminutes—about the full Moon’s diameter.",
+    "FunFacts": [
+      "Its many star-forming regions make it rich in Hα emission (for a galaxy).",
+      "Despite large angular size, it can be tricky visually because its light is spread out."
+    ],
+    "Composition": "Large spiral disk with numerous bright H II regions and star-forming knots."
+  },
+  "M106": {
+    "OtherNames": [
+      "NGC4258",
+      "NGC 4258"
+    ],
+    "Constellation": "Canes Venatici",
+    "Type": "Spiral galaxy (Seyfert / active nucleus)",
+    "Distance": "~23–25 million light-years away",
+    "Size": "~135,000 light-years; ~19 arcminutes—~0.6× the full Moon’s diameter.",
+    "FunFacts": [
+      "Hosts a bright active nucleus powered by a central black hole.",
+      "Has 'anomalous arms'—features not matching the optical spiral pattern."
+    ],
+    "Composition": "Spiral galaxy with an active supermassive black hole and unusual 'anomalous arms' seen in radio/X-ray."
+  },
+  "NGC281": {
+    "OtherNames": [
+      "Pacman Nebula",
+      "IC 1590"
+    ],
+    "Constellation": "Cassiopeia",
+    "Type": "Emission nebula (H II region) with embedded open cluster; dark globules",
+    "Distance": "~9,500–10,000 light-years away",
+    "Size": "~35 light-years; ~35 arcminutes—slightly larger than the full Moon.",
+    "FunFacts": [
+      "Nicknamed the Pacman Nebula due to its shape.",
+      "Contains dense Bok globules where new stars are forming."
+    ],
+    "Composition": "Ionized hydrogen with dust lanes and Bok globules; powered by young cluster IC 1590."
+  },
+  "NGC772": {
+    "OtherNames": [
+      "Fiddlehead Galaxy"
+    ],
+    "Constellation": "Aries",
+    "Type": "Spiral galaxy (distorted/active star formation)",
+    "Distance": "~110 million light-years away",
+    "Size": "~200,000 light-years; ~7 arcminutes—~0.2× the full Moon’s diameter.",
+    "FunFacts": [
+      "Its single prominent arm is a sign of tidal interaction with nearby companions.",
+      "A good example of how galaxy interactions distort spiral structure."
+    ],
+    "Composition": "Large spiral with asymmetric arms likely influenced by a smaller companion (NGC 770)."
+  },
+  "NGC1499": {
+    "OtherNames": [
+      "California Nebula"
+    ],
+    "Constellation": "Perseus",
+    "Type": "Emission nebula (H II region)",
+    "Distance": "~1,000 light-years away",
+    "Size": "~100 light-years long; ~2.5°—about 5× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the California Nebula because it resembles the outline of California.",
+      "It’s a classic Hα target—often surprisingly faint in broadband."
+    ],
+    "Composition": "Ionized hydrogen region energized by nearby hot stars; broad, diffuse Hα glow."
+  },
+  "NGC1579": {
+    "OtherNames": [
+      "Northern Trifid Nebula"
+    ],
+    "Constellation": "Perseus",
+    "Type": "Reflection nebula with emission components; star-forming region",
+    "Distance": "~2,100 light-years away",
+    "Size": "A few light-years; ~10 arcminutes—~0.3× the full Moon’s diameter.",
+    "FunFacts": [
+      "Often called the Northern Trifid or a 'lost' nebula due to its subtle mixed emission/reflection nature.",
+      "Contains young stars still embedded in dusty cloud material."
+    ],
+    "Composition": "Dust reflecting light from young stars plus faint hydrogen emission; embedded in molecular cloud."
+  },
+  "NGC1893": {
+    "OtherNames": [
+      "Cluster in Tadpoles",
+      "Caldwell 42"
+    ],
+    "Constellation": "Auriga",
+    "Type": "Open cluster embedded in emission nebula (part of IC 410)",
+    "Distance": "~12,000–13,000 light-years away",
+    "Size": "~20 light-years; ~12 arcminutes—~0.4× the full Moon’s diameter.",
+    "FunFacts": [
+      "The cluster’s massive stars are responsible for carving and lighting the surrounding nebula.",
+      "Great target for pairing star color with narrowband nebula data."
+    ],
+    "Composition": "Young open cluster of hot stars ionizing surrounding gas in IC 410."
+  },
+  "NGC1977": {
+    "OtherNames": [
+      "Running Man Nebula"
+    ],
+    "Constellation": "Orion",
+    "Type": "Reflection/emission nebula (part of the Orion complex; 'Running Man')",
+    "Distance": "~1,300–1,500 light-years away",
+    "Size": "~5 light-years; ~20 arcminutes—~0.7× the full Moon’s diameter.",
+    "FunFacts": [
+      "Often called the Running Man Nebula, just north of the Orion Nebula (M42).",
+      "Its bluish reflection contrasts nicely with the red emission of M42 nearby."
+    ],
+    "Composition": "Dust reflecting blue starlight plus faint emission from nearby ionized gas; near M42."
+  },
+  "NGC2024": {
+    "OtherNames": [
+      "Flame Nebula"
+    ],
+    "Constellation": "Orion",
+    "Type": "Emission nebula (H II region) with dark dust lanes",
+    "Distance": "~1,350 light-years away",
+    "Size": "~12 light-years; ~30 arcminutes—about the full Moon.",
+    "FunFacts": [
+      "Known as the Flame Nebula, adjacent to the bright star Alnitak.",
+      "Dense dust hides much of the star formation occurring within."
+    ],
+    "Composition": "Ionized hydrogen with heavy obscuring dust; embedded in Orion molecular clouds."
+  },
+  "NGC2070": {
+    "OtherNames": [
+      "Tarantula Nebula",
+      "Tarantula Nebula core",
+      "30 Doradus"
+    ],
+    "Constellation": "Dorado",
+    "Type": "Giant H II region / starburst nebula (core of Tarantula Nebula)",
+    "Distance": "~160,000–170,000 light-years away (Large Magellanic Cloud)",
+    "Size": "~200+ light-years region; on the sky ~15 arcminutes—~0.5× the full Moon.",
+    "FunFacts": [
+      "One of the most active star-forming regions in the Local Group.",
+      "If it were as close as the Orion Nebula, it would cast shadows on Earth."
+    ],
+    "Composition": "Extremely active star-forming region containing the massive cluster R136; ionized gas, dust, and stellar winds."
+  },
+  "NGC2244": {
+    "OtherNames": [
+      "Rosette Nebula",
+      "Rosette Nebula cluster",
+      "NGC 2237",
+      "NGC 2238",
+      "NGC 2246"
+    ],
+    "Constellation": "Monoceros",
+    "Type": "Open cluster embedded in emission nebula (Rosette Nebula, NGC 2237/2238/2246)",
+    "Distance": "~5,000 light-years away",
+    "Size": "Cluster spans ~35 light-years; the Rosette nebula complex spans ~100+ light-years and ~1.3°—~3× the full Moon’s diameter.",
+    "FunFacts": [
+      "The central cavity is carved by intense winds and radiation from the cluster’s hot stars.",
+      "The larger Rosette complex contains enough material to form thousands of Sun-like stars."
+    ],
+    "Composition": "Young cluster whose radiation and winds hollow out a cavity in the surrounding H II region."
+  },
+  "NGC2264": {
+    "OtherNames": [
+      "Christmas Tree Nebula",
+      "Christmas Tree Cluster",
+      "Cone Nebula"
+    ],
+    "Constellation": "Monoceros ",
+    "Type": "Composite: open cluster + emission nebula + reflection nebula + dark nebula (Christmas Tree / Cone region)",
+    "Distance": "~2,600–3,000 light-years away",
+    "Size": "~30 light-years; ~1°—about 2× the full Moon’s diameter.",
+    "FunFacts": [
+      "The cluster’s star pattern resembles a Christmas tree; the Cone Nebula sits nearby.",
+      "Home to very young stars and protostars still embedded in their birth clouds."
+    ],
+    "Composition": "Young open cluster with surrounding gas/dust; includes the Cone Nebula and Fox Fur nebulosity."
+  },
+  "NGC2359": {
+    "OtherNames": [
+      "Thor's Helmet"
+    ],
+    "Constellation": "Canis Major",
+    "Type": "Emission nebula (Wolf–Rayet bubble / H II region)",
+    "Distance": "~15,000 light-years away",
+    "Size": "~30 light-years across; ~10 arcminutes—~0.3× the full Moon’s diameter.",
+    "FunFacts": [
+      "Nicknamed Thor’s Helmet due to its winged bubble shape.",
+      "A textbook example of how massive stars sculpt surrounding gas with fast winds."
+    ],
+    "Composition": "Bubble of ionized gas blown by strong stellar winds from the Wolf–Rayet star WR 7."
+  },
+  "NGC6888": {
+    "OtherNames": [
+      "Crescent Nebula"
+    ],
+    "Constellation": "Cygnus",
+    "Type": "Emission nebula (Wolf–Rayet bubble)",
+    "Distance": "~4,700 light-years away",
+    "Size": "~25×18 light-years; ~18×12 arcminutes—~0.6× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Crescent Nebula; its bright arcs trace shock fronts in the shell.",
+      "Shows strong OIII and Hα—great for bicolor narrowband."
+    ],
+    "Composition": "Shell of ionized gas blown by the Wolf–Rayet star WR 136 interacting with earlier stellar ejecta."
+  },
+  "NGC6946": {
+    "OtherNames": [
+      "Fireworks Galaxy"
+    ],
+    "Constellation": "Cepheus/Cygnus",
+    "Type": "Spiral galaxy (starburst / prolific supernova host)",
+    "Distance": "~22 million light-years away",
+    "Size": "~40,000–60,000 light-years; ~11 arcminutes—~0.35× the full Moon’s diameter.",
+    "FunFacts": [
+      "Nicknamed the Fireworks Galaxy because many supernovae have been observed there.",
+      "Sits near the plane of the Milky Way, so foreground dust can dim it."
+    ],
+    "Composition": "Dusty spiral rich in gas; high star formation rate."
+  },
+  "NGC6960": {
+    "OtherNames": [
+      "Western Veil Nebula",
+      "Witch's Broom"
+    ],
+    "Constellation": "Cygnus",
+    "Type": "Supernova remnant filament (part of the Veil Nebula)",
+    "Distance": "~2,400 light-years away",
+    "Size": "The full Veil spans ~3° (~6× the Moon); this western segment spans ~1° (~2× the Moon).",
+    "FunFacts": [
+      "Known as the Western Veil / Witch’s Broom near star 52 Cygni.",
+      "OIII filters dramatically increase contrast by highlighting the shock-heated gas."
+    ],
+    "Composition": "Filamentary shock fronts from an ancient supernova; strong OIII emission outlines the filaments."
+  },
+  "NGC6992": {
+    "OtherNames": [
+      "Eastern Veil Nebula"
+    ],
+    "Constellation": "Cygnus",
+    "Type": "Supernova remnant filament (part of the Veil Nebula)",
+    "Distance": "~2,400 light-years away",
+    "Size": "The eastern Veil filaments span ~1° (~2× the Moon); the full Veil complex spans ~3° (~6× the Moon).",
+    "FunFacts": [
+      "Often called the Eastern Veil; its delicate, lace-like filaments are iconic in narrowband.",
+      "Part of a single supernova explosion that occurred roughly 10,000 years ago."
+    ],
+    "Composition": "Thin sheets of shock-heated gas seen edge-on; bright in OIII and Hα."
+  },
+  "NGC7000": {
+    "OtherNames": [
+      "North America Nebula"
+    ],
+    "Constellation": "Cygnus",
+    "Type": "Emission nebula (H II region)",
+    "Distance": "~1,600–2,000 light-years away",
+    "Size": "~100 light-years across; ~2°—about 4× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the North America Nebula due to its continent-like outline.",
+      "The dark lane between it and the Pelican is the 'Gulf of Mexico'—dense obscuring dust."
+    ],
+    "Composition": "Ionized hydrogen and dust; shares complex with IC 5070 (Pelican Nebula)."
+  },
+  "NGC7023": {
+    "OtherNames": [
+      "Iris Nebula"
+    ],
+    "Constellation": "Cepheus",
+    "Type": "Reflection nebula with emission/photo-dissociation region",
+    "Distance": "~1,300 light-years away",
+    "Size": "~6 light-years; ~18 arcminutes—~0.6× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Iris Nebula; famous for blue petals around a bright core.",
+      "A strong example of a photo-dissociation region where UV light alters molecular gas."
+    ],
+    "Composition": "Dust reflecting starlight from HD 200775; surrounding molecular cloud glows in infrared."
+  },
+  "NGC7293": {
+    "OtherNames": [
+      "Helix Nebula"
+    ],
+    "Constellation": "Aquarius",
+    "Type": "Planetary nebula",
+    "Distance": "~650 light-years away",
+    "Size": "~2.5–3 light-years across; ~16 arcminutes—~0.5× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Helix Nebula; one of the closest planetary nebulae.",
+      "Contains thousands of comet-like knots—dense clumps being photo-evaporated."
+    ],
+    "Composition": "Expanding shells of ionized gas from a dying Sun-like star; complex knotty structure in the halo."
+  },
+  "NGC7380": {
+    "OtherNames": [
+      "Wizard Nebula"
+    ],
+    "Constellation": "Cepheus",
+    "Type": "Open cluster embedded in emission nebula (H II region)",
+    "Distance": "~7,000–9,000 light-years away",
+    "Size": "~100 light-years region; ~25 arcminutes—~0.8× the full Moon’s diameter.",
+    "FunFacts": [
+      "Often called the Wizard Nebula for its shape in narrowband images.",
+      "Rich Hα emission and dark dust make it a rewarding long-integration target."
+    ],
+    "Composition": "Young open cluster whose hot stars ionize surrounding gas; includes dark clouds and bright rims."
+  },
+  "NGC7479": {
+    "OtherNames": [
+      "Superman Galaxy"
+    ],
+    "Constellation": "Pegasus",
+    "Type": "Barred spiral galaxy",
+    "Distance": "~105 million light-years away",
+    "Size": "~90,000 light-years; ~4 arcminutes—~0.13× the full Moon’s diameter.",
+    "FunFacts": [
+      "A dramatic bar structure makes it a favorite target for galaxy imagers.",
+      "Shows dust lanes along the bar where gas is compressed."
+    ],
+    "Composition": "Stellar bar funnels gas inward, fueling star formation and possibly nuclear activity."
+  },
+  "NGC7635": {
+    "OtherNames": [
+      "Bubble Nebula"
+    ],
+    "Constellation": "Cassiopeia",
+    "Type": "Emission nebula (H II region) / bubble nebula with embedded cluster",
+    "Distance": "~7,100–8,000 light-years away",
+    "Size": "The main bubble is ~10 light-years across; the surrounding nebulosity spans ~1° (~2× the Moon).",
+    "FunFacts": [
+      "Known as the Bubble Nebula; the 'bubble' is a wind-blown cavity seen nearly in profile.",
+      "Often photographed with NGC 7635’s neighbor cluster M52 in the same wide field."
+    ],
+    "Composition": "Ionized gas bubble blown by the massive star BD+60°2522 into surrounding molecular cloud."
+  },
+  "SH2-101": {
+    "OtherNames": [
+      "Tulip Nebula"
+    ],
+    "Constellation": "Cygnus",
+    "Type": "Emission nebula (H II region)",
+    "Distance": "~5,500 light-years away",
+    "Size": "~50 light-years; ~1°—about 2× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Tulip Nebula; often imaged with the nearby Cygnus X-1 region in widefields.",
+      "Narrowband imaging reveals strong Hα structure and contrasting dust."
+    ],
+    "Composition": "Ionized hydrogen with dark dust lanes; energized by massive stars in the Cygnus region."
+  },
+  "SH2-129": {
+    "OtherNames": [
+      "Flying Bat Nebula"
+    ],
+    "Constellation": "Cepheus",
+    "Type": "Emission nebula (H II region) with faint OIII features (incl. 'Flying Bat' field)",
+    "Distance": "~3,300 light-years away",
+    "Size": "Several degrees across—many times the full Moon; widefield target.",
+    "FunFacts": [
+      "Often photographed with the faint 'Squid Nebula' (Ou4) nearby in the same field.",
+      "Large and faint—benefits from long integration and narrowband filters."
+    ],
+    "Composition": "Ionized hydrogen with embedded dust; some regions show OIII shells and faint structures in deep exposures."
+  },
+  "SH2-157": {
+    "OtherNames": [
+      "Lobster Claw",
+      "Lobster Claw Nebula"
+    ],
+    "Constellation": "Cassiopeia/Cepheus",
+    "Type": "Emission nebula (H II region) with dark dust and embedded star formation",
+    "Distance": "~10,000 light-years away",
+    "Size": "~50–60 light-years; ~1°—about 2× the full Moon’s diameter.",
+    "FunFacts": [
+      "Known as the Lobster Claw Nebula; rich in Hα with intricate dark dust structure.",
+      "Often paired with nearby Sharpless regions in Cassiopeia/Cepheus widefields."
+    ],
+    "Composition": "Ionized hydrogen mixed with dust pillars and dark lanes; active star formation."
+  },
+  "SH2-188": {
+    "OtherNames": [
+      "Shrimp Nebula",
+      "Simeis 22"
+    ],
+    "Constellation": "Cassiopeia",
+    "Type": "Planetary nebula (bow-shock / interaction with interstellar medium)",
+    "Distance": "~850 light-years away",
+    "Size": "~2.5 light-years across; ~10 arcminutes—~0.3× the full Moon’s diameter.",
+    "FunFacts": [
+      "Nicknamed the Shrimp Nebula for its curved, asymmetric shape.",
+      "Its arc-like form comes from a strong interaction with surrounding interstellar gas."
+    ],
+    "Composition": "Ionized gas from an evolved star forming a one-sided arc due to motion through the interstellar medium."
+  },
+  "SH2-240": {
+    "OtherNames": [
+      "Spaghetti Nebula",
+      "Simeis 147",
+      "SNR G180.0−1.7"
+    ],
+    "Constellation": "Cygnus",
+    "Type": "Supernova remnant (Simeis 147 / Spaghetti Nebula)",
+    "Distance": "~3,000 light-years away",
+    "Size": "~160 light-years across; ~3°—about 6× the full Moon’s diameter.",
+    "FunFacts": [
+      "One of the largest apparent supernova remnants in the sky, but very low surface brightness.",
+      "The complex filaments look like tangled spaghetti in deep Hα/OIII images."
+    ],
+    "Composition": "Extremely faint filamentary shell of shock-heated gas from an ancient supernova; includes a pulsar candidate association."
+  },
+  "SH2-308": {
+    "OtherNames": [
+      "Dolphin Head Nebula",
+      "RCW 11",
+      "LBN 1052"
+    ],
+    "Constellation": "Canis Major",
+    "Type": "Emission nebula (Wolf–Rayet bubble / H II region)",
+    "Distance": "~4,500–5,000 light-years away",
+    "Size": "~60 light-years across; covers slightly more sky than the full Moon.",
+    "FunFacts": [
+      "Known as the Dolphin-Head Nebula; a huge wind-blown bubble around a massive star.",
+      "The shell was created by stellar winds sweeping up earlier slower material into a bright rim."
+    ],
+    "Composition": "Ionized hydrogen bubble blown by fast winds from the Wolf–Rayet star EZ Canis Majoris."
+  }
+}

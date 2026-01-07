@@ -1,0 +1,67 @@
+Name,Aka,MostRecent,S50 Date,TypeDesc,Constellation,SqArcMins,Mag,DSOType,Adam,Reddit,Meta,WiiBopp,PixStar
+HD34078,Ae Aurigae,,,Runaway Star,Auriga,0,6.0,Star,FALSE,FALSE,FALSE,FALSE,FALSE
+IC59,Ghost of Cassiopeia,9/16/2025,,Emission/reflection nebulae,Cassiopeia,100,13.3,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+IC63,Ghost of Cassiopeia,9/17/2025,,Emission/reflection nebulae,Cassiopeia,100,13.3,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+IC405,Flaming Star Nebula,9/28/2025,,Emission/Reflection,Auriga,1500,6.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+IC443,Jellyfish Nebula,11/2/2025,,Supernova remnant,Gemini,2700,12.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+IC410,Tadpoles,10/7/2025,,Emission nebula (H II),Auriga,720,,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+IC417,Spider Nebula,12/11/2025,,Star forming emission nebula,Auriga,130,10.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+IC434,Horsehead Nebula,,,Dark nebula / H II backdrop,Orion,2400,,Nebula,TRUE,FALSE,FALSE,FALSE,FALSE
+IC1318,Sadr Region,7/25/2025,,Emission nebula complex,Cygnus,25000,2.2,Nebula,TRUE,FALSE,FALSE,FALSE,FALSE
+IC1340,Bat Nebula,,,Supernova remnant,Cygnus,500,7.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+IC1396,Elephant's Trunk Nebula,,,"Bright emission nebula + dark globule (H-alpha dominant, with Bok-globule-like structure)",Cepheus,1000,3.5,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+IC1805,Heart Nebula,11/1/2025,,Emission nebula (H II),Cassiopeia,22500,6.5,Nebula,TRUE,FALSE,FALSE,FALSE,FALSE
+IC1848,Soul Nebula,10/7/2025,,Emission nebula (H II),Cassiopeia,13125,7.0,Nebula,TRUE,FALSE,FALSE,FALSE,FALSE
+IC2118,Witch Head Nebula,,,Reflection nebula,Eridanus,10000,13.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+IC5070,Pelican Nebula,7/20/2025,,Emission nebula,Cygnus,3000,8.0,Nebula,TRUE,FALSE,FALSE,FALSE,FALSE
+IC5146,Cocoon Nebula,8/8/2025,,Emission+Reflection+Cluster,Cygnus,144,7.2,Cluster,FALSE,FALSE,FALSE,FALSE,FALSE
+LDN1235,Dark Shark Nebula,,,Dark nebula,Cepheus,40,,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+LDN1622,Boogeyman Nebula,,,Dark nebula,Orion,1225,,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+M1,Crab Nebula,9/3/2025,12/28/2025,Supernova Remnant,Taurus,24,8.4,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+M8,Lagoon Nebula,,,Emission nebula (H II region) w/embedded cluster NGC6530,Sagittarius,3600,6.0,Nebula ,FALSE,FALSE,FALSE,FALSE,FALSE
+M13,Great Hercules Cluster,7/10/2025,,,Hercules,400,5.8,Cluster,FALSE,FALSE,FALSE,FALSE,FALSE
+M16,Eagle Nebula,8/9/2025,,Emission nebula + cluster,Serpens,980,6.0,Cluster,FALSE,FALSE,FALSE,FALSE,FALSE
+M17,Swan (Omega) Nebula,,,Emission nebula (H II),Sagittarius,120,6.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+M20,Trifid Nebula,,,"Emission, reflection and dark",Sagittarius,780,9.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+M27,Dumbbell Nebula,8/2/2025,,Planetary Nebula,Vulpecula,48,7.4,Nebula,TRUE,FALSE,FALSE,FALSE,FALSE
+M31,Andromeda Galaxy,9/13/2025,,Spiral Galaxy,Andromeda,11400,3.4,Galaxy,TRUE,FALSE,FALSE,FALSE,FALSE
+M33,Triangulum Galaxy,11/10/2025,,Spiral galaxy (SA(s)cd),Triangulum,3285,5.7,Galaxy,FALSE,FALSE,FALSE,FALSE,FALSE
+M42,Orion Nebula,12/28/2025,,Diffuse nebula,Orion,3900,4.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+M44,Beehive Cluster,10/6/2025,,Open cluster,Cancer,6400,3.1,Cluster,FALSE,FALSE,FALSE,FALSE,FALSE
+M45,Pleiades,10/15/2025,,Open cluster,Taurus,18225,1.6,Cluster,FALSE,FALSE,FALSE,FALSE,FALSE
+M51,Whirlpool Galaxy,,12/28/2025,Spiral galaxy + companion,Canes Venatici,77,8.4,Galaxy,FALSE,FALSE,FALSE,FALSE,FALSE
+M57,Ring Nebula,9/12/2025,,Planetary Nebula,Lyra,1.4,9.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+M74,Phantom Galaxy,11/15/2025,,Spiral galaxy (SA(s)c),Pisces,95,9.5,Galaxy,FALSE,FALSE,FALSE,FALSE,FALSE
+M78,NGC2068,8/11/2025,,Reflection nebula,Orion,48,8.3,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+M81,Bode's Galaxy,12/4/2025,,Grand design spiral galaxy,Ursa Major,370,6.9,Galaxy,FALSE,FALSE,FALSE,FALSE,FALSE
+M97,Owl Nebula,5/6/2025,,Planetary nebula,Ursa Major,11.22,9.9,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+M101,Pinwheel Galaxy,12/28/2025,,Intermediate spiral galaxy,Ursa Major,784,7.9,Galaxy,FALSE,FALSE,FALSE,FALSE,FALSE
+M106,NGC4258,,,Spiral galaxy,Canes Venatici,152,8.4,Galaxy,FALSE,FALSE,FALSE,FALSE,FALSE
+M109,Vacuum Cleaner Galaxy,12/31/2025,,Barred spiral galaxy,Ursa Major,35,9.8,Galaxy ,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC281,Pacman Nebula,8/20/2025,,Cluster,Cassiopeia,1225,7.4,Nebula,TRUE,FALSE,FALSE,FALSE,FALSE
+NGC772,Fiddlehead Galaxy,,,Spiral galaxy (SA(s)b),Aries,30,10.3,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC1499,California Nebula,11/14/2025,,Emission nebula (H II),Perseus,13500,6.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC1579,Northern Trifid Nebula,10/8/2025,,Reflection/emission nebula,Perseus,96,10.4,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC1893,Cluster in Tadpoles,11/22/2025,,Open cluster (embedded),Auriga,121,7.5,Cluster,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC1977,Running Man Nebula,,,Reflection nebula,Orion,990,7.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC2024,Flame Nebula,11/10/2025,,Emission nebula (H II),Orion,900,6.0,Nebula,TRUE,FALSE,FALSE,FALSE,FALSE
+NGC2070,Tarantula Nebula,,,Nebula w/ embedded cluster,Dorado,1000,8.5,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC2244,Rosette Nebula,10/10/2025,,Emission nebula (H II),Monoceros (The Unicorn),576,4.8,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC2264,Christmas Tree Nebula,,,"Emission, reflection, dark nebulae + open cluster",Monoceros (The Unicorn),1800,3.9,Complex,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC2359,Thor's Helmet,12/28/2025,12/28/2025,Emission Nebula,Canis Major,60,10.8,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC6888,Crescent Nebula,9/19/2025,,Emission nebula (Wolf-Rayet bubble),Cygnus,200,7.4,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC6946,Fireworks Galaxy,10/7/2025,,Spiral galaxy (SAB(rs)cd),Cepheus/Cygnus,180,9.6,Galaxy,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC6960,Western Veil Nebula,8/18/2025,,Supernova remnant,Cygnus,22500,7.0,Nebula,TRUE,FALSE,FALSE,FALSE,FALSE
+NGC6992,Eastern Veil Nebula,8/14/2025,,Supernova remnant,Cygnus,1800,7.0,Nebula,TRUE,FALSE,FALSE,FALSE,FALSE
+NGC7000,North America Nebula,8/16/2025,,Emission Nebula,Cygnus,12000,4.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC7023,Iris Nebula,9/5/2025,,Reflection nebula,Cepheus,324,6.8,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC7293,Helix Nebula,,,Planetary nebula,Aquarius,625,7.6,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC7380,Wizard Nebula,,,Emission nebula (H II),Cepheus,750,7.2,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC7479,Superman Galaxy,,,Spiral galaxy,Pegasus,12,11.0,Galaxy,FALSE,FALSE,FALSE,FALSE,FALSE
+NGC7635,Bubble Nebula,,,Nebula (H II),Cassiopeia,120,10.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+SH2-101,Tulip Nebula,9/2/2025,,Nebula (H II),Cygnus,152,10.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+SH2-129,Flying Bat Nebula,10/20/2025,,Very faint emission nebula (H II),Cepheus,19600,10.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+SH2-157,Lobster Claw,9/26/2025,,Emission nebula (H II),Cassiopeia/Cepheus,4650,10.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+SH2-188,Shrimp Nebula,11/22/2025,,Planetary nebula,Cassiopeia,100,17.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+SH2-240,Spaghetti Nebula,12/11/2025,,Supernova remnant,Cygnus,32000,10.0,Nebula,FALSE,FALSE,FALSE,FALSE,FALSE
+SH2-308,Dolphin Head Nebula,,,"Emission nebula, stellar wind bubble ",Canis Major,3600,10.0,Nebula,,,,,

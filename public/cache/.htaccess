@@ -1,0 +1,3 @@
+# Deny direct web access to cache files
+# These should only be served through vis.php
+Deny from all

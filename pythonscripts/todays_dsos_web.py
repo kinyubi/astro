@@ -12,16 +12,16 @@ from skyfield.almanac import dark_twilight_day, find_discrete
 from astropy.coordinates import SkyCoord
 import sys
 import json
+import argparse
 
 # --- Configuration ---
-CSV_FILE = r"G:\My Drive\Astronomy\dso_watchlist.csv"
 LOCATION_NAME = 'Star, Idaho'
 LAT_DEG = 43.69
 LON_DEG = -116.49
 TIME_ZONE = 'America/Boise'
 MIN_ALTITUDE_DEG = 18.0
-AZ_MIN_DEG = 10.0  # Due North
-AZ_MAX_DEG = 145.0  # Due South (Eastern Sky)
+AZ_MIN_DEG = 10.0  # Due North plus 10 degrees
+AZ_MAX_DEG = 165.0  # Due South minus 15 degrees (Eastern Sky)
 
 
 def get_viewing_window(target_date, ts, eph, observer):
@@ -55,11 +55,12 @@ def get_viewing_window(target_date, ts, eph, observer):
     return viewing_start, viewing_end
 
 
-def calculate_visibility():
+def calculate_visibility(target_date=None):
     """
     Main function to calculate visibility of objects and output HTML with sorting capability.
     """
-    target_date = datetime.date.today()
+    if target_date is None:
+        target_date = datetime.date.today()
 
     # Setup Skyfield
     ts = load.timescale(builtin=True)
@@ -396,4 +397,16 @@ def calculate_visibility():
 
 
 if __name__ == '__main__':
-    calculate_visibility()
+    parser = argparse.ArgumentParser(description='Calculate DSO visibility for a given date')
+    parser.add_argument('--date', type=str, help='Date in YYYY-MM-DD format (default: today)')
+    args = parser.parse_args()
+    
+    target_date = None
+    if args.date:
+        try:
+            target_date = datetime.datetime.strptime(args.date, '%Y-%m-%d').date()
+        except ValueError:
+            print("<p>Error: Invalid date format. Use YYYY-MM-DD</p>")
+            sys.exit(1)
+    
+    calculate_visibility(target_date)

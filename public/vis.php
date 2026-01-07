@@ -1,7 +1,8 @@
 <?php
 /**
- * DSO Visibility Report Handler
+ * DSO Visibility Report Handler with Caching
  * Route: /vis or /vis?date=YYYY-MM-DD
+ * Force rebuild: /vis?rebuild=1 or /vis?date=YYYY-MM-DD&rebuild=1
  */
 
 // Set execution time limit (Python script may take 30-60 seconds)
@@ -10,6 +11,9 @@ set_time_limit(120);
 // Get date parameter from query string, default to today
 $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
 
+// Check if force rebuild is requested
+$forceRebuild = isset($_GET['rebuild']) && $_GET['rebuild'] == '1';
+
 // Validate date format
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
     http_response_code(400);
@@ -17,8 +21,46 @@ if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
     exit;
 }
 
+// Cache directory setup
+$cacheDir = __DIR__ . DIRECTORY_SEPARATOR . 'cache';
+if (!is_dir($cacheDir)) {
+    if (!mkdir($cacheDir, 0755, true)) {
+        error_log("Failed to create cache directory: $cacheDir");
+        // Continue without caching rather than failing completely
+    }
+}
+
+// Cache file path
+$cacheFile = $cacheDir . DIRECTORY_SEPARATOR . 'dso_report_' . $date . '.html';
+$cacheMaxAge = 86400; // 24 hours in seconds
+
+// Check if we should use cached version
+$useCache = false;
+$cacheAge = 0;
+if (!$forceRebuild && file_exists($cacheFile)) {
+    $cacheAge = time() - filemtime($cacheFile);
+    if ($cacheAge < $cacheMaxAge) {
+        $useCache = true;
+    }
+}
+
+// Serve cached version if available
+if ($useCache) {
+    header('Content-Type: text/html; charset=utf-8');
+    header('X-Cache-Status: HIT');
+    header('X-Cache-Age: ' . round($cacheAge / 60) . ' minutes');
+    $output = file_get_contents($cacheFile);
+    // Will inject cache status footer below
+} else {
+
+// Generate new report
+header('X-Cache-Status: MISS');
+if ($forceRebuild) {
+    header('X-Cache-Rebuild: FORCED');
+}
+
 // Paths
-$pythonDir = dirname(__DIR__) . DIRECTORY_SEPARATOR .  'pythonscripts';
+$pythonDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'pythonscripts';
 $pythonScript = $pythonDir . DIRECTORY_SEPARATOR . 'todays_dsos_web.py';
 if (!file_exists($pythonScript)) {
     http_response_code(500);
@@ -36,7 +78,7 @@ if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
         echo "<!DOCTYPE html><html><body><h1>Error</h1><p>Python executable not found at: $pythonExe</p><p>OS: " . PHP_OS . "</p></body></html>";
         exit;
     }
-    $command = sprintf('"%s" "%s" 2>&1', $pythonExe, $pythonScript);
+    $command = sprintf('"%s" "%s" --date %s 2>&1', $pythonExe, $pythonScript, $date);
     $output = shell_exec($command);
 
     // Check if we got output
@@ -65,11 +107,11 @@ if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
     }
 
     // Build command that activates venv and runs Python script
-    // Use bash to source activate and then run python
     $command = sprintf(
-        'bash -c "source %s && python %s" 2>&1',
+        'bash -c "source %s && python %s --date %s" 2>&1',
         escapeshellarg($activateScript),
-        escapeshellarg($pythonScript)
+        escapeshellarg($pythonScript),
+        escapeshellarg($date)
     );
 
     $output = shell_exec($command);
@@ -87,6 +129,41 @@ if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
         exit;
     }
 }
+
+    // Cache the output if we have a valid cache directory
+    if (is_dir($cacheDir) && is_writable($cacheDir)) {
+        if (file_put_contents($cacheFile, $output) === false) {
+            error_log("Failed to write cache file: $cacheFile");
+            // Continue anyway, just without caching
+        }
+    }
+}
+
+// Add cache status footer to output
+$cacheStatus = '';
+if ($useCache) {
+    $ageMinutes = round($cacheAge / 60);
+    $cacheStatus = sprintf(
+        '<div class="info" style="margin-top: 20px; border-left-color: #7ec8a3;">'
+        . '<p><strong>⚡ Cache Status:</strong> Served from cache (generated %s ago)</p>'
+        . '<p><a href="?date=%s&rebuild=1" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">🔄 Force Rebuild</a> '
+        . '<a href="/cache-manager.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📊 Cache Manager</a></p>'
+        . '</div>',
+        $ageMinutes < 60 ? "$ageMinutes minutes" : round($ageMinutes / 60, 1) . ' hours',
+        $date
+    );
+} else {
+    $cacheStatus = sprintf(
+        '<div class="info" style="margin-top: 20px; border-left-color: #ffd700;">'
+        . '<p><strong>🔥 Cache Status:</strong> Freshly generated%s</p>'
+        . '<p><a href="/cache-manager.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📊 Cache Manager</a></p>'
+        . '</div>',
+        $forceRebuild ? ' (forced rebuild)' : ''
+    );
+}
+
+// Inject cache status before closing body tag
+$output = str_replace('</body>', $cacheStatus . '</body>', $output);
 
 // Set content type to HTML
 header('Content-Type: text/html; charset=utf-8');
