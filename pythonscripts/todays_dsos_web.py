@@ -13,15 +13,10 @@ from astropy.coordinates import SkyCoord
 import sys
 import json
 import argparse
+from profile_manager import load_profile
 
-# --- Configuration ---
-LOCATION_NAME = 'Star, Idaho'
-LAT_DEG = 43.69
-LON_DEG = -116.49
-TIME_ZONE = 'America/Boise'
-MIN_ALTITUDE_DEG = 18.0
-AZ_MIN_DEG = 10.0  # Due North plus 10 degrees
-AZ_MAX_DEG = 165.0  # Due South minus 15 degrees (Eastern Sky)
+# No longer hardcoded - these come from profiles now
+# See profile_manager.py for profile management
 
 
 def get_viewing_window(target_date, ts, eph, observer):
@@ -55,12 +50,31 @@ def get_viewing_window(target_date, ts, eph, observer):
     return viewing_start, viewing_end
 
 
-def calculate_visibility(target_date=None):
+def calculate_visibility(target_date=None, profile_name='default'):
     """
     Main function to calculate visibility of objects and output HTML with sorting capability.
+    
+    Args:
+        target_date: datetime.date object or None for today
+        profile_name: Name of location profile to use
     """
     if target_date is None:
         target_date = datetime.date.today()
+    
+    # Load profile
+    profile = load_profile(profile_name)
+    if profile is None:
+        print(f"<p>Error: Could not load profile '{profile_name}'</p>")
+        return
+    
+    # Extract settings from profile
+    LOCATION_NAME = profile['location']
+    LAT_DEG = profile['latitude']
+    LON_DEG = profile['longitude']
+    TIME_ZONE = profile['timezone']
+    MIN_ALTITUDE_DEG = profile['min_altitude']
+    AZ_MIN_DEG = profile['az_min']
+    AZ_MAX_DEG = profile['az_max']
 
     # Setup Skyfield
     ts = load.timescale(builtin=True)
@@ -399,6 +413,7 @@ def calculate_visibility(target_date=None):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Calculate DSO visibility for a given date')
     parser.add_argument('--date', type=str, help='Date in YYYY-MM-DD format (default: today)')
+    parser.add_argument('--profile', type=str, default='default', help='Profile name to use (default: default)')
     args = parser.parse_args()
     
     target_date = None
@@ -409,4 +424,4 @@ if __name__ == '__main__':
             print("<p>Error: Invalid date format. Use YYYY-MM-DD</p>")
             sys.exit(1)
     
-    calculate_visibility(target_date)
+    calculate_visibility(target_date, args.profile)

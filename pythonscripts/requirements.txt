@@ -3,3 +3,5 @@ pandas>=2.0.0
 skyfield>=1.45
 astropy>=5.3
 astroquery>=0.4.6
+geopy>=2.4.0
+timezonefinder>=6.2.0

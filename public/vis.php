@@ -11,8 +11,18 @@ set_time_limit(120);
 // Get date parameter from query string, default to today
 $date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
 
+// Get profile parameter from query string, default to 'default'
+$profile = isset($_GET['profile']) ? $_GET['profile'] : 'default';
+
 // Check if force rebuild is requested
 $forceRebuild = isset($_GET['rebuild']) && $_GET['rebuild'] == '1';
+
+// Sanitize profile name (alphanumeric, hyphens, underscores only)
+if (!preg_match('/^[a-zA-Z0-9_-]+$/', $profile)) {
+    http_response_code(400);
+    echo "<!DOCTYPE html><html><body><h1>Error</h1><p>Invalid profile name. Use alphanumeric characters, hyphens, or underscores only.</p></body></html>";
+    exit;
+}
 
 // Validate date format
 if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $date)) {
@@ -30,8 +40,8 @@ if (!is_dir($cacheDir)) {
     }
 }
 
-// Cache file path
-$cacheFile = $cacheDir . DIRECTORY_SEPARATOR . 'dso_report_' . $date . '.html';
+// Cache file path (include profile in cache key)
+$cacheFile = $cacheDir . DIRECTORY_SEPARATOR . 'dso_report_' . $profile . '_' . $date . '.html';
 $cacheMaxAge = 86400; // 24 hours in seconds
 
 // Check if we should use cached version
@@ -78,7 +88,7 @@ if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
         echo "<!DOCTYPE html><html><body><h1>Error</h1><p>Python executable not found at: $pythonExe</p><p>OS: " . PHP_OS . "</p></body></html>";
         exit;
     }
-    $command = sprintf('"%s" "%s" --date %s 2>&1', $pythonExe, $pythonScript, $date);
+    $command = sprintf('"%s" "%s" --date %s --profile %s 2>&1', $pythonExe, $pythonScript, $date, $profile);
     $output = shell_exec($command);
 
     // Check if we got output
@@ -108,10 +118,11 @@ if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
 
     // Build command that activates venv and runs Python script
     $command = sprintf(
-        'bash -c "source %s && python %s --date %s" 2>&1',
+        'bash -c "source %s && python %s --date %s --profile %s" 2>&1',
         escapeshellarg($activateScript),
         escapeshellarg($pythonScript),
-        escapeshellarg($date)
+        escapeshellarg($date),
+        escapeshellarg($profile)
     );
 
     $output = shell_exec($command);
@@ -146,20 +157,32 @@ if ($useCache) {
     $cacheStatus = sprintf(
         '<div class="info" style="margin-top: 20px; border-left-color: #7ec8a3;">'
         . '<p><strong>⚡ Cache Status:</strong> Served from cache (generated %s ago)</p>'
-        . '<p><a href="?date=%s&rebuild=1" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">🔄 Force Rebuild</a> '
-        . '<a href="/cache-manager.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📊 Cache Manager</a></p>'
+        . '<p><a href="?date=%s&profile=%s&rebuild=1" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">🔄 Force Rebuild</a> '
+        . '<a href="/cache-manager.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📊 Cache Manager</a> '
+        . '<a href="/profiles.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📍 Profiles</a></p>'
         . '</div>',
         $ageMinutes < 60 ? "$ageMinutes minutes" : round($ageMinutes / 60, 1) . ' hours',
-        $date
+        $date,
+        $profile
     );
 } else {
     $cacheStatus = sprintf(
         '<div class="info" style="margin-top: 20px; border-left-color: #ffd700;">'
         . '<p><strong>🔥 Cache Status:</strong> Freshly generated%s</p>'
-        . '<p><a href="/cache-manager.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📊 Cache Manager</a></p>'
+        . '<p><a href="/cache-manager.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📊 Cache Manager</a> '
+        . '<a href="/profiles.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📍 Profiles</a></p>'
         . '</div>',
         $forceRebuild ? ' (forced rebuild)' : ''
     );
+}
+
+// Add profile info to the output if not using default profile
+if ($profile !== 'default') {
+    $profileInfo = '<div class="info" style="margin-top: 20px; border-left-color: #9370db;">'
+        . '<p><strong>📍 Profile:</strong> ' . htmlspecialchars($profile) . '</p>'
+        . '<p><a href="/profiles.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">Manage Profiles</a></p>'
+        . '</div>';
+    $output = str_replace('</body>', $profileInfo . '</body>', $output);
 }
 
 // Inject cache status before closing body tag
