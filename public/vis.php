@@ -9,10 +9,10 @@
 set_time_limit(120);
 
 // Get date parameter from query string, default to today
-$date = isset($_GET['date']) ? $_GET['date'] : date('Y-m-d');
+$date = isset($_GET['date']) ? (string)$_GET['date'] : date('Y-m-d');
 
 // Get profile parameter from query string, default to 'default'
-$profile = isset($_GET['profile']) ? $_GET['profile'] : 'default';
+$profile = isset($_GET['profile']) ? (string)$_GET['profile'] : 'default';
 
 // Check if force rebuild is requested
 $forceRebuild = isset($_GET['rebuild']) && $_GET['rebuild'] == '1';
@@ -157,23 +157,25 @@ if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
 $cacheStatus = '';
 if ($useCache) {
     $ageMinutes = round($cacheAge / 60);
+    // Update cache status for HIT
     $cacheStatus = sprintf(
-        '<div class="info" style="margin-top: 20px; border-left-color: #7ec8a3;">'
-        . '<p><strong>⚡ Cache Status:</strong> Served from cache (generated %s ago)</p>'
-        . '<p><a href="?date=%s&profile=%s&rebuild=1" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">🔄 Force Rebuild</a> '
-        . '<a href="/cache-manager.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📊 Cache Manager</a> '
-        . '<a href="/profiles.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📍 Profiles</a></p>'
+        '<div class="info" style="margin-top: 20px; padding: 15px; border-left: 4px solid #7ec8a3; background-color: rgba(126, 200, 163, 0.1); border-radius: 4px;">'
+        . '<p style="margin: 0 0 10px 0; color: inherit;"><strong>⚡ Cache Status:</strong> Served from cache (generated %s ago)</p>'
+        . '<p style="margin: 0;"><a href="?date=%s&profile=%s&rebuild=1" class="btn" style="display: inline-block; margin: 5px 10px 5px 0; padding: 8px 16px; font-size: 0.9em; background-color: #4a9eff; color: white; text-decoration: none; border-radius: 4px;">🔄 Force Rebuild</a> '
+        . '<a href="/cache-manager.php" class="btn" style="display: inline-block; margin: 5px 10px 5px 0; padding: 8px 16px; font-size: 0.9em; background-color: #4a9eff; color: white; text-decoration: none; border-radius: 4px;">📊 Cache Manager</a> '
+        . '<a href="/profiles.php" class="btn" style="display: inline-block; margin: 5px 10px 5px 0; padding: 8px 16px; font-size: 0.9em; background-color: #4a9eff; color: white; text-decoration: none; border-radius: 4px;">📍 Profiles</a></p>'
         . '</div>',
         $ageMinutes < 60 ? "$ageMinutes minutes" : round($ageMinutes / 60, 1) . ' hours',
         $date,
         $profile
     );
 } else {
+    // Update cache status for MISS
     $cacheStatus = sprintf(
-        '<div class="info" style="margin-top: 20px; border-left-color: #ffd700;">'
-        . '<p><strong>🔥 Cache Status:</strong> Freshly generated%s</p>'
-        . '<p><a href="/cache-manager.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📊 Cache Manager</a> '
-        . '<a href="/profiles.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">📍 Profiles</a></p>'
+        '<div class="info" style="margin-top: 20px; padding: 15px; border-left: 4px solid #ffd700; background-color: rgba(255, 215, 0, 0.1); border-radius: 4px;">'
+        . '<p style="margin: 0 0 10px 0; color: inherit;"><strong>🔥 Cache Status:</strong> Freshly generated%s</p>'
+        . '<p style="margin: 0;"><a href="/cache-manager.php" class="btn" style="display: inline-block; margin: 5px 10px 5px 0; padding: 8px 16px; font-size: 0.9em; background-color: #4a9eff; color: white; text-decoration: none; border-radius: 4px;">📊 Cache Manager</a> '
+        . '<a href="/profiles.php" class="btn" style="display: inline-block; margin: 5px 10px 5px 0; padding: 8px 16px; font-size: 0.9em; background-color: #4a9eff; color: white; text-decoration: none; border-radius: 4px;">📍 Profiles</a></p>'
         . '</div>',
         $forceRebuild ? ' (forced rebuild)' : ''
     );
@@ -181,15 +183,89 @@ if ($useCache) {
 
 // Add profile info to the output if not using default profile
 if ($profile !== 'default') {
-    $profileInfo = '<div class="info" style="margin-top: 20px; border-left-color: #9370db;">'
-        . '<p><strong>📍 Profile:</strong> ' . htmlspecialchars($profile) . '</p>'
-        . '<p><a href="/profiles.php" class="btn" style="display: inline-block; margin-top: 10px; padding: 8px 16px; font-size: 0.9em;">Manage Profiles</a></p>'
+    $profileInfo = '<div class="info" style="margin-top: 20px; padding: 15px; border-left: 4px solid #9370db; background-color: rgba(147, 112, 219, 0.1); border-radius: 4px;">'
+        . '<p style="margin: 0; color: inherit;"><strong>📍 Profile:</strong> ' . htmlspecialchars($profile) . '</p>'
         . '</div>';
     $output = str_replace('</body>', $profileInfo . '</body>', $output);
 }
 
+// Get list of available profiles
+$profilesDir = dirname(__DIR__) . DIRECTORY_SEPARATOR . 'pythonscripts' . DIRECTORY_SEPARATOR . 'profiles';
+$availableProfiles = [];
+if (is_dir($profilesDir)) {
+    $profiles = array_diff(scandir($profilesDir), ['.', '..']);
+    foreach ($profiles as $p) {
+        if (is_file($profilesDir . DIRECTORY_SEPARATOR . $p) && pathinfo($p, PATHINFO_EXTENSION) === 'json') {
+            $availableProfiles[] = pathinfo($p, PATHINFO_FILENAME);
+        }
+    }
+}
+
+// Build profile options HTML
+$profileOptions = '';
+foreach ($availableProfiles as $p) {
+    $selected = ($p === $profile) ? ' selected' : '';
+    $profileOptions .= '<option value="' . htmlspecialchars($p) . '"' . $selected . '>' . htmlspecialchars($p) . '</option>';
+}
+
+// Inject date/profile controls after the h1 title
+$controlsHtml = <<<HTML
+<div class="controls">
+    <label for="report-date">Date:</label>
+    <input type="date" id="report-date" value="$date">
+    
+    <label for="report-profile">Profile:</label>
+    <select id="report-profile">
+HTML;
+
+foreach ($availableProfiles as $profileName) {
+    $selected = ($profileName === $profile) ? 'selected' : '';
+    $controlsHtml .= "<option value=\"$profileName\" $selected>$profileName</option>\n";
+}
+
+$controlsHtml .= <<<HTML
+    </select>
+</div>
+
+<script>
+(function() {
+    const dateInput = document.getElementById('report-date');
+    const profileSelect = document.getElementById('report-profile');
+
+    function updateReport() {
+        const newDate = dateInput.value;
+        const newProfile = profileSelect.value;
+        const url = '/vis?date=' + encodeURIComponent(newDate) + '&profile=' + encodeURIComponent(newProfile);
+        window.location.href = url;
+    }
+
+    window.forceRebuild = function() {
+        const newDate = dateInput.value;
+        const newProfile = profileSelect.value;
+        const url = '/vis?date=' + encodeURIComponent(newDate) + '&profile=' + encodeURIComponent(newProfile) + '&rebuild=1';
+        window.location.href = url;
+    };
+
+    dateInput.addEventListener('change', updateReport);
+    profileSelect.addEventListener('change', updateReport);
+})();
+</script>
+HTML;
+
+
+
+
+// Insert controls after the h1 tag
+$output = preg_replace(
+    '/(<h1[^>]*>.*?DSO Visibility Report.*?<\/h1>)/is',
+    '$1' . $controlsHtml,
+    $output,
+    1
+);
+
 // Inject cache status before closing body tag
 $output = str_replace('</body>', $cacheStatus . '</body>', $output);
+
 
 // Set content type to HTML
 header('Content-Type: text/html; charset=utf-8');

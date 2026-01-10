@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from geopy.geocoders import Nominatim
 from timezonefinder import TimezoneFinder
+import re
 
 # Profile storage directory
 PROFILE_DIR = Path(__file__).parent / 'profiles'
@@ -23,7 +24,6 @@ DEFAULT_PROFILE = {
     'az_min': 10.0,
     'az_max': 165.0
 }
-
 
 def geocode_location(location_name):
     """
@@ -100,22 +100,39 @@ def load_profile(profile_name='default'):
         print(f"Error loading profile: {e}")
         return None
 
+def is_valid_profile_name(profile_name):
+    """
+    Validate profile name contains only lowercase alphanumeric and underscores.
+
+    Args:
+        profile_name: Profile name to validate
+
+    Returns:
+        bool: True if valid, False otherwise
+    """
+    if not profile_name:
+        return False
+    return bool(re.match(r'^[a-z0-9_]+$', profile_name))
 
 def save_profile(profile_name, profile_data):
     """
     Save a profile.
-    
+
     Args:
         profile_name: Name for the profile
         profile_data: dict with profile settings
-    
+
     Returns:
         bool: True if successful, False otherwise
     """
+    if not is_valid_profile_name(profile_name):
+        print(f"Invalid profile name: {profile_name}. Use only lowercase letters, numbers, and underscores.")
+        return False
+
     try:
         # Ensure name matches
         profile_data['name'] = profile_name
-        
+
         profile_file = PROFILE_DIR / f'{profile_name}.json'
         with open(profile_file, 'w') as f:
             json.dump(profile_data, f, indent=2)
@@ -123,6 +140,7 @@ def save_profile(profile_name, profile_data):
     except Exception as e:
         print(f"Error saving profile: {e}")
         return False
+
 
 
 def delete_profile(profile_name):
@@ -150,26 +168,30 @@ def delete_profile(profile_name):
         return False
 
 
-def create_profile_from_location(profile_name, location_name, min_altitude=18.0, 
+def create_profile_from_location(profile_name, location_name, min_altitude=18.0,
                                   az_min=10.0, az_max=165.0):
     """
     Create a new profile by geocoding a location name.
-    
+
     Args:
         profile_name: Name for the new profile
         location_name: Location string to geocode
         min_altitude: Minimum altitude in degrees
         az_min: Minimum azimuth in degrees
         az_max: Maximum azimuth in degrees
-    
+
     Returns:
         dict: Profile data if successful, None if geocoding fails
     """
+    if not is_valid_profile_name(profile_name):
+        print(f"Invalid profile name: {profile_name}. Use only lowercase letters, numbers, and underscores.")
+        return None
+
     geo_data = geocode_location(location_name)
-    
+
     if geo_data is None:
         return None
-    
+
     profile = {
         'name': profile_name,
         'location': location_name,
@@ -181,10 +203,10 @@ def create_profile_from_location(profile_name, location_name, min_altitude=18.0,
         'az_max': az_max,
         'geocoded_name': geo_data['display_name']
     }
-    
+
     if save_profile(profile_name, profile):
         return profile
-    
+
     return None
 
 

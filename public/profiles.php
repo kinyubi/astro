@@ -17,7 +17,8 @@ if ($isWindows) {
     $activateScript = $venvDir . '/bin/activate';
 }
 
-function executePythonCommand($command) {
+function executePythonCommand($command): false|string|null
+{
     global $pythonExe, $activateScript, $isWindows;
     
     if ($isWindows) {
@@ -320,9 +321,9 @@ header('Content-Type: text/html; charset=utf-8');
             <div class="form-group">
                 <label for="profile_name">Profile Name *</label>
                 <input type="text" id="profile_name" name="profile_name" required
-                       pattern="[a-zA-Z0-9_-]+" 
-                       placeholder="e.g., backyard, dark-site, vacation-spot">
-                <p class="helper-text">Use letters, numbers, hyphens, or underscores only</p>
+                       pattern="[a-z0-9_]+"
+                       placeholder="e.g., backyard, dark_site, vacation_spot">
+                <p class="helper-text">Use lowercase letters, numbers, and underscores only</p>
             </div>
             
             <div class="form-group">
@@ -394,5 +395,30 @@ header('Content-Type: text/html; charset=utf-8');
             </div>
         <?php endif; ?>
     </div>
+    <script>
+        function validateProfileName(name) {
+            const regex = /^[a-z0-9_]+$/;
+            if (!regex.test(name)) {
+                alert('Profile name must contain only lowercase letters, numbers, and underscores (no hyphens or uppercase)');
+                return false;
+            }
+            return true;
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const createForm = document.querySelector('form[action=""][method="POST"]:has(input[name="action"][value="create"])');
+            const profileNameInput = document.getElementById('profile_name');
+
+            if (createForm && profileNameInput) {
+                createForm.addEventListener('submit', function(e) {
+                    const profileName = profileNameInput.value.trim();
+                    if (!validateProfileName(profileName)) {
+                        e.preventDefault();
+                    }
+                });
+            }
+        });
+    </script>
 </body>
+
 </html>

@@ -120,7 +120,13 @@ def calculate_visibility(target_date=None, profile_name='default'):
             constellation = row['Constellation']
             size = row['SqArcMins']
             magnitude = row['Mag']
-            most_recent = row['MostRecent']
+            most_recent_parts = []
+            for key in ('MostRecent', 'S50Date'):
+                val = row.get(key, '')
+                if pd.isna(val) or val is None or val == '':
+                    continue
+                most_recent_parts.append(str(val))
+            most_recent = ''.join(most_recent_parts)
             do_me = '&#9733;' if len(str(most_recent)) < 4 else ''
 
             try:
@@ -171,21 +177,64 @@ def calculate_visibility(target_date=None, profile_name='default'):
         print(f"<p>Error reading data: {e}</p>")
         return
 
-    # Convert to JSON for JavaScript
+    def safe_float(value, default=0.0):
+        if pd.isna(value) or value is None or value == '':
+            return default
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            try:
+                return float(str(value))
+            except Exception:
+                return default
+
+    def safe_str(value, default=''):
+        if pd.isna(value) or value is None:
+            return default
+        # Handle numeric numpy and python types cleanly
+        try:
+            if isinstance(value, (float, int, np.floating, np.integer)):
+                if float(value).is_integer():
+                    return str(int(value))
+                return str(value)
+        except Exception:
+            pass
+        return str(value)
+
+    def safe_time_str(value):
+        """Return HH:MM for datetimes/timestamps, or empty string for missing/invalid."""
+        if hasattr(value, 'strftime'):
+            try:
+                return value.strftime('%H:%M')
+            except Exception:
+                pass
+        try:
+            ts = pd.to_datetime(value, errors='coerce')
+            if not pd.isna(ts):
+                return ts.strftime('%H:%M')
+        except Exception:
+            pass
+        return ''
+
+    # If you still have the `most_recent = row['MostRecent'] + row['S50Date']` line,
+    # replace it with a safe concatenation like:
+    # most_recent = safe_str(row.get('MostRecent')) + safe_str(row.get('S50Date'))
+
     objects_json = json.dumps([{
-        'do_me': obj['do_me'],
-        'name': obj['name'],
-        'aka': obj['aka'],
-        'start': obj['start'].strftime('%H:%M'),
-        'start_minutes': obj['start_minutes'],
-        'end': obj['end'].strftime('%H:%M'),
-        'end_minutes': obj['end_minutes'],
-        'duration': obj['duration'],
-        'size': obj['size'],
-        'magnitude': obj['magnitude'],
-        'constellation': obj['constellation'],
-        'type_desc': obj['type_desc']
+        'do_me': safe_str(obj.get('do_me', '')),
+        'name': safe_str(obj.get('name', '')),
+        'aka': safe_str(obj.get('aka', '')),
+        'start': safe_time_str(obj.get('start')),
+        'start_minutes': int(obj.get('start_minutes') or 0),
+        'end': safe_time_str(obj.get('end')),
+        'end_minutes': int(obj.get('end_minutes') or 0),
+        'duration': safe_float(obj.get('duration')),
+        'size': safe_float(obj.get('size')),
+        'magnitude': safe_float(obj.get('magnitude')),
+        'constellation': safe_str(obj.get('constellation')),
+        'type_desc': safe_str(obj.get('type_desc'))
     } for obj in visible_objects])
+
 
     # Output HTML
     target_date_str = target_date.strftime('%Y-%m-%d')
@@ -233,6 +282,48 @@ def calculate_visibility(target_date=None, profile_name='default'):
             color: #4a9eff;
             font-weight: 600;
         }}
+        #force-rebuild-btn, controls button {{
+            padding: 8px 16px;
+            background: #4a9eff !important;
+            color: #ffffff !important;
+            border: 1px solid #4a9eff !important;
+            border-radius: 4px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            margin-left: 10px;
+            transition: background 0.2s ease;
+        }}
+
+        #force-rebuild-btn:hover, controls button:hover {{
+            background: #3a8eef !important;
+            border-color: #3a8eef !important;
+        }}
+
+        #force-rebuild-btn:active, controls button:active {{
+            background: #2a7edf !important;
+            border-color: #2a7edf !important;
+        }}
+        .controls input[type="date"] {{
+            padding: 8px 12px;
+            background: #2a3f5f;
+            color: #e0e0e0;
+            border: 1px solid #4a9eff;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            color-scheme: dark;
+        }}
+
+        .controls input[type="date"]:hover {{
+            background: #3a4f6f;
+        }}
+
+        .controls input[type="date"]:focus {{
+            outline: none;
+            border-color: #7ec8a3;
+        }}
+
         .controls select {{
             padding: 8px 12px;
             background: #2a3f5f;
@@ -298,7 +389,7 @@ def calculate_visibility(target_date=None, profile_name='default'):
     </style>
 </head>
 <body>
-    <h1>DSO Visibility Report for {target_date_str}</h1>
+    <h1>DSO Visibility Report</h1>
     <div class="info">
         <p><strong>Location:</strong> {LOCATION_NAME}</p>
         <p><strong>Viewing Window:</strong> {start_local.strftime('%H:%M %Z')} to {end_local.strftime('%H:%M %Z')}</p>
@@ -316,7 +407,9 @@ def calculate_visibility(target_date=None, profile_name='default'):
             <option value="name">Name (A-Z)</option>
             <option value="aka">Friendly Name</option>
         </select>
+        <button id="force-rebuild-btn" onclick="window.location.href=window.location.pathname + '?date={target_date_str}&profile={profile_name}&rebuild=1'">Force Rebuild</button>
     </div>
+
 """)
 
     if not visible_objects:
