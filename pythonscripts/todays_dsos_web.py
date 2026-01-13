@@ -483,11 +483,11 @@ def calculate_visibility(target_date=None, profile_name='default'):
                     <td><strong>${obj.name}</strong></td>
                     <td>${obj.aka}</td>
                     <td class="time">${obj.start}</td>
-                    <td>${obj.start_alt.toFixed(1)}&deg;</td>
-                    <td>${obj.start_az.toFixed(1)}&deg;</td>
+                    <td>${obj.start_alt.toFixed(0)}&deg;</td>
+                    <td>${obj.start_az.toFixed(0)}&deg;</td>
                     <td class="time">${obj.end}</td>
-                    <td>${obj.end_alt.toFixed(1)}&deg;</td>
-                    <td>${obj.end_az.toFixed(1)}&deg;</td>
+                    <td>${obj.end_alt.toFixed(0)}&deg;</td>
+                    <td>${obj.end_az.toFixed(0)}&deg;</td>
                     <td class="duration">${formatDuration(obj.duration)}</td>
                     <td>${obj.size.toFixed(0)}</td>
                     <td>${obj.magnitude.toFixed(1)}</td>
