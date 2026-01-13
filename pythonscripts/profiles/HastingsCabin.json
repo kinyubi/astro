@@ -1,0 +1,11 @@
+{
+  "name": "HastingsCabin",
+  "location": "McCall, ID",
+  "latitude": 44.911,
+  "longitude": -116.0983,
+  "timezone": "America/Boise",
+  "min_altitude": 18.0,
+  "az_min": 0.0,
+  "az_max": 350.0,
+  "geocoded_name": "McCall, Valley County, Idaho, 83638, United States"
+}

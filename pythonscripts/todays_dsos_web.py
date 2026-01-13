@@ -108,6 +108,7 @@ def calculate_visibility(target_date=None, profile_name='default'):
     visible_objects = []
 
     try:
+        log = []
         sheet_id = '1ntqVhvlPvBZFG59KJVQgiIdV65MeYnYBin5CT0alpsA'
         sheet_name = 'dso_watchlist'
         csv_url = f'https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}'
@@ -130,9 +131,10 @@ def calculate_visibility(target_date=None, profile_name='default'):
             do_me = '&#9733;' if len(str(most_recent)) < 4 else ''
 
             try:
-                obj = SkyCoord.from_name(name)
+                obj = SkyCoord.from_name(str(name))
                 star = Star(ra=Angle(degrees=obj.ra.deg), dec=Angle(degrees=obj.dec.deg))
             except Exception as e:
+                log.append(f"Error resolving {name}: {e}")
                 continue
 
             astrometric = observer_pos.at(time_range).observe(star)
@@ -157,6 +159,13 @@ def calculate_visibility(target_date=None, profile_name='default'):
                 end_minutes = obj_end.hour * 60 + obj_end.minute
                 if obj_end.hour < 12:
                     end_minutes += 24 * 60  # Adjust for sorting past midnight
+                
+                # Get altitude and azimuth at start and end times
+                start_alt = alt.degrees[start_idx]
+                start_az = az.degrees[start_idx]
+                end_alt = alt.degrees[end_idx]
+                end_az = az.degrees[end_idx]
+                
                 if time_span >= 60:
                     visible_objects.append({
                         'do_me': do_me,
@@ -170,9 +179,17 @@ def calculate_visibility(target_date=None, profile_name='default'):
                         'size': size,
                         'magnitude': magnitude,
                         'constellation': constellation,
-                        'type_desc': type_desc
+                        'type_desc': type_desc,
+                        'start_alt': start_alt,
+                        'start_az': start_az,
+                        'end_alt': end_alt,
+                        'end_az': end_az
                     })
-
+        if len(log) > 0:
+            # write log to dso_visibility.log
+            with open('dso_visibility.log', 'a') as log_file:
+                for entry in log:
+                    log_file.write(f"{datetime.datetime.now().isoformat()} - {entry}\n")
     except Exception as e:
         print(f"<p>Error reading data: {e}</p>")
         return
@@ -232,7 +249,11 @@ def calculate_visibility(target_date=None, profile_name='default'):
         'size': safe_float(obj.get('size')),
         'magnitude': safe_float(obj.get('magnitude')),
         'constellation': safe_str(obj.get('constellation')),
-        'type_desc': safe_str(obj.get('type_desc'))
+        'type_desc': safe_str(obj.get('type_desc')),
+        'start_alt': safe_float(obj.get('start_alt')),
+        'start_az': safe_float(obj.get('start_az')),
+        'end_alt': safe_float(obj.get('end_alt')),
+        'end_az': safe_float(obj.get('end_az'))
     } for obj in visible_objects])
 
 
@@ -423,7 +444,11 @@ def calculate_visibility(target_date=None, profile_name='default'):
                 <th>Name</th>
                 <th>Also Known As</th>
                 <th>Start</th>
+                <th>Start Alt</th>
+                <th>Start Az</th>
                 <th>End</th>
+                <th>End Alt</th>
+                <th>End Az</th>
                 <th>Duration</th>
                 <th>Size (sq')</th>
                 <th>Mag</th>
@@ -458,7 +483,11 @@ def calculate_visibility(target_date=None, profile_name='default'):
                     <td><strong>${obj.name}</strong></td>
                     <td>${obj.aka}</td>
                     <td class="time">${obj.start}</td>
+                    <td>${obj.start_alt.toFixed(1)}&deg;</td>
+                    <td>${obj.start_az.toFixed(1)}&deg;</td>
                     <td class="time">${obj.end}</td>
+                    <td>${obj.end_alt.toFixed(1)}&deg;</td>
+                    <td>${obj.end_az.toFixed(1)}&deg;</td>
                     <td class="duration">${formatDuration(obj.duration)}</td>
                     <td>${obj.size.toFixed(0)}</td>
                     <td>${obj.magnitude.toFixed(1)}</td>
