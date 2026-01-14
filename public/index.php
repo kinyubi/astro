@@ -6,6 +6,7 @@
 
 $dirFull = __DIR__ . '/annotated_full';
 $dirWall = __DIR__ . '/annotated_wallpaper';
+$dirFav = __DIR__ . '/fav';
 $extensions = ['jpg','jpeg','png','gif','webp'];
 
 function gatherImages($dir, $prefix, $extensions) {
@@ -31,18 +32,55 @@ if (file_exists($dsoInfoPath)) {
 
 $fullImages = gatherImages($dirFull, 'annotated_full', $extensions);
 $wallImages = gatherImages($dirWall, 'annotated_wallpaper', $extensions);
+$favImages = gatherImages($dirFav,'fav', $extensions);
 
-// Map images to DSO catalog numbers
+/**
+ * Extract DSO name from filename (new convention: scientific name at start, terminated by underscore)
+ * Examples: 
+ *   "M1_20250113_annotated_full.jpg" -> "M1"
+ *   "NGC7000_20250113_annotated_wallpaper.jpg" -> "NGC7000"
+ *   "SH2-308_20250113_annotated_full.jpg" -> "SH2-308"
+ */
 function extractDSOName($filename) {
     $name = pathinfo($filename, PATHINFO_FILENAME);
-    $name = str_replace('_full_annotated', '', $name);
-    $name = str_replace('_wallpaper_annotated', '', $name);
+    
+    // Extract everything before the first underscore
+    $parts = explode('_', $name);
+    if (count($parts) > 0) {
+        $dsoName = strtoupper(trim($parts[0]));
+        // Clean up common variations
+        $dsoName = str_replace(' ', '', $dsoName);
+        return $dsoName;
+    }
+    
+    return null;
+}
 
-    if (preg_match('/_(m\d+)_/i', $name, $matches)) return strtoupper($matches[1]);
-    if (preg_match('/_(ngc\d+)_/i', $name, $matches)) return strtoupper($matches[1]);
-    if (preg_match('/_(ic\d+)_/i', $name, $matches)) return strtoupper($matches[1]);
-    if (preg_match('/_(sh2-\d+)_/i', $name, $matches)) return strtoupper($matches[1]);
-
+/**
+ * Look up DSO information with "See" redirection support
+ * If the entry has a "See" field, follow it to get the actual info
+ */
+function getDSOInfo($dsoKey, $dsoInfo) {
+    if (!$dsoKey || !isset($dsoInfo[$dsoKey])) {
+        return null;
+    }
+    
+    $entry = $dsoInfo[$dsoKey];
+    
+    // Check if this entry has a "See" field (redirect to another entry)
+    if (isset($entry['See']) && !empty($entry['See'])) {
+        $redirectKey = $entry['See'];
+        if (isset($dsoInfo[$redirectKey])) {
+            return $dsoInfo[$redirectKey];
+        }
+    }
+    
+    // Check if this entry has actual content (not just a redirect)
+    // An entry with content should have more than just CommonName and See
+    if (count($entry) > 2 || (count($entry) === 2 && !isset($entry['See']))) {
+        return $entry;
+    }
+    
     return null;
 }
 
@@ -51,16 +89,38 @@ $galleryItems = [];
 foreach ($fullImages as $imgPath) {
     $filename = basename($imgPath);
     $dsoKey = extractDSOName($filename);
+    $fullPath = $imgPath;
 
-    $displayName = str_replace('_', ' ', pathinfo($filename, PATHINFO_FILENAME));
-    $displayName = str_replace(' full annotated', '', $displayName);
-    $displayName = ucwords($displayName);
-
-    $info = ($dsoKey && isset($dsoInfo[$dsoKey])) ? $dsoInfo[$dsoKey] : null;
-
+    // Find corresponding wallpaper image - replace both directory and filename
+    $wallpaperPath = str_replace('annotated_full', 'annotated_wallpaper', $imgPath);
+    $wallpaperPath = str_replace('_full_annotated', '_wall_annotated', $wallpaperPath);
+    $favPath = str_replace('annotated_full', 'fav', $imgPath);
+    $favPath = str_replace('_full_annotated', '_fav', $favPath);
+    
+    // Create display name from filename
+//    $displayName = pathinfo($filename, PATHINFO_FILENAME);
+//    $displayName = str_replace('_annotated_full', '', $displayName);
+//    $displayName = str_replace('_annotated_wallpaper', '', $displayName);
+//    $displayName = str_replace('_full', '', $displayName);
+//    $displayName = str_replace('_wallpaper', '', $displayName);
+//    $displayName = str_replace('_', ' ', $displayName);
+//    $displayName = ucwords(strtolower($displayName));
+    
+    // Look up info with "See" redirection support
+    $info = getDSOInfo($dsoKey, $dsoInfo);
+    
+    // If we have info and a CommonName, use that for display
+    if ($info && isset($info['CommonName'])) {
+        $displayName = $info['CommonName'];
+    } else {
+        $displayName = 'Unknown';
+    }
+    
     $galleryItems[] = [
         'filename' => $filename,
-        'path' => $imgPath,
+        'fullPath' => $fullPath,
+        'favPath' => $favPath,
+        'wallpaperPath' => $wallpaperPath,
         'displayName' => $displayName,
         'dsoKey' => $dsoKey,
         'info' => $info
@@ -75,8 +135,8 @@ $fullJson = json_encode($fullImages);
 $wallJson = json_encode($wallImages);
 $galleryJson = json_encode($galleryItems);
 ?>
-    <!DOCTYPE html>
-    <html lang="en">
+<!DOCTYPE html>
+<html lang="en">
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
@@ -119,25 +179,49 @@ $galleryJson = json_encode($galleryItems);
         .gallery-back-btn { background: #4a9eff; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1em; cursor: pointer; transition: all 0.3s ease; }
         .gallery-back-btn:hover { background: #7ec8ff; transform: translateY(-2px); }
         .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 25px; max-width: 1400px; margin: 0 auto; }
-        .gallery-item { background: #1a1f3a; border-radius: 10px; overflow: hidden; cursor: pointer; transition: all 0.3s ease; border: 2px solid transparent; }
+        .gallery-item {
+            background: #1a1f3a;
+            border-radius: 10px;
+            overflow: hidden;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .gallery-item img {
+            width: 100%;
+            object-fit: contain;
+            display: block;
+            background: #0a0e27;
+            flex: 1; /* Image takes available space */
+        }
+
+        .gallery-item-info {
+            padding: 5px;
+            margin-top: auto; /* Pushes info to bottom */
+        }
         .gallery-item:hover { transform: translateY(-5px); border-color: #4a9eff; box-shadow: 0 10px 30px rgba(74, 158, 255, 0.3); }
-        .gallery-item img { width: 100%; height: 200px; object-fit: cover; display: block; }
-        .gallery-item-info { padding: 15px; }
         .gallery-item-info h3 { color: #4a9eff; font-size: 1.1em; margin-bottom: 5px; }
         .gallery-item-info p { color: #b8c5d6; font-size: 0.9em; }
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.95); z-index: 1000; overflow-y: auto; }
-        .modal.active { display: flex; align-items: flex-start; justify-content: center; padding: 20px; }
-        .modal-content { background: #1a1f3a; border-radius: 15px; max-width: 1200px; width: 100%; margin: 40px auto; position: relative; }
-        .modal-close { position: absolute; top: 15px; right: 15px; background: #4a9eff; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 24px; cursor: pointer; z-index: 10; transition: all 0.3s ease; }
-        .modal-close:hover { background: #7ec8ff; transform: rotate(90deg); }
-        .modal-image { width: 100%; border-radius: 15px 15px 0 0; display: block; }
-        .modal-info { padding: 30px; }
-        .modal-info h2 { color: #4a9eff; font-size: 2em; margin-bottom: 20px; }
-        .info-section { margin-bottom: 20px; }
-        .info-section h3 { color: #7ec8ff; font-size: 1.3em; margin-bottom: 10px; }
-        .info-section p, .info-section ul { color: #e0e0e0; line-height: 1.8; font-size: 1.05em; }
-        .info-section ul { list-style-position: inside; padding-left: 20px; }
-        .info-section li { margin-bottom: 8px; }
+        .modal.active { display: flex; align-items: flex-start; justify-content: center; padding: 0; }
+        .modal-content { background: #1a1f3a; border-radius: 0; max-width: 1200px; width: 100%; margin: 0 auto; position: relative; }
+        .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 0 0 0; }
+        .modal-header h2 { color: #4a9eff; font-size: 1.8em; margin: 0; flex: 1; }
+        .modal-close { background: #4a9eff; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 20px; cursor: pointer; transition: all 0.3s ease; flex-shrink: 0; margin-left: 15px; display: flex; align-items: center; justify-content: center; }
+        .modal-close:hover { background: #7ec8ff; }
+        .modal-image { width: 100%; height: auto; border-radius: 0; display: block; background: #000; }
+        .modal-info { padding: 0 30px 20px 30px; }
+        .info-section { margin-bottom: 10px; }
+        .info-section:first-child { margin-top: 15px; }
+        .info-section h3 { color: #7ec8ff; font-size: 1.15em; margin-bottom: 0; display: inline; }
+        .info-section p { color: #e0e0e0; line-height: 1.6; font-size: 1em; display: inline; }
+        .info-section.fun-facts h3 { display: block; margin-bottom: 8px; }
+        .info-section.fun-facts ul { color: #e0e0e0; line-height: 1.6; font-size: 1em; list-style-position: inside; padding-left: 20px; }
+        .info-section.fun-facts li { margin-bottom: 5px; }
+        .no-info { color: #ffd700; font-style: italic; }
         .hidden { display: none; }
         @media (max-width: 768px) {
             .landing-header h1 { font-size: 2em; }
@@ -193,7 +277,6 @@ $galleryJson = json_encode($galleryItems);
 </div>
 <div class="modal" id="modal">
     <div class="modal-content">
-        <button class="modal-close" onclick="closeModal()">×</button>
         <img class="modal-image" id="modalImage" src="" alt="">
         <div class="modal-info" id="modalInfo"></div>
     </div>
@@ -209,8 +292,67 @@ $galleryJson = json_encode($galleryItems);
     function showSlideshow(){document.getElementById('landingPage').style.display='none';document.getElementById('slideshowContainer').classList.add('active');chooseListByOrientation();}
     function showGallery(){document.getElementById('landingPage').style.display='none';document.getElementById('galleryContainer').classList.add('active');renderGallery();}
     function backToLanding(){document.getElementById('slideshowContainer').classList.remove('active');document.getElementById('galleryContainer').classList.remove('active');document.getElementById('landingPage').style.display='flex';stopAutoAdvance();}
-    function renderGallery(){const grid=document.getElementById('galleryGrid');grid.innerHTML='';galleryData.forEach((item,idx)=>{const card=document.createElement('div');card.className='gallery-item';card.onclick=()=>openModal(idx);const img=document.createElement('img');img.src=item.path;img.alt=item.displayName;img.loading='lazy';const info=document.createElement('div');info.className='gallery-item-info';const title=document.createElement('h3');title.textContent=item.displayName;const subtitle=document.createElement('p');if(item.info&&item.info.Constellation){subtitle.textContent=item.info.Constellation;}else if(item.dsoKey){subtitle.textContent=item.dsoKey;}info.appendChild(title);info.appendChild(subtitle);card.appendChild(img);card.appendChild(info);grid.appendChild(card);});}
-    function openModal(idx){const item=galleryData[idx];const modal=document.getElementById('modal');const modalImage=document.getElementById('modalImage');const modalInfo=document.getElementById('modalInfo');modalImage.src=item.path;modalImage.alt=item.displayName;let h=`<h2>${item.displayName}</h2>`;if(item.info){const i=item.info;if(i.OtherNames&&i.OtherNames.length>0)h+=`<div class="info-section"><h3>Also Known As</h3><p>${i.OtherNames.join(', ')}</p></div>`;if(i.Constellation)h+=`<div class="info-section"><h3>Constellation</h3><p>${i.Constellation}</p></div>`;if(i.Type)h+=`<div class="info-section"><h3>Type</h3><p>${i.Type}</p></div>`;if(i.Distance)h+=`<div class="info-section"><h3>Distance</h3><p>${i.Distance}</p></div>`;if(i.Size)h+=`<div class="info-section"><h3>Size</h3><p>${i.Size}</p></div>`;if(i.Composition)h+=`<div class="info-section"><h3>Composition</h3><p>${i.Composition}</p></div>`;if(i.FunFacts&&i.FunFacts.length>0){h+=`<div class="info-section"><h3>Fun Facts</h3><ul>`;i.FunFacts.forEach(f=>h+=`<li>${f}</li>`);h+=`</ul></div>`;}}else{h+=`<p>Detailed information for this object is being compiled.</p>`;}modalInfo.innerHTML=h;modal.classList.add('active');document.body.style.overflow='hidden';}
+
+    function renderGallery() {
+        const grid = document.getElementById('galleryGrid');
+        grid.innerHTML = '';
+        galleryData.forEach((item, idx) => {
+            const card = document.createElement('div');
+            card.className = 'gallery-item';
+            card.onclick = () => openModal(idx);
+            const img = document.createElement('img');
+            img.src = item.favPath;
+            img.alt = item.displayName;
+            img.loading = 'lazy';
+            const info = document.createElement('div');
+            info.className = 'gallery-item-info';
+            const title = document.createElement('h3');
+            title.textContent = item.displayName;
+            const subtitle = document.createElement('p');
+            // if (item.info && item.info.Constellation) {
+            //     subtitle.textContent = 'Constellation ' + item.info.Constellation;
+            // } else if (item.dsoKey) {
+            //     subtitle.textContent = item.dsoKey;
+            // }
+            info.appendChild(title);
+            // info.appendChild(subtitle);
+            card.appendChild(img);
+            card.appendChild(info);
+            grid.appendChild(card);
+        });
+    }
+
+    function openModal(idx) {
+        const item = galleryData[idx];
+        const modal = document.getElementById('modal');
+        const modalImage = document.getElementById('modalImage');
+        const modalInfo = document.getElementById('modalInfo');
+        const isLandscape = window.innerWidth > window.innerHeight;
+        const imageSrc = isLandscape && item.wallpaperPath ? item.wallpaperPath : item.fullPath;
+        modalImage.src = imageSrc;
+        modalImage.alt = item.displayName;
+        const titleText = item.info && item.info.CommonName ? item.info.CommonName : item.displayName;
+        let h = `<div class="modal-header"><h2>${titleText}</h2><button class="modal-close" onclick="closeModal()">←</button></div>`;
+        if (item.info) {
+            const i = item.info;
+            if (i.OtherNames && i.OtherNames.length > 0) h += `<div class="info-section"><h3>Also Known As</h3> <p>${i.OtherNames.join(', ')}</p></div>`;
+            if (i.Constellation) h += `<div class="info-section"><h3>Constellation</h3> <p>${i.Constellation}</p></div>`;
+            if (i.Type) h += `<div class="info-section"><h3>Type</h3> <p>${i.Type}</p></div>`;
+            if (i.Distance) h += `<div class="info-section"><h3>Distance</h3> <p>${i.Distance}</p></div>`;
+            if (i.Size) h += `<div class="info-section"><h3>Size</h3> <p>${i.Size}</p></div>`;
+            if (i.Composition) h += `<div class="info-section"><h3>Composition</h3> <p>${i.Composition}</p></div>`;
+            if (i.FunFacts && i.FunFacts.length > 0) {
+                h += `<div class="info-section fun-facts"><h3>Fun Facts</h3><ul>`;
+                i.FunFacts.forEach(f => h += `<li>${f}</li>`);
+                h += `</ul></div>`;
+            }
+        } else {
+            h += `<p class="no-info">No information found for this object.</p>`;
+        }
+        modalInfo.innerHTML = h;
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+    }
     function closeModal(){document.getElementById('modal').classList.remove('active');document.body.style.overflow='';}
     document.getElementById('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal();});
     document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
