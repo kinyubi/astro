@@ -5,6 +5,7 @@ Used by profiles.php to manage location profiles
 """
 import sys
 import json
+import re
 import argparse
 from profile_manager import (
     list_profiles, 
@@ -41,6 +42,30 @@ def cmd_get(profile_name):
 
 def cmd_create(profile_name, location, min_altitude, az_min, az_max):
     """Create a new profile."""
+    # Validate profile name first
+    if not profile_name:
+        print(json.dumps({
+            'success': False,
+            'error': 'Profile name is required'
+        }))
+        sys.exit(1)
+    
+    if not re.match(r'^[a-z0-9_]+$', profile_name):
+        print(json.dumps({
+            'success': False,
+            'error': f"Invalid profile name '{profile_name}'. Use only lowercase letters, numbers, and underscores (no spaces, hyphens, or uppercase)."
+        }))
+        sys.exit(1)
+    
+    # Check if profile already exists
+    existing = load_profile(profile_name)
+    if existing and existing.get('name') == profile_name:
+        print(json.dumps({
+            'success': False,
+            'error': f"Profile '{profile_name}' already exists. Use edit to modify it."
+        }))
+        sys.exit(1)
+    
     profile = create_profile_from_location(
         profile_name, 
         location, 
@@ -54,7 +79,7 @@ def cmd_create(profile_name, location, min_altitude, az_min, az_max):
     else:
         print(json.dumps({
             'success': False, 
-            'error': 'Failed to geocode location or save profile'
+            'error': f"Failed to geocode location '{location}'. Try a more specific location like 'City, State' or 'City, Country'."
         }))
         sys.exit(1)
 
@@ -74,7 +99,53 @@ def cmd_geocode(location):
     if result:
         print(json.dumps({'success': True, **result}))
     else:
-        print(json.dumps({'success': False, 'error': 'Location not found'}))
+        print(json.dumps({'success': False, 'error': f"Could not find location '{location}'. Try a more specific format like 'City, State' or 'City, Country'."}))
+        sys.exit(1)
+
+
+def cmd_update(profile_name, location=None, min_altitude=None, az_min=None, az_max=None):
+    """Update an existing profile."""
+    # Load existing profile
+    profile = load_profile(profile_name)
+    if not profile or profile.get('name') != profile_name:
+        print(json.dumps({
+            'success': False,
+            'error': f"Profile '{profile_name}' not found"
+        }))
+        sys.exit(1)
+    
+    # If location changed, re-geocode
+    if location and location != profile.get('location'):
+        geo_data = geocode_location(location)
+        if geo_data:
+            profile['location'] = location
+            profile['latitude'] = geo_data['latitude']
+            profile['longitude'] = geo_data['longitude']
+            profile['timezone'] = geo_data['timezone']
+            profile['geocoded_name'] = geo_data['display_name']
+        else:
+            print(json.dumps({
+                'success': False,
+                'error': f"Could not geocode new location '{location}'. Profile not updated."
+            }))
+            sys.exit(1)
+    
+    # Update other fields if provided
+    if min_altitude is not None:
+        profile['min_altitude'] = min_altitude
+    if az_min is not None:
+        profile['az_min'] = az_min
+    if az_max is not None:
+        profile['az_max'] = az_max
+    
+    # Save updated profile
+    if save_profile(profile_name, profile):
+        print(json.dumps({'success': True, 'profile': profile}))
+    else:
+        print(json.dumps({
+            'success': False,
+            'error': 'Failed to save updated profile'
+        }))
         sys.exit(1)
 
 
@@ -104,6 +175,14 @@ if __name__ == '__main__':
     delete_parser = subparsers.add_parser('delete', help='Delete a profile')
     delete_parser.add_argument('profile_name', help='Profile name')
     
+    # Update command
+    update_parser = subparsers.add_parser('update', help='Update an existing profile')
+    update_parser.add_argument('profile_name', help='Profile name')
+    update_parser.add_argument('--location', help='New location to geocode')
+    update_parser.add_argument('--min-altitude', type=float, help='Minimum altitude in degrees')
+    update_parser.add_argument('--az-min', type=float, help='Minimum azimuth in degrees')
+    update_parser.add_argument('--az-max', type=float, help='Maximum azimuth in degrees')
+    
     # Geocode command
     geocode_parser = subparsers.add_parser('geocode', help='Test geocoding a location')
     geocode_parser.add_argument('location', help='Location to geocode')
@@ -126,6 +205,14 @@ if __name__ == '__main__':
         cmd_delete(args.profile_name)
     elif args.command == 'geocode':
         cmd_geocode(args.location)
+    elif args.command == 'update':
+        cmd_update(
+            args.profile_name,
+            args.location,
+            args.min_altitude,
+            args.az_min,
+            args.az_max
+        )
     else:
         parser.print_help()
         sys.exit(1)

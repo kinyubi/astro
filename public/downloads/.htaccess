@@ -1,0 +1,5 @@
+Options -Indexes
+<FilesMatch "\.(?i:pdf|zip|jpg|png|mp4)$">
+    ForceType application/octet-stream
+    Header set Content-Disposition attachment
+</FilesMatch>

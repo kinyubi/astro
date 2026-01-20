@@ -142,95 +142,9 @@ $galleryJson = json_encode($galleryItems);
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
     <title>Astronomy Gallery</title>
     <link rel="icon" type="image/png" href="favicon.png">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        html, body { height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e27; color: #e0e0e0; }
-        .landing-page { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 20px; }
-        .landing-header { text-align: center; margin-bottom: 60px; }
-        .landing-header h1 { font-size: 3em; color: #4a9eff; margin-bottom: 10px; text-shadow: 0 0 20px rgba(74, 158, 255, 0.3); }
-        .landing-header p { font-size: 1.2em; color: #b8c5d6; }
-        .options-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 30px; max-width: 800px; width: 100%; }
-        .option-card { background: linear-gradient(145deg, #1a1f3a, #2a3f5f); border: 2px solid #4a9eff; border-radius: 15px; padding: 40px 30px; text-align: center; cursor: pointer; transition: all 0.3s ease; position: relative; overflow: hidden; }
-        .option-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(145deg, rgba(74, 158, 255, 0.1), transparent); opacity: 0; transition: opacity 0.3s ease; }
-        .option-card:hover { transform: translateY(-5px); box-shadow: 0 10px 30px rgba(74, 158, 255, 0.3); border-color: #7ec8ff; }
-        .option-card:hover::before { opacity: 1; }
-        .option-icon { font-size: 4em; margin-bottom: 20px; }
-        .option-card h2 { color: #4a9eff; font-size: 1.8em; margin-bottom: 15px; }
-        .option-card p { color: #b8c5d6; line-height: 1.6; }
-        .slideshow-container { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: black; }
-        .slideshow-container.active { display: block; }
-        #slideshow { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; overflow: hidden; }
-        #slide { max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; object-position: center; display: block; }
-        .arrow-btn, .play-pause-btn, .back-btn { position: absolute; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.18); border-radius: 50%; cursor: pointer; z-index: 100; transition: background .12s, transform .06s; border: none; padding: 0; }
-        .arrow-btn { top: 90%; transform: translateY(-50%); width: calc(8vh + 8px); height: calc(8vh + 8px); }
-        .arrow-btn:active { transform: translateY(-50%) scale(.98); background: rgba(0,0,0,0.4); }
-        .arrow-left { left: calc(1.5vw + 2px); }
-        .arrow-right { right: calc(1.5vw + 2px); }
-        .arrow-btn img { width: 60%; height: 60%; object-fit: contain; }
-        .play-pause-btn { top: 90%; left: 50%; transform: translate(-50%, -50%); width: calc(5vh + 5px); height: calc(5vh + 5px); }
-        .play-pause-btn:active { transform: translate(-50%, -50%) scale(.98); background: rgba(0,0,0,0.4); }
-        .play-pause-btn svg { width: 50%; height: 50%; fill: white; }
-        .back-btn { top: 20px; left: 20px; width: 50px; height: 50px; background: rgba(74, 158, 255, 0.3); border: 2px solid #4a9eff; }
-        .back-btn:hover { background: rgba(74, 158, 255, 0.5); }
-        .back-btn svg { width: 50%; height: 50%; fill: white; }
-        .gallery-container { display: none; min-height: 100vh; padding: 20px; }
-        .gallery-container.active { display: block; }
-        .gallery-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 30px; padding: 20px; background: #1a1f3a; border-radius: 10px; }
-        .gallery-header h1 { color: #4a9eff; font-size: 2em; }
-        .gallery-back-btn { background: #4a9eff; color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 1em; cursor: pointer; transition: all 0.3s ease; }
-        .gallery-back-btn:hover { background: #7ec8ff; transform: translateY(-2px); }
-        .gallery-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 25px; max-width: 1400px; margin: 0 auto; }
-        .gallery-item {
-            background: #1a1f3a;
-            border-radius: 10px;
-            overflow: hidden;
-            cursor: pointer;
-            transition: all 0.3s ease;
-            border: 2px solid transparent;
-            display: flex;
-            flex-direction: column;
-        }
 
-        .gallery-item img {
-            width: 100%;
-            object-fit: contain;
-            display: block;
-            background: #0a0e27;
-            flex: 1; /* Image takes available space */
-        }
-
-        .gallery-item-info {
-            padding: 5px;
-            margin-top: auto; /* Pushes info to bottom */
-        }
-        .gallery-item:hover { transform: translateY(-5px); border-color: #4a9eff; box-shadow: 0 10px 30px rgba(74, 158, 255, 0.3); }
-        .gallery-item-info h3 { color: #4a9eff; font-size: 1.1em; margin-bottom: 5px; }
-        .gallery-item-info p { color: #b8c5d6; font-size: 0.9em; }
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.95); z-index: 1000; overflow-y: auto; }
-        .modal.active { display: flex; align-items: flex-start; justify-content: center; padding: 0; }
-        .modal-content { background: #1a1f3a; border-radius: 0; max-width: 1200px; width: 100%; margin: 0 auto; position: relative; }
-        .modal-header { display: flex; align-items: center; justify-content: space-between; padding: 20px 0 0 0; }
-        .modal-header h2 { color: #4a9eff; font-size: 1.8em; margin: 0; flex: 1; }
-        .modal-close { background: #4a9eff; color: white; border: none; width: 40px; height: 40px; border-radius: 50%; font-size: 20px; cursor: pointer; transition: all 0.3s ease; flex-shrink: 0; margin-left: 15px; display: flex; align-items: center; justify-content: center; }
-        .modal-close:hover { background: #7ec8ff; }
-        .modal-image { width: 100%; height: auto; border-radius: 0; display: block; background: #000; }
-        .modal-info { padding: 0 30px 20px 30px; }
-        .info-section { margin-bottom: 10px; }
-        .info-section:first-child { margin-top: 15px; }
-        .info-section h3 { color: #7ec8ff; font-size: 1.15em; margin-bottom: 0; display: inline; }
-        .info-section p { color: #e0e0e0; line-height: 1.6; font-size: 1em; display: inline; }
-        .info-section.fun-facts h3 { display: block; margin-bottom: 8px; }
-        .info-section.fun-facts ul { color: #e0e0e0; line-height: 1.6; font-size: 1em; list-style-position: inside; padding-left: 20px; }
-        .info-section.fun-facts li { margin-bottom: 5px; }
-        .no-info { color: #ffd700; font-style: italic; }
-        .hidden { display: none; }
-        @media (max-width: 768px) {
-            .landing-header h1 { font-size: 2em; }
-            .options-container { grid-template-columns: 1fr; }
-            .gallery-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 15px; }
-            .modal-content { margin: 0; }
-        }
-    </style>
+    <link rel="stylesheet" href="/css/style.css?ver=1">
+    <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
 </head>
 <body>
 <div class="landing-page" id="landingPage">
@@ -257,11 +171,11 @@ $galleryJson = json_encode($galleryItems);
     </button>
     <div id="slideshow" aria-live="polite">
         <button id="prevBtn" class="arrow-btn arrow-left" aria-label="Previous image" type="button">
-            <img src="left-arrow.png" alt="Previous">
+            <img src="images/left-arrow.png" alt="Previous">
         </button>
         <img id="slide" src="" alt="Slideshow image">
         <button id="nextBtn" class="arrow-btn arrow-right" aria-label="Next image" type="button">
-            <img src="right-arrow.png" alt="Next">
+            <img src="images/right-arrow.png" alt="Next">
         </button>
         <button id="playPauseBtn" class="play-pause-btn" aria-label="Pause or resume slideshow" type="button">
             <svg id="pauseIcon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
@@ -272,16 +186,18 @@ $galleryJson = json_encode($galleryItems);
 <div class="gallery-container" id="galleryContainer">
     <div class="gallery-header">
         <h1>🔭 Deep Sky Objects</h1>
-        <button class="gallery-back-btn" onclick="backToLanding()">← Back to Menu</button>
+        <button class="gallery-back-btn" title="Home" onclick="backToLanding()"><i class="fa-solid fa-house"></i></button>
     </div>
     <div class="gallery-grid" id="galleryGrid"></div>
 </div>
 <div class="modal" id="modal">
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-arrow-left"></i></button>
     <div class="modal-content">
         <img class="modal-image" id="modalImage" src="" alt="">
         <div class="modal-info" id="modalInfo"></div>
     </div>
 </div>
+<!--<script src="https://kit.fontawesome.com/12c5ce46e9.js" crossorigin="anonymous"></script>-->
 <script>
     const fullImages=<?php echo $fullJson;?>;
     const wallImages=<?php echo $wallJson;?>;
@@ -333,7 +249,7 @@ $galleryJson = json_encode($galleryItems);
         modalImage.src = imageSrc;
         modalImage.alt = item.displayName;
         const titleText = item.info && item.info.CommonName ? item.info.CommonName : item.displayName;
-        let h = `<div class="modal-header"><h2>${titleText}</h2><button class="modal-close" onclick="closeModal()">←</button></div>`;
+        let h = `<div class="modal-header"><h2>${titleText}</h2></div>`;
         if (item.info) {
             const i = item.info;
             if (i.OtherNames && i.OtherNames.length > 0) h += `<div class="info-section"><h3>Also Known As</h3> <p>${i.OtherNames.join(', ')}</p></div>`;

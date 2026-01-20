@@ -424,6 +424,8 @@ def calculate_visibility(target_date=None, profile_name='default'):
             <option value="duration">Duration (longest first)</option>
             <option value="start">Start Time (earliest first)</option>
             <option value="end">End Time (earliest first)</option>
+            <option value="start_az">Starting Azimuth (lowest first)</option>
+            <option value="start_alt">Starting Altitude (highest first)</option>
             <option value="magnitude">Magnitude (brightest first)</option>
             <option value="size">Size (largest first)</option>
             <option value="name">Name (A-Z)</option>
@@ -513,6 +515,12 @@ def calculate_visibility(target_date=None, profile_name='default'):
                     break;
                 case 'end':
                     sortedData.sort((a, b) => a.end_minutes - b.end_minutes);
+                    break;
+                case 'start_az':
+                    sortedData.sort((a, b) => a.start_az - b.start_az);
+                    break;
+                case 'start_alt':
+                    sortedData.sort((a, b) => b.start_alt - a.start_alt);
                     break;
                 case 'magnitude':
                     sortedData.sort((a, b) => a.magnitude - b.magnitude);

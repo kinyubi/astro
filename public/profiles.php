@@ -35,17 +35,53 @@ function executePythonCommand($command): false|string|null
     return $output;
 }
 
+/**
+ * Validate profile name on the PHP side for immediate feedback
+ */
+function validateProfileName($name) {
+    if (empty($name)) {
+        return ['valid' => false, 'error' => 'Profile name is required'];
+    }
+    if (!preg_match('/^[a-z0-9_]+$/', $name)) {
+        return ['valid' => false, 'error' => 'Profile name must contain only lowercase letters, numbers, and underscores (no spaces, hyphens, or uppercase characters)'];
+    }
+    if (strlen($name) > 50) {
+        return ['valid' => false, 'error' => 'Profile name must be 50 characters or less'];
+    }
+    return ['valid' => true, 'error' => null];
+}
+
 // Handle form submissions
 $message = '';
 $messageType = 'info';
+$editProfile = null; // Profile being edited
+
+// Check if we're in edit mode
+if (isset($_GET['edit']) && !empty($_GET['edit'])) {
+    $editProfileName = $_GET['edit'];
+    $output = executePythonCommand(sprintf(
+        '%s get %s',
+        escapeshellarg($profileManagerScript),
+        escapeshellarg($editProfileName)
+    ));
+    $editProfile = json_decode($output, true);
+    if (isset($editProfile['error'])) {
+        $message = "Profile not found: " . htmlspecialchars($editProfileName);
+        $messageType = 'error';
+        $editProfile = null;
+    }
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     
     if ($action === 'geocode') {
         // Test geocoding a location
-        $location = $_POST['location'] ?? '';
-        if (!empty($location)) {
+        $location = trim($_POST['location'] ?? '');
+        if (empty($location)) {
+            $message = "Please enter a location to test";
+            $messageType = 'error';
+        } else {
             $output = executePythonCommand(sprintf(
                 '%s geocode %s',
                 escapeshellarg($profileManagerScript),
@@ -55,7 +91,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $result = json_decode($output, true);
             if ($result && isset($result['success']) && $result['success']) {
                 $message = sprintf(
-                    "Location found: %s<br>Coordinates: %.4f, %.4f<br>Timezone: %s",
+                    "✅ Location found!<br><strong>Display Name:</strong> %s<br><strong>Coordinates:</strong> %.4f, %.4f<br><strong>Timezone:</strong> %s",
                     htmlspecialchars($result['display_name']),
                     $result['latitude'],
                     $result['longitude'],
@@ -63,19 +99,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 );
                 $messageType = 'success';
             } else {
-                $message = "Could not geocode location. Please try a more specific address (e.g., 'New York, NY' or 'London, UK')";
+                $errorMsg = $result['error'] ?? "Unknown error";
+                $message = "❌ Geocoding failed: " . htmlspecialchars($errorMsg);
                 $messageType = 'error';
             }
         }
     } elseif ($action === 'create') {
         // Create new profile
-        $profileName = $_POST['profile_name'] ?? '';
-        $location = $_POST['location'] ?? '';
+        $profileName = trim($_POST['profile_name'] ?? '');
+        $location = trim($_POST['location'] ?? '');
         $minAlt = floatval($_POST['min_altitude'] ?? 18.0);
         $azMin = floatval($_POST['az_min'] ?? 10.0);
         $azMax = floatval($_POST['az_max'] ?? 165.0);
         
-        if (!empty($profileName) && !empty($location)) {
+        // Validate profile name first
+        $validation = validateProfileName($profileName);
+        if (!$validation['valid']) {
+            $message = "❌ " . $validation['error'];
+            $messageType = 'error';
+        } elseif (empty($location)) {
+            $message = "❌ Location is required";
+            $messageType = 'error';
+        } else {
             $output = executePythonCommand(sprintf(
                 '%s create %s %s --min-altitude %s --az-min %s --az-max %s',
                 escapeshellarg($profileManagerScript),
@@ -88,16 +133,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $result = json_decode($output, true);
             if ($result && isset($result['success']) && $result['success']) {
-                $message = sprintf("Profile '%s' created successfully!", htmlspecialchars($profileName));
+                $message = sprintf("✅ Profile '<strong>%s</strong>' created successfully!", htmlspecialchars($profileName));
                 $messageType = 'success';
             } else {
-                $message = $result['error'] ?? "Failed to create profile. Check location name.";
+                $errorMsg = $result['error'] ?? "Unknown error occurred";
+                $message = "❌ Failed to create profile: " . htmlspecialchars($errorMsg);
+                $messageType = 'error';
+            }
+        }
+    } elseif ($action === 'update') {
+        // Update existing profile
+        $profileName = trim($_POST['profile_name'] ?? '');
+        $location = trim($_POST['location'] ?? '');
+        $minAlt = floatval($_POST['min_altitude'] ?? 18.0);
+        $azMin = floatval($_POST['az_min'] ?? 10.0);
+        $azMax = floatval($_POST['az_max'] ?? 165.0);
+        
+        if (empty($profileName)) {
+            $message = "❌ Profile name is required";
+            $messageType = 'error';
+        } else {
+            $output = executePythonCommand(sprintf(
+                '%s update %s --location %s --min-altitude %s --az-min %s --az-max %s',
+                escapeshellarg($profileManagerScript),
+                escapeshellarg($profileName),
+                escapeshellarg($location),
+                $minAlt,
+                $azMin,
+                $azMax
+            ));
+            
+            $result = json_decode($output, true);
+            if ($result && isset($result['success']) && $result['success']) {
+                $message = sprintf("✅ Profile '<strong>%s</strong>' updated successfully!", htmlspecialchars($profileName));
+                $messageType = 'success';
+                $editProfile = null; // Exit edit mode
+            } else {
+                $errorMsg = $result['error'] ?? "Unknown error occurred";
+                $message = "❌ Failed to update profile: " . htmlspecialchars($errorMsg);
                 $messageType = 'error';
             }
         }
     } elseif ($action === 'delete') {
         $profileName = $_POST['profile_name'] ?? '';
-        if (!empty($profileName) && $profileName !== 'default') {
+        if (empty($profileName)) {
+            $message = "❌ Profile name is required";
+            $messageType = 'error';
+        } elseif ($profileName === 'default') {
+            $message = "❌ Cannot delete the default profile";
+            $messageType = 'error';
+        } else {
             $output = executePythonCommand(sprintf(
                 '%s delete %s',
                 escapeshellarg($profileManagerScript),
@@ -106,10 +191,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             $result = json_decode($output, true);
             if ($result && isset($result['success']) && $result['success']) {
-                $message = sprintf("Profile '%s' deleted successfully!", htmlspecialchars($profileName));
+                $message = sprintf("✅ Profile '<strong>%s</strong>' deleted successfully!", htmlspecialchars($profileName));
                 $messageType = 'success';
             } else {
-                $message = "Failed to delete profile.";
+                $errorMsg = $result['error'] ?? "Unknown error occurred";
+                $message = "❌ Failed to delete profile: " . htmlspecialchars($errorMsg);
                 $messageType = 'error';
             }
         }
@@ -183,6 +269,9 @@ header('Content-Type: text/html; charset=utf-8');
             border-radius: 8px;
             margin: 20px 0;
         }
+        .section.edit-mode {
+            border: 2px solid #ffd700;
+        }
         .form-group {
             margin: 15px 0;
         }
@@ -210,6 +299,14 @@ header('Content-Type: text/html; charset=utf-8');
             outline: none;
             border-color: #7ec8a3;
         }
+        input[type="text"].error,
+        input[type="number"].error {
+            border-color: #ff6b6b;
+        }
+        input[type="text"]:read-only {
+            background: #1a2a3f;
+            color: #888;
+        }
         .btn {
             padding: 10px 20px;
             background: #2a3f5f;
@@ -233,6 +330,14 @@ header('Content-Type: text/html; charset=utf-8');
         .btn-primary:hover {
             background: #5aaeff;
         }
+        .btn-warning {
+            background: #5a4a00;
+            border-color: #ffd700;
+            color: #ffd700;
+        }
+        .btn-warning:hover {
+            background: #6a5a10;
+        }
         .btn-danger {
             background: #4a2020;
             border-color: #ff6b6b;
@@ -240,6 +345,15 @@ header('Content-Type: text/html; charset=utf-8');
         }
         .btn-danger:hover {
             background: #5a3030;
+        }
+        .btn-secondary {
+            background: #2a3f5f;
+            border-color: #888;
+            color: #888;
+        }
+        .btn-secondary:hover {
+            background: #3a4f6f;
+            color: #aaa;
         }
         .profiles-grid {
             display: grid;
@@ -253,11 +367,18 @@ header('Content-Type: text/html; charset=utf-8');
             border-radius: 8px;
             border: 1px solid #4a9eff;
         }
+        .profile-card.is-default {
+            border-color: #7ec8a3;
+        }
         .profile-card h3 {
             margin-top: 0;
             color: #4a9eff;
             border-bottom: 1px solid #4a9eff;
             padding-bottom: 8px;
+        }
+        .profile-card.is-default h3 {
+            color: #7ec8a3;
+            border-color: #7ec8a3;
         }
         .profile-card p {
             margin: 8px 0;
@@ -267,16 +388,40 @@ header('Content-Type: text/html; charset=utf-8');
             margin-top: 15px;
             display: flex;
             gap: 10px;
+            flex-wrap: wrap;
         }
         .helper-text {
             font-size: 0.85em;
             color: #b8c5d6;
             margin-top: 5px;
         }
+        .helper-text.error {
+            color: #ff6b6b;
+        }
         .two-col {
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 15px;
+        }
+        .validation-rules {
+            background: #0a0e27;
+            padding: 10px 15px;
+            border-radius: 4px;
+            margin: 10px 0;
+            font-size: 0.85em;
+        }
+        .validation-rules ul {
+            margin: 5px 0;
+            padding-left: 20px;
+        }
+        .validation-rules li {
+            margin: 3px 0;
+        }
+        .validation-rules li.valid {
+            color: #7ec8a3;
+        }
+        .validation-rules li.invalid {
+            color: #ff6b6b;
         }
         @media (max-width: 768px) {
             .two-col {
@@ -299,6 +444,62 @@ header('Content-Type: text/html; charset=utf-8');
         </div>
     <?php endif; ?>
     
+    <?php if ($editProfile): ?>
+    <!-- Edit Profile Section -->
+    <div class="section edit-mode">
+        <h2>✏️ Edit Profile: <?php echo htmlspecialchars($editProfile['name']); ?></h2>
+        
+        <form method="POST">
+            <input type="hidden" name="action" value="update">
+            <input type="hidden" name="profile_name" value="<?php echo htmlspecialchars($editProfile['name']); ?>">
+            
+            <div class="form-group">
+                <label>Profile Name</label>
+                <input type="text" value="<?php echo htmlspecialchars($editProfile['name']); ?>" readonly>
+                <p class="helper-text">Profile names cannot be changed. Create a new profile if you need a different name.</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="edit_location">Location *</label>
+                <input type="text" id="edit_location" name="location" required
+                       value="<?php echo htmlspecialchars($editProfile['location']); ?>"
+                       placeholder="e.g., Star, Idaho or New York, NY">
+                <p class="helper-text">
+                    Current coordinates: <?php echo $editProfile['latitude']; ?>, <?php echo $editProfile['longitude']; ?> 
+                    (<?php echo htmlspecialchars($editProfile['timezone']); ?>)
+                </p>
+            </div>
+            
+            <div class="two-col">
+                <div class="form-group">
+                    <label for="edit_min_altitude">Minimum Altitude (degrees)</label>
+                    <input type="number" id="edit_min_altitude" name="min_altitude" 
+                           value="<?php echo $editProfile['min_altitude']; ?>" min="0" max="90" step="0.1">
+                    <p class="helper-text">Objects below this altitude won't be shown</p>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit_az_min">Azimuth Min (degrees)</label>
+                    <input type="number" id="edit_az_min" name="az_min" 
+                           value="<?php echo $editProfile['az_min']; ?>" min="0" max="360" step="0.1">
+                    <p class="helper-text">Minimum azimuth (0° = North)</p>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="edit_az_max">Azimuth Max (degrees)</label>
+                <input type="number" id="edit_az_max" name="az_max" 
+                       value="<?php echo $editProfile['az_max']; ?>" min="0" max="360" step="0.1">
+                <p class="helper-text">Maximum azimuth (180° = South)</p>
+            </div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 20px;">
+                <button type="submit" class="btn btn-warning">💾 Save Changes</button>
+                <a href="/profiles.php" class="btn btn-secondary">Cancel</a>
+            </div>
+        </form>
+    </div>
+    <?php else: ?>
     <!-- Create New Profile Section -->
     <div class="section">
         <h2>Create New Profile</h2>
@@ -316,22 +517,31 @@ header('Content-Type: text/html; charset=utf-8');
         </form>
         
         <!-- Create Profile Form -->
-        <form method="POST">
+        <form method="POST" id="createForm">
             <input type="hidden" name="action" value="create">
             
             <div class="form-group">
                 <label for="profile_name">Profile Name *</label>
                 <input type="text" id="profile_name" name="profile_name" required
-                       pattern="[a-z0-9_]+"
-                       placeholder="e.g., backyard, dark_site, vacation_spot">
-                <p class="helper-text">Use lowercase letters, numbers, and underscores only</p>
+                       placeholder="e.g., backyard, dark_site, vacation_spot"
+                       oninput="validateProfileNameLive(this)">
+                <div class="validation-rules" id="validation-rules">
+                    <strong>Profile name requirements:</strong>
+                    <ul>
+                        <li id="rule-lowercase">Use lowercase letters (a-z)</li>
+                        <li id="rule-numbers">Numbers (0-9) are allowed</li>
+                        <li id="rule-underscore">Underscores (_) are allowed</li>
+                        <li id="rule-no-spaces">No spaces or hyphens</li>
+                        <li id="rule-no-uppercase">No uppercase letters</li>
+                    </ul>
+                </div>
             </div>
             
             <div class="form-group">
                 <label for="location">Location *</label>
                 <input type="text" id="location" name="location" required
                        placeholder="e.g., Star, Idaho or New York, NY">
-                <p class="helper-text">City, State or City, Country format works best. Latitude, longitude, and timezone will be looked up automatically.</p>
+                <p class="helper-text">City, State or City, Country format works best. Use "Test Geocode" above to verify your location first.</p>
             </div>
             
             <div class="two-col">
@@ -357,9 +567,10 @@ header('Content-Type: text/html; charset=utf-8');
                 <p class="helper-text">Maximum azimuth (180° = South)</p>
             </div>
             
-            <button type="submit" class="btn btn-primary">✨ Create Profile</button>
+            <button type="submit" class="btn btn-primary" id="createBtn">✨ Create Profile</button>
         </form>
     </div>
+    <?php endif; ?>
     
     <!-- Existing Profiles Section -->
     <div class="section">
@@ -370,8 +581,13 @@ header('Content-Type: text/html; charset=utf-8');
         <?php else: ?>
             <div class="profiles-grid">
                 <?php foreach ($profiles as $profile): ?>
-                    <div class="profile-card">
-                        <h3><?php echo htmlspecialchars($profile['name']); ?></h3>
+                    <div class="profile-card <?php echo $profile['name'] === 'default' ? 'is-default' : ''; ?>">
+                        <h3>
+                            <?php echo htmlspecialchars($profile['name']); ?>
+                            <?php if ($profile['name'] === 'default'): ?>
+                                <span style="font-size: 0.7em; color: #7ec8a3;">(default)</span>
+                            <?php endif; ?>
+                        </h3>
                         <p><strong>Location:</strong> <?php echo htmlspecialchars($profile['location']); ?></p>
                         <p><strong>Coordinates:</strong> <?php echo $profile['latitude']; ?>, <?php echo $profile['longitude']; ?></p>
                         <p><strong>Timezone:</strong> <?php echo htmlspecialchars($profile['timezone']); ?></p>
@@ -380,11 +596,14 @@ header('Content-Type: text/html; charset=utf-8');
                         
                         <div class="actions">
                             <a href="/vis?profile=<?php echo urlencode($profile['name']); ?>" class="btn">
-                                🔭 Use Profile
+                                🔭 Use
+                            </a>
+                            <a href="/profiles.php?edit=<?php echo urlencode($profile['name']); ?>" class="btn btn-warning">
+                                ✏️ Edit
                             </a>
                             <?php if ($profile['name'] !== 'default'): ?>
                                 <form method="POST" style="display: inline;" 
-                                      onsubmit="return confirm('Delete profile \'<?php echo htmlspecialchars($profile['name']); ?>\'?')">
+                                      onsubmit="return confirm('Delete profile \'<?php echo htmlspecialchars($profile['name']); ?>\'? This cannot be undone.')">
                                     <input type="hidden" name="action" value="delete">
                                     <input type="hidden" name="profile_name" value="<?php echo htmlspecialchars($profile['name']); ?>">
                                     <button type="submit" class="btn btn-danger">🗑️ Delete</button>
@@ -396,30 +615,68 @@ header('Content-Type: text/html; charset=utf-8');
             </div>
         <?php endif; ?>
     </div>
+    
     <script>
-        function validateProfileName(name) {
-            const regex = /^[a-z0-9_]+$/;
-            if (!regex.test(name)) {
-                alert('Profile name must contain only lowercase letters, numbers, and underscores (no hyphens or uppercase)');
-                return false;
+        function validateProfileNameLive(input) {
+            const name = input.value;
+            const rules = {
+                'rule-lowercase': /[a-z]/.test(name) || name === '',
+                'rule-numbers': true, // Always valid (optional)
+                'rule-underscore': true, // Always valid (optional)
+                'rule-no-spaces': !/[\s-]/.test(name),
+                'rule-no-uppercase': !/[A-Z]/.test(name)
+            };
+            
+            const overallValid = /^[a-z0-9_]*$/.test(name);
+            
+            // Update visual feedback
+            for (const [ruleId, isValid] of Object.entries(rules)) {
+                const el = document.getElementById(ruleId);
+                if (el) {
+                    el.classList.remove('valid', 'invalid');
+                    if (name !== '') {
+                        el.classList.add(isValid ? 'valid' : 'invalid');
+                    }
+                }
             }
-            return true;
+            
+            // Update input styling
+            input.classList.toggle('error', !overallValid && name !== '');
+            
+            // Update button state
+            const btn = document.getElementById('createBtn');
+            if (btn) {
+                btn.disabled = !overallValid && name !== '';
+            }
+            
+            return overallValid;
         }
 
         document.addEventListener('DOMContentLoaded', function() {
-            const createForm = document.querySelector('form[action=""][method="POST"]:has(input[name="action"][value="create"])');
+            const createForm = document.getElementById('createForm');
             const profileNameInput = document.getElementById('profile_name');
 
             if (createForm && profileNameInput) {
                 createForm.addEventListener('submit', function(e) {
-                    const profileName = profileNameInput.value.trim();
-                    if (!validateProfileName(profileName)) {
+                    const name = profileNameInput.value.trim();
+                    if (!name) {
+                        alert('Profile name is required');
                         e.preventDefault();
+                        return;
+                    }
+                    if (!/^[a-z0-9_]+$/.test(name)) {
+                        alert('Profile name must contain only lowercase letters, numbers, and underscores.\n\nInvalid characters found. Please fix before submitting.');
+                        e.preventDefault();
+                        return;
                     }
                 });
+                
+                // Initial validation if there's already a value
+                if (profileNameInput.value) {
+                    validateProfileNameLive(profileNameInput);
+                }
             }
         });
     </script>
 </body>
-
 </html>

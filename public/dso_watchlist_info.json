@@ -448,6 +448,38 @@
         "Size": "~200+ light-years region; on the sky ~15 arcminutes—~0.5× the full Moon.",
         "Type": "Giant Ionized hydrogen region / starburst nebula (core of Tarantula Nebula)"
     },
+    "NGC2174": {
+        "CommonName": "Monkey Head Nebula",
+        "Composition": "Ionized hydrogen region with embedded young stars and dark dust lanes; energized by the open star cluster NGC2175.",
+        "Constellation": "Orion",
+        "Distance": "~6,400 light-years away",
+        "FunFacts": [
+            "The embedded cluster NGC2175 provides the UV radiation that ionizes the surrounding gas.",
+            "Named the Monkey Head Nebula for the resemblance of its brightest region to a monkey's face in some images.",
+            "Located near the Orion-Gemini border, it's a popular narrowband target in winter skies."
+        ],
+        "OtherNames": [
+            "Sharpless 2-252",
+            "NGC2175 (associated cluster)"
+        ],
+        "Size": "~40 light-years across; ~40 arcminutes—slightly larger than the full Moon.",
+        "Type": "Emission nebula (Ionized hydrogen region) with embedded open cluster (NGC2175)"
+    },
+    "NGC2175": {
+        "CommonName": "Cluster in Monkey Head",
+        "Composition": "Young open cluster of hot stars embedded in the Monkey Head Nebula (NGC2174).",
+        "Constellation": "Orion",
+        "Distance": "~6,400 light-years away",
+        "FunFacts": [
+            "Its massive stars are responsible for ionizing the surrounding Monkey Head Nebula.",
+            "Often observed together with NGC2174 as part of the same star-forming complex."
+        ],
+        "OtherNames": [
+            "Caldwell 82"
+        ],
+        "Size": "~15 light-years; ~10 arcminutes—~0.3× the full Moon's diameter.",
+        "Type": "Open cluster embedded in emission nebula (part of NGC2174)"
+    },
     "NGC224": {
         "CommonName": "Andromeda Galaxy",
         "Composition": "Hundreds of billions of stars, gas, dust, and dark matter; includes satellite galaxies M32 and M110 nearby.",
