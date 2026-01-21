@@ -4,9 +4,9 @@
  * Provides options for slideshow or browsing DSO gallery
  */
 
-$dirFull = __DIR__ . '/annotated_full';
-$dirWall = __DIR__ . '/annotated_wallpaper';
-$dirFav = __DIR__ . '/fav';
+$dirFull = __DIR__ . '/images/annotated_full';
+$dirWall = __DIR__ . '/images/annotated_wallpaper';
+$dirFav = __DIR__ . '/images/fav';
 $extensions = ['jpg','jpeg','png','gif','webp'];
 
 function gatherImages($dir, $prefix, $extensions) {
@@ -30,9 +30,9 @@ if (file_exists($dsoInfoPath)) {
     $dsoInfo = json_decode(file_get_contents($dsoInfoPath), true) ?: [];
 }
 
-$fullImages = gatherImages($dirFull, 'annotated_full', $extensions);
-$wallImages = gatherImages($dirWall, 'annotated_wallpaper', $extensions);
-$favImages = gatherImages($dirFav,'fav', $extensions);
+$fullImages = gatherImages($dirFull, 'images/annotated_full', $extensions);
+$wallImages = gatherImages($dirWall, 'images/annotated_wallpaper', $extensions);
+$favImages = gatherImages($dirFav, 'images/fav', $extensions);
 
 /**
  * Extract DSO name from filename (new convention: scientific name at start, terminated by underscore)
@@ -92,9 +92,9 @@ foreach ($fullImages as $imgPath) {
     $fullPath = $imgPath;
 
     // Find corresponding wallpaper image - replace both directory and filename
-    $wallpaperPath = str_replace('annotated_full', 'annotated_wallpaper', $imgPath);
+    $wallpaperPath = str_replace('images/annotated_full', 'images/annotated_wallpaper', $imgPath);
     $wallpaperPath = str_replace('_full_annotated', '_wall_annotated', $wallpaperPath);
-    $favPath = str_replace('annotated_full', 'fav', $imgPath);
+    $favPath = str_replace('images/annotated_full', 'images/fav', $imgPath);
     $favPath = str_replace('_full_annotated', '_fav', $favPath);
     
     // Create display name from filename
@@ -141,7 +141,7 @@ $galleryJson = json_encode($galleryItems);
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
     <title>Astronomy Gallery</title>
-    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="icon" type="image/png" href="/images/favicon.png">
 
     <link rel="stylesheet" href="/css/style.css?ver=1">
     <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
