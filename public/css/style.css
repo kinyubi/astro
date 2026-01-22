@@ -232,6 +232,120 @@ html, body {
     font-size: 2em;
 }
 
+/* Search Bar Styles */
+.search-wrapper {
+    position: relative;
+    flex: 1;
+    max-width: 400px;
+    margin: 0 30px;
+}
+
+.search-input-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+}
+
+.search-input-container i {
+    position: absolute;
+    left: 14px;
+    color: #7ec8ff;
+    font-size: 1em;
+    pointer-events: none;
+}
+
+.search-input {
+    width: 100%;
+    padding: 12px 16px 12px 42px;
+    background: #0a0e27;
+    border: 2px solid #2a3f5f;
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 1em;
+    font-family: inherit;
+    transition: all 0.3s ease;
+}
+
+.search-input:focus {
+    outline: none;
+    border-color: #4a9eff;
+    box-shadow: 0 0 15px rgba(74, 158, 255, 0.2);
+}
+
+.search-input::placeholder {
+    color: #6a7a8a;
+}
+
+.search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    right: 0;
+    margin-top: 8px;
+    background: #1a1f3a;
+    border: 2px solid #4a9eff;
+    border-radius: 8px;
+    max-height: 400px;
+    overflow-y: auto;
+    z-index: 500;
+    display: none;
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+}
+
+.search-dropdown.active {
+    display: block;
+}
+
+.search-dropdown-item {
+    display: flex;
+    align-items: center;
+    padding: 10px 14px;
+    cursor: pointer;
+    transition: background 0.2s ease;
+    border-bottom: 1px solid #2a3f5f;
+}
+
+.search-dropdown-item:last-child {
+    border-bottom: none;
+}
+
+.search-dropdown-item:hover,
+.search-dropdown-item.highlighted {
+    background: #2a3f5f;
+}
+
+.search-dropdown-item img {
+    width: 50px;
+    height: 50px;
+    object-fit: cover;
+    border-radius: 6px;
+    margin-right: 14px;
+    background: #0a0e27;
+}
+
+.search-dropdown-item-info {
+    flex: 1;
+}
+
+.search-dropdown-item-name {
+    color: #4a9eff;
+    font-weight: 600;
+    font-size: 1em;
+    margin-bottom: 2px;
+}
+
+.search-dropdown-item-id {
+    color: #8a9aaa;
+    font-size: 0.85em;
+}
+
+.search-no-results {
+    padding: 20px;
+    text-align: center;
+    color: #8a9aaa;
+    font-style: italic;
+}
+
 .gallery-back-btn {
     display: inline-flex; /* Aligns the icon and text nicely */
     align-items: center; /* Centers items vertically */
@@ -431,6 +545,33 @@ html, body {
 
     .options-container {
         grid-template-columns: 1fr;
+    }
+
+    .gallery-header {
+        flex-wrap: wrap;
+        gap: 15px;
+        position: relative;
+    }
+
+    .gallery-header h1 {
+        width: 100%;
+        text-align: center;
+        font-size: 1.5em;
+    }
+
+    .search-wrapper {
+        order: 3;
+        width: 100%;
+        max-width: none;
+        margin: 0;
+    }
+
+    .gallery-back-btn {
+        order: 2;
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        padding: 10px 16px;
     }
 
     .gallery-grid {

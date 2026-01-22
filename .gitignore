@@ -2,4 +2,5 @@ _gsdata_/
 .idea/
 cache/
 *.jpg
+*.log
 /public/dso_visibility.log

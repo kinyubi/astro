@@ -5,7 +5,7 @@
  */
 
 $dirFull = __DIR__ . '/images/annotated_full';
-$dirWall = __DIR__ . '/images/annotated_wallpaper';
+$dirWall = __DIR__ . '/images/annotated_wall';
 $dirFav = __DIR__ . '/images/fav';
 $extensions = ['jpg','jpeg','png','gif','webp'];
 
@@ -31,14 +31,14 @@ if (file_exists($dsoInfoPath)) {
 }
 
 $fullImages = gatherImages($dirFull, 'images/annotated_full', $extensions);
-$wallImages = gatherImages($dirWall, 'images/annotated_wallpaper', $extensions);
+$wallImages = gatherImages($dirWall, 'images/annotated_wall', $extensions);
 $favImages = gatherImages($dirFav, 'images/fav', $extensions);
 
 /**
  * Extract DSO name from filename (new convention: scientific name at start, terminated by underscore)
  * Examples: 
  *   "M1_20250113_annotated_full.jpg" -> "M1"
- *   "NGC7000_20250113_annotated_wallpaper.jpg" -> "NGC7000"
+ *   "NGC7000_20250113_annotated_wall.jpg" -> "NGC7000"
  *   "SH2-308_20250113_annotated_full.jpg" -> "SH2-308"
  */
 function extractDSOName($filename) {
@@ -92,20 +92,10 @@ foreach ($fullImages as $imgPath) {
     $fullPath = $imgPath;
 
     // Find corresponding wallpaper image - replace both directory and filename
-    $wallpaperPath = str_replace('images/annotated_full', 'images/annotated_wallpaper', $imgPath);
+    $wallpaperPath = str_replace('images/annotated_full', 'images/annotated_wall', $imgPath);
     $wallpaperPath = str_replace('_full_annotated', '_wall_annotated', $wallpaperPath);
     $favPath = str_replace('images/annotated_full', 'images/fav', $imgPath);
     $favPath = str_replace('_full_annotated', '_fav', $favPath);
-    
-    // Create display name from filename
-//    $displayName = pathinfo($filename, PATHINFO_FILENAME);
-//    $displayName = str_replace('_annotated_full', '', $displayName);
-//    $displayName = str_replace('_annotated_wallpaper', '', $displayName);
-//    $displayName = str_replace('_full', '', $displayName);
-//    $displayName = str_replace('_wallpaper', '', $displayName);
-//    $displayName = str_replace('_', ' ', $displayName);
-//    $displayName = ucwords(strtolower($displayName));
-    
     // Look up info with "See" redirection support
     $info = getDSOInfo($dsoKey, $dsoInfo);
     
@@ -143,7 +133,7 @@ $galleryJson = json_encode($galleryItems);
     <title>Astronomy Gallery</title>
     <link rel="icon" type="image/png" href="/images/favicon.png">
 
-    <link rel="stylesheet" href="/css/style.css?ver=1">
+    <link rel="stylesheet" href="/css/style.css?ver=2">
     <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
 </head>
 <body>
@@ -186,6 +176,13 @@ $galleryJson = json_encode($galleryItems);
 <div class="gallery-container" id="galleryContainer">
     <div class="gallery-header">
         <h1>🔭 Deep Sky Objects</h1>
+        <div class="search-wrapper">
+            <div class="search-input-container">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" class="search-input" id="searchInput" placeholder="Search by name or catalog ID..." autocomplete="off">
+            </div>
+            <div class="search-dropdown" id="searchDropdown"></div>
+        </div>
         <button class="gallery-back-btn" title="Home" onclick="backToLanding()"><i class="fa-solid fa-house"></i></button>
     </div>
     <div class="gallery-grid" id="galleryGrid"></div>
@@ -292,6 +289,127 @@ $galleryJson = json_encode($galleryItems);
     window.addEventListener('orientationchange',()=>setTimeout(chooseListByOrientation,120));
     document.addEventListener('visibilitychange',()=>{if(document.hidden){stopAutoAdvance();}else{resetAutoAdvance();}});
     updatePlayPauseButton();
+
+    // Search functionality
+    const searchInput = document.getElementById('searchInput');
+    const searchDropdown = document.getElementById('searchDropdown');
+    let highlightedIndex = -1;
+    let searchResults = [];
+
+    function searchGallery(query) {
+        if (query.length < 2) return [];
+        const lowerQuery = query.toLowerCase();
+        return galleryData.filter(item => {
+            const nameMatch = item.displayName && item.displayName.toLowerCase().includes(lowerQuery);
+            const dsoMatch = item.dsoKey && item.dsoKey.toLowerCase().includes(lowerQuery);
+            return nameMatch || dsoMatch;
+        }).slice(0, 8); // Limit to 8 results
+    }
+
+    function renderSearchDropdown(results) {
+        searchResults = results;
+        highlightedIndex = -1;
+        
+        if (results.length === 0) {
+            if (searchInput.value.length >= 2) {
+                searchDropdown.innerHTML = '<div class="search-no-results">No matching objects found</div>';
+                searchDropdown.classList.add('active');
+            } else {
+                searchDropdown.classList.remove('active');
+            }
+            return;
+        }
+
+        searchDropdown.innerHTML = results.map((item, idx) => {
+            const galleryIdx = galleryData.findIndex(g => g.filename === item.filename);
+            return `
+                <div class="search-dropdown-item" data-index="${galleryIdx}" data-search-index="${idx}">
+                    <img src="${item.favPath}" alt="${item.displayName}" loading="lazy">
+                    <div class="search-dropdown-item-info">
+                        <div class="search-dropdown-item-name">${item.displayName}</div>
+                        <div class="search-dropdown-item-id">${item.dsoKey || ''}</div>
+                    </div>
+                </div>
+            `;
+        }).join('');
+        
+        searchDropdown.classList.add('active');
+        
+        // Add click handlers
+        searchDropdown.querySelectorAll('.search-dropdown-item').forEach(el => {
+            el.addEventListener('click', () => {
+                const idx = parseInt(el.dataset.index);
+                openModal(idx);
+                closeSearchDropdown();
+            });
+        });
+    }
+
+    function closeSearchDropdown() {
+        searchDropdown.classList.remove('active');
+        searchInput.value = '';
+        highlightedIndex = -1;
+        searchResults = [];
+    }
+
+    function updateHighlight() {
+        const items = searchDropdown.querySelectorAll('.search-dropdown-item');
+        items.forEach((item, idx) => {
+            item.classList.toggle('highlighted', idx === highlightedIndex);
+        });
+        // Scroll highlighted item into view
+        if (highlightedIndex >= 0 && items[highlightedIndex]) {
+            items[highlightedIndex].scrollIntoView({ block: 'nearest' });
+        }
+    }
+
+    searchInput.addEventListener('input', (e) => {
+        const query = e.target.value.trim();
+        const results = searchGallery(query);
+        renderSearchDropdown(results);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+        if (!searchDropdown.classList.contains('active') || searchResults.length === 0) {
+            if (e.key === 'Escape') {
+                closeSearchDropdown();
+                searchInput.blur();
+            }
+            return;
+        }
+
+        switch (e.key) {
+            case 'ArrowDown':
+                e.preventDefault();
+                highlightedIndex = (highlightedIndex + 1) % searchResults.length;
+                updateHighlight();
+                break;
+            case 'ArrowUp':
+                e.preventDefault();
+                highlightedIndex = highlightedIndex <= 0 ? searchResults.length - 1 : highlightedIndex - 1;
+                updateHighlight();
+                break;
+            case 'Enter':
+                e.preventDefault();
+                if (highlightedIndex >= 0) {
+                    const galleryIdx = galleryData.findIndex(g => g.filename === searchResults[highlightedIndex].filename);
+                    openModal(galleryIdx);
+                    closeSearchDropdown();
+                }
+                break;
+            case 'Escape':
+                closeSearchDropdown();
+                searchInput.blur();
+                break;
+        }
+    });
+
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.search-wrapper')) {
+            searchDropdown.classList.remove('active');
+        }
+    });
 </script>
 </body>
 </html>
