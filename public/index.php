@@ -203,6 +203,18 @@ $galleryJson = json_encode($galleryItems);
     let activeList=[],currentIndex=0,autoAdvanceTimer=null,isPaused=false;
     const AUTO_ADVANCE_DELAY=5000;
     const slideImg=document.getElementById('slide'),prevBtn=document.getElementById('prevBtn'),nextBtn=document.getElementById('nextBtn'),playPauseBtn=document.getElementById('playPauseBtn'),pauseIcon=document.getElementById('pauseIcon'),playIcon=document.getElementById('playIcon');
+    
+    // Helper function to append palette suffix based on filename
+    function getTitleWithPalette(displayName, filename) {
+        if (!filename) return displayName;
+        const lowerFilename = filename.toLowerCase();
+        if (lowerFilename.includes('_hoo_')) return displayName + ' (HOO palette)';
+        if (lowerFilename.includes('_hso_')) return displayName + ' (HSO palette)';
+        if (lowerFilename.includes('_sho_')) return displayName + ' (SHO palette)';
+        if (lowerFilename.includes('_hos_')) return displayName + ' (HOS palette)';
+        return displayName;
+    }
+
     function showSlideshow(){document.getElementById('landingPage').style.display='none';document.getElementById('slideshowContainer').classList.add('active');chooseListByOrientation();}
     function showGallery(){document.getElementById('landingPage').style.display='none';document.getElementById('galleryContainer').classList.add('active');renderGallery();}
     function backToLanding(){document.getElementById('slideshowContainer').classList.remove('active');document.getElementById('galleryContainer').classList.remove('active');document.getElementById('landingPage').style.display='flex';stopAutoAdvance();}
@@ -221,7 +233,7 @@ $galleryJson = json_encode($galleryItems);
             const info = document.createElement('div');
             info.className = 'gallery-item-info';
             const title = document.createElement('h3');
-            title.textContent = item.displayName;
+            title.textContent = getTitleWithPalette(item.displayName, item.filename);
             const subtitle = document.createElement('p');
             // if (item.info && item.info.Constellation) {
             //     subtitle.textContent = 'Constellation ' + item.info.Constellation;
@@ -326,7 +338,7 @@ $galleryJson = json_encode($galleryItems);
                 <div class="search-dropdown-item" data-index="${galleryIdx}" data-search-index="${idx}">
                     <img src="${item.favPath}" alt="${item.displayName}" loading="lazy">
                     <div class="search-dropdown-item-info">
-                        <div class="search-dropdown-item-name">${item.displayName}</div>
+                        <div class="search-dropdown-item-name">${getTitleWithPalette(item.displayName, item.filename)}</div>
                         <div class="search-dropdown-item-id">${item.dsoKey || ''}</div>
                     </div>
                 </div>
