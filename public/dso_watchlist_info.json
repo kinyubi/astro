@@ -290,6 +290,10 @@
         "CommonName": "Ring Nebula",
 		"See": "NGC6720"
     },
+    "M63": {
+      "CommonName": "Sunflower Galaxy",
+      "See": "NGC5055"
+    },
     "M74": {
         "CommonName": "Phantom Galaxy",
 		"See": "NGC628"
@@ -309,7 +313,15 @@
     "M101": {
         "CommonName": "Pinwheel Galaxy",
 		"See": "NGC5457"
-    },	
+    },
+    "M106": {
+        "CommonName": "M106 Spiral Galaxy",
+		"See": "NGC4258"
+	},
+  "M109": {
+    "CommonName": "Vacuum Cleaner Galaxy",
+    "See": "NGC3992"
+  },
     "NGC1432": {
         "CommonName": "The Pleiades",
         "Composition": "Hot young stars with surrounding interstellar dust reflecting blue starlight.",
@@ -581,7 +593,7 @@
             "Its structure resembles a scaled version of the Milky Way's classic spiral form."
         ],
         "Size": "~90,000 light-years; ~26 arcminutes—~0.9× the full Moon's diameter.",
-        "Type": "Spiral galaxy (Bode's Galaxy)"
+        "Type": "Spiral galaxy"
     },
 	"NGC3587": {
         "CommonName": "Owl Nebula",
@@ -595,8 +607,20 @@
         "Size": "~2 light-years; ~3 arcminutes—~0.1× the full Moon's diameter.",
         "Type": "Planetary nebula"
     },
+  "NGC3992": {
+        "CommonName": "Vacuum Cleaner Galaxy",
+        "Composition": "Barred spiral galaxy with a bright core and well-defined arms.",
+        "Constellation": "Ursa Major",
+        "Distance": "~55 million light-years away",
+        "FunFacts": [
+            "Known as the Vacuum Cleaner Galaxy due to its shape resembling a vacuum cleaner.",
+            "Part of the M109 Group of galaxies in Ursa Major."
+        ],
+        "Size": "~85,000 light-years; ~7 arcminutes—~0.25× the full Moon's diameter.",
+        "Type": "Barred spiral galaxy"
+    },
     "NGC4258": {
-        "CommonName": "M106",
+        "CommonName": "M106 Spiral Galaxy",
         "Composition": "Spiral galaxy with an active supermassive black hole and unusual 'anomalous arms' seen in radio/X-ray.",
         "Constellation": "Canes Venatici",
         "Distance": "~23–25 million light-years away",
@@ -606,6 +630,18 @@
         ],
         "Size": "~135,000 light-years; ~19 arcminutes—~0.6× the full Moon's diameter.",
         "Type": "Spiral galaxy (Seyfert / active nucleus)"
+    },
+  "NGC5055": {
+        "CommonName": "Sunflower Galaxy",
+        "Composition": "Large spiral galaxy with a bright core and well-defined spiral arms rich in star formation.",
+        "Constellation": "Canes Venatici",
+        "Distance": "~21 million light-years away",
+        "FunFacts": [
+            "Its tightly wound spiral arms give it a sunflower-like appearance.",
+            "Often studied for its star formation and galactic structure."
+        ],
+        "Size": "~170,000 light-years; ~12 arcminutes—~0.4× the full Moon's diameter.",
+        "Type": "Spiral galaxy"
     },
     "NGC5194": {
         "CommonName": "Whirlpool Galaxy",
@@ -632,7 +668,7 @@
             "Its many star-forming regions make it rich in Hα emission (for a galaxy)."
         ],
         "Size": "~170,000 light-years; ~28 arcminutes—about the full Moon's diameter.",
-        "Type": "Face-on spiral galaxy (Pinwheel Galaxy)"
+        "Type": "Face-on spiral galaxy"
     },		
     "NGC598": {
         "CommonName": "Triangulum Galaxy",
@@ -647,7 +683,7 @@
             "M33"
         ],
         "Size": "~60,000 light-years across; ~1°—about 2× the full Moon's diameter.",
-        "Type": "Spiral galaxy (Triangulum Galaxy)"
+        "Type": "Spiral galaxy"
     },
     "NGC6205": {
         "CommonName": "Great Hercules Cluster",
