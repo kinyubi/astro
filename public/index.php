@@ -36,51 +36,49 @@ $favImages = gatherImages($dirFav, 'images/fav', $extensions);
 
 /**
  * Extract DSO name from filename (new convention: scientific name at start, terminated by underscore)
- * Examples: 
- *   "M1_20250113_annotated_full.jpg" -> "M1"
- *   "NGC7000_20250113_annotated_wall.jpg" -> "NGC7000"
- *   "SH2-308_20250113_annotated_full.jpg" -> "SH2-308"
  */
 function extractDSOName($filename) {
     $name = pathinfo($filename, PATHINFO_FILENAME);
-    
-    // Extract everything before the first underscore
     $parts = explode('_', $name);
     if (count($parts) > 0) {
         $dsoName = strtoupper(trim($parts[0]));
-        // Clean up common variations
         $dsoName = str_replace(' ', '', $dsoName);
         return $dsoName;
     }
-    
     return null;
 }
 
 /**
+ * Extract base filename for download paths
+ */
+function extractBaseName($filename) {
+    $name = pathinfo($filename, PATHINFO_FILENAME);
+    $suffixes = ['_fav_annotated', '_full_annotated', '_wall_annotated', '_fav', '_full', '_wall'];
+    foreach ($suffixes as $suffix) {
+        if (str_ends_with($name, $suffix)) {
+            return substr($name, 0, -strlen($suffix));
+        }
+    }
+    return $name;
+}
+
+/**
  * Look up DSO information with "See" redirection support
- * If the entry has a "See" field, follow it to get the actual info
  */
 function getDSOInfo($dsoKey, $dsoInfo) {
     if (!$dsoKey || !isset($dsoInfo[$dsoKey])) {
         return null;
     }
-    
     $entry = $dsoInfo[$dsoKey];
-    
-    // Check if this entry has a "See" field (redirect to another entry)
     if (isset($entry['See']) && !empty($entry['See'])) {
         $redirectKey = $entry['See'];
         if (isset($dsoInfo[$redirectKey])) {
             return $dsoInfo[$redirectKey];
         }
     }
-    
-    // Check if this entry has actual content (not just a redirect)
-    // An entry with content should have more than just CommonName and See
     if (count($entry) > 2 || (count($entry) === 2 && !isset($entry['See']))) {
         return $entry;
     }
-    
     return null;
 }
 
@@ -89,17 +87,14 @@ $galleryItems = [];
 foreach ($fullImages as $imgPath) {
     $filename = basename($imgPath);
     $dsoKey = extractDSOName($filename);
+    $baseName = extractBaseName($filename);
     $fullPath = $imgPath;
-
-    // Find corresponding wallpaper image - replace both directory and filename
     $wallpaperPath = str_replace('images/annotated_full', 'images/annotated_wall', $imgPath);
     $wallpaperPath = str_replace('_full_annotated', '_wall_annotated', $wallpaperPath);
     $favPath = str_replace('images/annotated_full', 'images/fav', $imgPath);
     $favPath = str_replace('_full_annotated', '_fav', $favPath);
-    // Look up info with "See" redirection support
     $info = getDSOInfo($dsoKey, $dsoInfo);
     
-    // If we have info and a CommonName, use that for display
     if ($info && isset($info['CommonName'])) {
         $displayName = $info['CommonName'];
     } else {
@@ -108,6 +103,7 @@ foreach ($fullImages as $imgPath) {
     
     $galleryItems[] = [
         'filename' => $filename,
+        'baseName' => $baseName,
         'fullPath' => $fullPath,
         'favPath' => $favPath,
         'wallpaperPath' => $wallpaperPath,
@@ -135,6 +131,243 @@ $galleryJson = json_encode($galleryItems);
 
     <link rel="stylesheet" href="/css/style.css?ver=2">
     <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
+    <style>
+        /* Download Button & Dropdown Styles */
+        .modal-download-btn {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            z-index: 1001;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(74, 158, 255, 0.3);
+            color: white;
+            border: 2px solid #4a9eff;
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            font-size: 1.4em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .modal-download-btn:hover {
+            background: rgba(74, 158, 255, 0.5);
+        }
+
+        .download-dropdown {
+            position: fixed;
+            top: 80px;
+            left: 20px;
+            z-index: 1002;
+            background: #1a1f3a;
+            border: 2px solid #4a9eff;
+            border-radius: 10px;
+            min-width: 220px;
+            display: none;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+            overflow: hidden;
+        }
+
+        .download-dropdown.active {
+            display: block;
+        }
+
+        .download-dropdown-header {
+            padding: 12px 16px;
+            background: #2a3f5f;
+            color: #7ec8ff;
+            font-weight: 600;
+            font-size: 0.9em;
+            border-bottom: 1px solid #4a9eff;
+        }
+
+        .download-category {
+            border-bottom: 1px solid #2a3f5f;
+        }
+
+        .download-category:last-child {
+            border-bottom: none;
+        }
+
+        .download-category-title {
+            padding: 10px 16px;
+            color: #4a9eff;
+            font-weight: 600;
+            font-size: 0.95em;
+            background: #151a30;
+            cursor: default;
+        }
+
+        .download-option {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px 10px 28px;
+            color: #e0e0e0;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            font-size: 0.9em;
+        }
+
+        .download-option:hover {
+            background: #2a3f5f;
+        }
+
+        .download-option i {
+            margin-right: 10px;
+            color: #7ec8ff;
+            width: 18px;
+            text-align: center;
+        }
+
+        .download-option .size-hint {
+            margin-left: auto;
+            color: #6a7a8a;
+            font-size: 0.8em;
+        }
+
+        /* Image Loading Spinner */
+        .modal-image-container {
+            position: relative;
+            min-height: 200px;
+            background: #000;
+        }
+
+        .modal-image-container.loading::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 50px;
+            height: 50px;
+            margin: -25px 0 0 -25px;
+            border: 4px solid rgba(74, 158, 255, 0.3);
+            border-top-color: #4a9eff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            z-index: 1;
+        }
+
+        .modal-image-container.loading .modal-image {
+            opacity: 0;
+        }
+
+        .modal-image {
+            width: 100%;
+            height: auto;
+            object-fit: contain;
+            opacity: 1;
+            transition: opacity 0.3s ease;
+            display: block;
+        }
+
+        /* Portrait - constrain to 90vh so info peeks through */
+        @media (orientation: portrait) {
+            .modal-image {
+                max-height: 90vh !important;
+            }
+        }
+
+        /* Landscape - fit to viewport */
+        @media (orientation: landscape) {
+            .modal-image {
+                max-height: 100vh !important;
+            }
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Gallery image wrapper - maintains aspect ratio before image loads */
+        .gallery-image-wrapper {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 4 / 5; /* Match your fav image aspect ratio */
+            background: #151a30;
+            overflow: hidden;
+        }
+
+        /* Lazy loading placeholder for gallery thumbnails */
+        .lazy-image {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+        }
+
+        .lazy-image.loaded {
+            opacity: 1;
+        }
+
+        /* Small spinner for gallery thumbnails */
+        .gallery-image-wrapper::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 30px;
+            height: 30px;
+            margin: -15px 0 0 -15px;
+            border: 3px solid rgba(74, 158, 255, 0.2);
+            border-top-color: #4a9eff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        .gallery-image-wrapper.loaded::before {
+            display: none;
+        }
+
+        /* Scroll hint floating at bottom */
+        .scroll-hint {
+            position: fixed;
+            bottom: 30px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: #9aa0a6;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            z-index: 1003;
+            opacity: 0;
+            transition: opacity 0.5s ease;
+            pointer-events: none;
+        }
+
+        .scroll-hint.visible {
+            opacity: 1;
+        }
+
+        .scroll-hint i {
+            margin-right: 8px;
+        }
+
+        /* Mobile adjustments */
+        @media (max-width: 768px) {
+            .modal-download-btn {
+                width: 44px;
+                height: 44px;
+                font-size: 1.2em;
+            }
+
+            .download-dropdown {
+                left: 10px;
+                right: 10px;
+                min-width: auto;
+            }
+
+            .download-option {
+                padding: 14px 16px 14px 28px;
+            }
+        }
+    </style>
 </head>
 <body>
 <div class="landing-page" id="landingPage">
@@ -188,13 +421,49 @@ $galleryJson = json_encode($galleryItems);
     <div class="gallery-grid" id="galleryGrid"></div>
 </div>
 <div class="modal" id="modal">
+    <div class="scroll-hint" id="scrollHint"><i class="fa-solid fa-chevron-down"></i> Scroll for object information</div>
+    <button class="modal-download-btn" id="downloadBtn" onclick="toggleDownloadDropdown(event)" title="Download"><i class="fa-solid fa-download"></i></button>
+    <div class="download-dropdown" id="downloadDropdown">
+        <div class="download-dropdown-header">Download Image</div>
+        <div class="download-category">
+            <div class="download-category-title">Titled</div>
+            <div class="download-option" onclick="downloadImage('titled', 'square')">
+                <i class="fa-solid fa-square"></i> Square (4:5)
+                <span class="size-hint">1080×1350</span>
+            </div>
+            <div class="download-option" onclick="downloadImage('titled', 'portrait')">
+                <i class="fa-solid fa-mobile-screen"></i> Portrait (9:16)
+                <span class="size-hint">1080×1920</span>
+            </div>
+            <div class="download-option" onclick="downloadImage('titled', 'landscape')">
+                <i class="fa-solid fa-desktop"></i> Landscape (16:9)
+                <span class="size-hint">1920×1080</span>
+            </div>
+        </div>
+        <div class="download-category">
+            <div class="download-category-title">Untitled</div>
+            <div class="download-option" onclick="downloadImage('untitled', 'square')">
+                <i class="fa-solid fa-square"></i> Square (4:5)
+                <span class="size-hint">1080×1350</span>
+            </div>
+            <div class="download-option" onclick="downloadImage('untitled', 'portrait')">
+                <i class="fa-solid fa-mobile-screen"></i> Portrait (9:16)
+                <span class="size-hint">1080×1920</span>
+            </div>
+            <div class="download-option" onclick="downloadImage('untitled', 'landscape')">
+                <i class="fa-solid fa-desktop"></i> Landscape (16:9)
+                <span class="size-hint">1920×1080</span>
+            </div>
+        </div>
+    </div>
     <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-arrow-left"></i></button>
     <div class="modal-content">
-        <img class="modal-image" id="modalImage" src="" alt="">
+        <div class="modal-image-container loading" id="modalImageContainer">
+            <img class="modal-image" id="modalImage" src="" alt="">
+        </div>
         <div class="modal-info" id="modalInfo"></div>
     </div>
 </div>
-<!--<script src="https://kit.fontawesome.com/12c5ce46e9.js" crossorigin="anonymous"></script>-->
 <script>
     const fullImages=<?php echo $fullJson;?>;
     const wallImages=<?php echo $wallJson;?>;
@@ -204,6 +473,16 @@ $galleryJson = json_encode($galleryItems);
     const AUTO_ADVANCE_DELAY=5000;
     const slideImg=document.getElementById('slide'),prevBtn=document.getElementById('prevBtn'),nextBtn=document.getElementById('nextBtn'),playPauseBtn=document.getElementById('playPauseBtn'),pauseIcon=document.getElementById('pauseIcon'),playIcon=document.getElementById('playIcon');
     
+    // Current modal item for downloads
+    let currentModalItem = null;
+    
+    // Lazy loading observer - will be initialized after gallery renders
+    let lazyImageObserver = null;
+    
+    // Track if scroll hint has been shown this session
+    let scrollHintShown = false;
+    let scrollHintTimer = null;
+
     // Helper function to append palette suffix based on filename
     function getTitleWithPalette(displayName, filename) {
         if (!filename) return displayName;
@@ -215,6 +494,85 @@ $galleryJson = json_encode($galleryItems);
         return displayName;
     }
 
+    // Generate all 6 image paths from base name
+    function getImagePaths(baseName) {
+        return {
+            titled: {
+                square: `/images/annotated_fav/${baseName}_fav_annotated.jpg`,
+                portrait: `/images/annotated_full/${baseName}_full_annotated.jpg`,
+                landscape: `/images/annotated_wall/${baseName}_wall_annotated.jpg`
+            },
+            untitled: {
+                square: `/images/fav/${baseName}_fav.jpg`,
+                portrait: `/images/full/${baseName}_full.jpg`,
+                landscape: `/images/wall/${baseName}_wall.jpg`
+            }
+        };
+    }
+
+    // Check if device supports Web Share API with files
+    function canShareFiles() {
+        return navigator.share && navigator.canShare;
+    }
+
+    // Download or share image
+    async function downloadImage(type, size) {
+        if (!currentModalItem || !currentModalItem.baseName) {
+            console.error('No image selected');
+            return;
+        }
+
+        const paths = getImagePaths(currentModalItem.baseName);
+        const imagePath = paths[type][size];
+        const filename = imagePath.split('/').pop();
+
+        closeDownloadDropdown();
+
+        try {
+            const response = await fetch(imagePath);
+            if (!response.ok) throw new Error('Image not found');
+            const blob = await response.blob();
+
+            if (canShareFiles()) {
+                const file = new File([blob], filename, { type: blob.type });
+                if (navigator.canShare({ files: [file] })) {
+                    try {
+                        await navigator.share({
+                            files: [file],
+                            title: currentModalItem.displayName
+                        });
+                        return;
+                    } catch (shareErr) {
+                        if (shareErr.name === 'AbortError') return;
+                    }
+                }
+            }
+
+            const blobUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = blobUrl;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(blobUrl);
+
+        } catch (error) {
+            console.error('Download failed:', error);
+            alert('Unable to download image. Please try again.');
+        }
+    }
+
+    function toggleDownloadDropdown(event) {
+        event.stopPropagation();
+        const dropdown = document.getElementById('downloadDropdown');
+        dropdown.classList.toggle('active');
+    }
+
+    function closeDownloadDropdown() {
+        document.getElementById('downloadDropdown').classList.remove('active');
+    }
+
     function showSlideshow(){document.getElementById('landingPage').style.display='none';document.getElementById('slideshowContainer').classList.add('active');chooseListByOrientation();}
     function showGallery(){document.getElementById('landingPage').style.display='none';document.getElementById('galleryContainer').classList.add('active');renderGallery();}
     function backToLanding(){document.getElementById('slideshowContainer').classList.remove('active');document.getElementById('galleryContainer').classList.remove('active');document.getElementById('landingPage').style.display='flex';stopAutoAdvance();}
@@ -222,39 +580,103 @@ $galleryJson = json_encode($galleryItems);
     function renderGallery() {
         const grid = document.getElementById('galleryGrid');
         grid.innerHTML = '';
+        
+        // Create all cards first
+        const cards = [];
         galleryData.forEach((item, idx) => {
             const card = document.createElement('div');
             card.className = 'gallery-item';
             card.onclick = () => openModal(idx);
+            
+            // Wrapper maintains aspect ratio
+            const wrapper = document.createElement('div');
+            wrapper.className = 'gallery-image-wrapper';
+            
             const img = document.createElement('img');
-            img.src = item.favPath;
+            img.dataset.src = item.favPath;
+            img.dataset.wrapperClass = 'gallery-image-wrapper';
+            img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
             img.alt = item.displayName;
-            img.loading = 'lazy';
+            img.className = 'lazy-image';
+            
             const info = document.createElement('div');
             info.className = 'gallery-item-info';
             const title = document.createElement('h3');
             title.textContent = getTitleWithPalette(item.displayName, item.filename);
-            const subtitle = document.createElement('p');
-            // if (item.info && item.info.Constellation) {
-            //     subtitle.textContent = 'Constellation ' + item.info.Constellation;
-            // } else if (item.dsoKey) {
-            //     subtitle.textContent = item.dsoKey;
-            // }
+            
             info.appendChild(title);
-            // info.appendChild(subtitle);
-            card.appendChild(img);
+            wrapper.appendChild(img);
+            card.appendChild(wrapper);
             card.appendChild(info);
             grid.appendChild(card);
+            cards.push({ img, wrapper });
+        });
+        
+        // Wait for layout to complete, then set up observer
+        requestAnimationFrame(() => {
+            requestAnimationFrame(() => {
+                initLazyLoading(cards);
+            });
+        });
+    }
+    
+    function initLazyLoading(cards) {
+        // Clean up old observer if exists
+        if (lazyImageObserver) {
+            lazyImageObserver.disconnect();
+        }
+        
+        // Create new observer with strict settings
+        lazyImageObserver = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    const img = entry.target;
+                    const wrapper = img.parentElement;
+                    
+                    // Start loading
+                    img.onload = () => {
+                        img.classList.add('loaded');
+                        wrapper.classList.add('loaded');
+                    };
+                    img.onerror = () => {
+                        wrapper.classList.add('loaded'); // Hide spinner even on error
+                    };
+                    img.src = img.dataset.src;
+                    
+                    lazyImageObserver.unobserve(img);
+                }
+            });
+        }, {
+            root: null, // viewport
+            rootMargin: '0px', // No preloading outside viewport
+            threshold: 0.01 // Must be at least 1% visible
+        });
+        
+        // Observe all images
+        cards.forEach(({ img }) => {
+            lazyImageObserver.observe(img);
         });
     }
 
     function openModal(idx) {
         const item = galleryData[idx];
+        currentModalItem = item;
         const modal = document.getElementById('modal');
         const modalImage = document.getElementById('modalImage');
+        const modalImageContainer = document.getElementById('modalImageContainer');
         const modalInfo = document.getElementById('modalInfo');
         const isLandscape = window.innerWidth > window.innerHeight;
         const imageSrc = isLandscape && item.wallpaperPath ? item.wallpaperPath : item.fullPath;
+        
+        modalImageContainer.classList.add('loading');
+        
+        modalImage.onload = function() {
+            modalImageContainer.classList.remove('loading');
+        };
+        modalImage.onerror = function() {
+            modalImageContainer.classList.remove('loading');
+        };
+        
         modalImage.src = imageSrc;
         modalImage.alt = item.displayName;
         const titleText = item.info && item.info.CommonName ? item.info.CommonName : item.displayName;
@@ -278,10 +700,53 @@ $galleryJson = json_encode($galleryItems);
         modalInfo.innerHTML = h;
         modal.classList.add('active');
         document.body.style.overflow = 'hidden';
+        closeDownloadDropdown();
+        
+        // Show scroll hint on first modal open
+        if (!scrollHintShown) {
+            scrollHintShown = true;
+            const hint = document.getElementById('scrollHint');
+            // Small delay so it appears after modal opens
+            setTimeout(() => {
+                hint.classList.add('visible');
+                // Hide after 5 seconds
+                scrollHintTimer = setTimeout(() => {
+                    hint.classList.remove('visible');
+                }, 5000);
+            }, 500);
+        }
     }
-    function closeModal(){document.getElementById('modal').classList.remove('active');document.body.style.overflow='';}
-    document.getElementById('modal').addEventListener('click',e=>{if(e.target.id==='modal')closeModal();});
-    document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal();});
+    
+    function closeModal(){
+        document.getElementById('modal').classList.remove('active');
+        document.body.style.overflow='';
+        closeDownloadDropdown();
+        currentModalItem = null;
+        // Clear scroll hint timer and hide if visible
+        if (scrollHintTimer) {
+            clearTimeout(scrollHintTimer);
+            scrollHintTimer = null;
+        }
+        document.getElementById('scrollHint').classList.remove('visible');
+    }
+    
+    document.getElementById('modal').addEventListener('click',e=>{
+        if (!e.target.closest('#downloadDropdown') && !e.target.closest('#downloadBtn')) {
+            closeDownloadDropdown();
+        }
+        if(e.target.id==='modal')closeModal();
+    });
+    
+    document.addEventListener('keydown',e=>{
+        if(e.key==='Escape') {
+            if (document.getElementById('downloadDropdown').classList.contains('active')) {
+                closeDownloadDropdown();
+            } else {
+                closeModal();
+            }
+        }
+    });
+    
     function shuffleArray(a){const r=a.slice();for(let i=r.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[r[i],r[j]]=[r[j],r[i]];}return r;}
     function loadShuffled(k,o){if(!o||!o.length)return[];try{const s=sessionStorage.getItem(k);if(s){const p=JSON.parse(s);if(Array.isArray(p)&&p.length===o.length)return p;}}catch(e){}const sh=shuffleArray(o);try{sessionStorage.setItem(k,JSON.stringify(sh));}catch(e){}return sh;}
     function chooseListByOrientation(){const isP=window.innerHeight>window.innerWidth;const cO=isP?fullImages:wallImages;const fO=isP?wallImages:fullImages;const cK=isP?FULL_KEY:WALL_KEY;const fK=isP?WALL_KEY:FULL_KEY;let list=loadShuffled(cK,cO);if(!list.length)list=loadShuffled(fK,fO);const pS=activeList.length?activeList[currentIndex]:null;activeList=list;if(pS){const idx=activeList.indexOf(pS);currentIndex=idx>=0?idx:0;}else{currentIndex=0;}updateControls();showImage();resetAutoAdvance();}
@@ -315,7 +780,7 @@ $galleryJson = json_encode($galleryItems);
             const nameMatch = item.displayName && item.displayName.toLowerCase().includes(lowerQuery);
             const dsoMatch = item.dsoKey && item.dsoKey.toLowerCase().includes(lowerQuery);
             return nameMatch || dsoMatch;
-        }).slice(0, 8); // Limit to 8 results
+        }).slice(0, 8);
     }
 
     function renderSearchDropdown(results) {
@@ -347,7 +812,6 @@ $galleryJson = json_encode($galleryItems);
         
         searchDropdown.classList.add('active');
         
-        // Add click handlers
         searchDropdown.querySelectorAll('.search-dropdown-item').forEach(el => {
             el.addEventListener('click', () => {
                 const idx = parseInt(el.dataset.index);
@@ -369,7 +833,6 @@ $galleryJson = json_encode($galleryItems);
         items.forEach((item, idx) => {
             item.classList.toggle('highlighted', idx === highlightedIndex);
         });
-        // Scroll highlighted item into view
         if (highlightedIndex >= 0 && items[highlightedIndex]) {
             items[highlightedIndex].scrollIntoView({ block: 'nearest' });
         }
@@ -416,7 +879,6 @@ $galleryJson = json_encode($galleryItems);
         }
     });
 
-    // Close dropdown when clicking outside
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.search-wrapper')) {
             searchDropdown.classList.remove('active');
