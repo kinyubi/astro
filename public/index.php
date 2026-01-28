@@ -101,11 +101,14 @@ foreach ($fullImages as $imgPath) {
         $displayName = 'Unknown';
     }
     
+    $thumbPath = 'images/thumbs/' . $baseName . '_thumb.jpg';
+    
     $galleryItems[] = [
         'filename' => $filename,
         'baseName' => $baseName,
         'fullPath' => $fullPath,
         'favPath' => $favPath,
+        'thumbPath' => $thumbPath,
         'wallpaperPath' => $wallpaperPath,
         'displayName' => $displayName,
         'dsoKey' => $dsoKey,
@@ -152,8 +155,15 @@ $galleryJson = json_encode($galleryItems);
             transition: all 0.3s ease;
         }
 
-        .modal-download-btn:hover {
+        .modal-download-btn:hover,
+        .modal-close:hover {
             background: rgba(74, 158, 255, 0.5);
+        }
+
+        /* Override modal-close to match download button */
+        .modal-close {
+            background: rgba(74, 158, 255, 0.3);
+            border: 2px solid #4a9eff;
         }
 
         .download-dropdown {
@@ -349,6 +359,24 @@ $galleryJson = json_encode($galleryItems);
             margin-right: 8px;
         }
 
+        /* Modal info pane text size adjustments */
+        .modal-header h2 {
+            font-size: 1.08em !important; /* 1.8em reduced by 40% */
+        }
+
+        .modal-info .info-section h3 {
+            font-size: 0.8em !important; /* 1.15em reduced by 30% */
+        }
+
+        .modal-info .info-section p,
+        .modal-info .info-section.fun-facts ul {
+            font-size: 0.7em !important; /* 1em reduced by 30% */
+        }
+
+        .modal-info .no-info {
+            font-size: 0.7em !important;
+        }
+
         /* Mobile adjustments */
         @media (max-width: 768px) {
             .modal-download-btn {
@@ -456,7 +484,7 @@ $galleryJson = json_encode($galleryItems);
             </div>
         </div>
     </div>
-    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-arrow-left"></i></button>
+    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-house"></i></button>
     <div class="modal-content">
         <div class="modal-image-container loading" id="modalImageContainer">
             <img class="modal-image" id="modalImage" src="" alt="">
@@ -593,7 +621,7 @@ $galleryJson = json_encode($galleryItems);
             wrapper.className = 'gallery-image-wrapper';
             
             const img = document.createElement('img');
-            img.dataset.src = item.favPath;
+            img.dataset.src = item.thumbPath;
             img.dataset.wrapperClass = 'gallery-image-wrapper';
             img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
             img.alt = item.displayName;

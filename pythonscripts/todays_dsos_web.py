@@ -121,14 +121,8 @@ def calculate_visibility(target_date=None, profile_name='default'):
             constellation = row['Constellation']
             size = row['SqArcMins']
             magnitude = row['Mag']
-            most_recent_parts = []
-            for key in ('MostRecent', 'S50Date'):
-                val = row.get(key, '')
-                if pd.isna(val) or val is None or val == '':
-                    continue
-                most_recent_parts.append(str(val))
-            most_recent = ''.join(most_recent_parts)
-            do_me = '&#9733;' if len(str(most_recent)) < 4 else ''
+            want_better = row.get('WantBetter', False)
+            do_me = '&#9733;' if str(want_better).upper() == 'TRUE' else ''
 
             try:
                 obj = SkyCoord.from_name(str(name))
