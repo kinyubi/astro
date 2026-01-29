@@ -93,6 +93,13 @@ foreach ($fullImages as $imgPath) {
     $wallpaperPath = str_replace('_full_annotated', '_wall_annotated', $wallpaperPath);
     $favPath = str_replace('images/annotated_full', 'images/fav', $imgPath);
     $favPath = str_replace('_full_annotated', '_fav', $favPath);
+    
+    // Check if 4K wallpaper versions exist (separate check for annotated and normal)
+    $wall4kPath = 'images/wall4k/' . $baseName . '_4k.jpg';
+    $wall4kAnnotatedPath = 'images/wall4k/' . $baseName . '_4k_annotated.jpg';
+    $has4k = file_exists(__DIR__ . '/' . $wall4kPath);
+    $has4kAnnotated = file_exists(__DIR__ . '/' . $wall4kAnnotatedPath);
+    
     $info = getDSOInfo($dsoKey, $dsoInfo);
     
     if ($info && isset($info['CommonName'])) {
@@ -112,7 +119,9 @@ foreach ($fullImages as $imgPath) {
         'wallpaperPath' => $wallpaperPath,
         'displayName' => $displayName,
         'dsoKey' => $dsoKey,
-        'info' => $info
+        'info' => $info,
+        'has4k' => $has4k,
+        'has4kAnnotated' => $has4kAnnotated
     ];
 }
 
@@ -407,12 +416,12 @@ $galleryJson = json_encode($galleryItems);
         <div class="option-card" onclick="showSlideshow()">
             <div class="option-icon">🎬</div>
             <h2>Slideshow</h2>
-            <p>Sit back and enjoy an automated tour through stunning deep sky images</p>
+            <p>Sit back and enjoy an automated tour of stunning deep sky objects that I have photographed</p>
         </div>
         <div class="option-card" onclick="showGallery()">
             <div class="option-icon">🔭</div>
             <h2>Browse Gallery</h2>
-            <p>Explore individual objects with detailed information and high-resolution images</p>
+            <p>Read about, view close up or download images of any deep sky image in my gallery.</p>
         </div>
     </div>
 </div>
@@ -454,7 +463,7 @@ $galleryJson = json_encode($galleryItems);
     <div class="download-dropdown" id="downloadDropdown">
         <div class="download-dropdown-header">Download Image</div>
         <div class="download-category">
-            <div class="download-category-title">Titled</div>
+            <div class="download-category-title">Annotated</div>
             <div class="download-option" onclick="downloadImage('titled', 'square')">
                 <i class="fa-solid fa-square"></i> Square (4:5)
                 <span class="size-hint">1080×1350</span>
@@ -467,9 +476,13 @@ $galleryJson = json_encode($galleryItems);
                 <i class="fa-solid fa-desktop"></i> Landscape (16:9)
                 <span class="size-hint">1920×1080</span>
             </div>
+            <div class="download-option download-4k-annotated-option" onclick="downloadImage('titled', 'landscape4k')" style="display:none;">
+                <i class="fa-solid fa-tv"></i> 4K Wallpaper
+                <span class="size-hint">3840×2160</span>
+            </div>
         </div>
         <div class="download-category">
-            <div class="download-category-title">Untitled</div>
+            <div class="download-category-title">Normal</div>
             <div class="download-option" onclick="downloadImage('untitled', 'square')">
                 <i class="fa-solid fa-square"></i> Square (4:5)
                 <span class="size-hint">1080×1350</span>
@@ -481,6 +494,10 @@ $galleryJson = json_encode($galleryItems);
             <div class="download-option" onclick="downloadImage('untitled', 'landscape')">
                 <i class="fa-solid fa-desktop"></i> Landscape (16:9)
                 <span class="size-hint">1920×1080</span>
+            </div>
+            <div class="download-option download-4k-normal-option" onclick="downloadImage('untitled', 'landscape4k')" style="display:none;">
+                <i class="fa-solid fa-tv"></i> 4K Wallpaper
+                <span class="size-hint">3840×2160</span>
             </div>
         </div>
     </div>
@@ -522,18 +539,20 @@ $galleryJson = json_encode($galleryItems);
         return displayName;
     }
 
-    // Generate all 6 image paths from base name
+    // Generate all image paths from base name (including 4K)
     function getImagePaths(baseName) {
         return {
             titled: {
                 square: `/images/annotated_fav/${baseName}_fav_annotated.jpg`,
                 portrait: `/images/annotated_full/${baseName}_full_annotated.jpg`,
-                landscape: `/images/annotated_wall/${baseName}_wall_annotated.jpg`
+                landscape: `/images/annotated_wall/${baseName}_wall_annotated.jpg`,
+                landscape4k: `/images/wall4k/${baseName}_4k_annotated.jpg`
             },
             untitled: {
                 square: `/images/fav/${baseName}_fav.jpg`,
                 portrait: `/images/full/${baseName}_full.jpg`,
-                landscape: `/images/wall/${baseName}_wall.jpg`
+                landscape: `/images/wall/${baseName}_wall.jpg`,
+                landscape4k: `/images/wall4k/${baseName}_4k.jpg`
             }
         };
     }
@@ -729,6 +748,10 @@ $galleryJson = json_encode($galleryItems);
         modal.classList.add('active');
         document.body.style.overflow = 'hidden';
         closeDownloadDropdown();
+        
+        // Show/hide 4K options based on availability (separate for annotated and normal)
+        document.querySelector('.download-4k-annotated-option').style.display = item.has4kAnnotated ? 'flex' : 'none';
+        document.querySelector('.download-4k-normal-option').style.display = item.has4k ? 'flex' : 'none';
         
         // Show scroll hint on first modal open
         if (!scrollHintShown) {
