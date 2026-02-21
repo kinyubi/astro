@@ -3,4 +3,5 @@ _gsdata_/
 cache/
 *.jpg
 *.log
+secrets.php
 /public/dso_visibility.log

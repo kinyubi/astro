@@ -1,4 +1,15 @@
 {
+    "C2025-A6": {
+        "CommonName": "Lemmon Comet",
+        "Composition": "Non-periodic comet with an orbital period of 1,350 years",
+        "Constellation": "",
+        "Distance": "~1,500 light-years away",
+        "FunFacts": [
+            "C/2025 A6 surprised astronomers. It was discovered on January 3, 2025. It was briefly observable in November of 2025 as it neared the earth. At that time it was 400 times brighter than astronomers had originally estimated"
+        ],
+        "Size": "No information found.",
+        "Type": "Non-peridodic comet"
+    },
     "HD34078": {
         "CommonName": "AE Aurigae",
         "Composition": "Hot massive star plowing through interstellar gas; UV light and stellar wind create a bow shock and excite nearby dust/gas.",
@@ -10,7 +21,7 @@
         ],
         "Size": "The star is point-like; its surrounding bow-shock arc is a few light-years across and spans only a small fraction of the Moon in typical images.",
         "Type": "Runaway O-type star illuminating a bow-shock reflection nebula (IC 405 region)"
-    },
+    },    
     "IC1318": {
         "CommonName": "Sadr Region",
         "Composition": "Large hydrogen emission region with dark dust lanes; energized by massive stars in Cygnus.",
@@ -995,7 +1006,7 @@
     },
     "SH2-240": {
         "CommonName": "Spaghetti Nebula",
-        "Composition": "Extremely faint filamentary shell of shock-heated gas from an ancient supernova; includes a pulsar candidate association.",
+        "Composition": "looks like tangled cosmic noodles stretched across the sky — and that’s not far from the truth. It is the remains of a massive star that exploded in a supernova about 40,000 years ago. The thin glowing strands are energized hydrogen and oxygen gas, still expanding into space.",
         "Constellation": "Cygnus",
         "Distance": "~3,000 light-years away",
         "FunFacts": [

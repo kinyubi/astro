@@ -96,7 +96,7 @@ foreach ($fullImages as $imgPath) {
     
     // Check if 4K wallpaper versions exist (separate check for annotated and normal)
     $wall4kPath = 'images/wall4k/' . $baseName . '_4k.jpg';
-    $wall4kAnnotatedPath = 'images/wall4k/' . $baseName . '_4k_annotated.jpg';
+    $wall4kAnnotatedPath = 'images/annotated_wall4k/' . $baseName . '_4k_annotated.jpg';
     $has4k = file_exists(__DIR__ . '/' . $wall4kPath);
     $has4kAnnotated = file_exists(__DIR__ . '/' . $wall4kAnnotatedPath);
     
@@ -173,6 +173,12 @@ $galleryJson = json_encode($galleryItems);
         .modal-close {
             background: rgba(74, 158, 255, 0.3);
             border: 2px solid #4a9eff;
+        }
+
+        .modal-close svg {
+            width: 50%;
+            height: 50%;
+            fill: white;
         }
 
         .download-dropdown {
@@ -387,6 +393,15 @@ $galleryJson = json_encode($galleryItems);
         }
 
         /* Mobile adjustments */
+        /* Floating back button for gallery */
+        .gallery-floating-back {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            left: auto;
+            z-index: 100;
+        }
+
         @media (max-width: 768px) {
             .modal-download-btn {
                 width: 44px;
@@ -444,6 +459,9 @@ $galleryJson = json_encode($galleryItems);
     </div>
 </div>
 <div class="gallery-container" id="galleryContainer">
+    <button class="back-btn gallery-floating-back" onclick="backToLanding()" aria-label="Back to menu" type="button">
+        <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="white"/></svg>
+    </button>
     <div class="gallery-header">
         <h1>🔭 Deep Sky Objects</h1>
         <div class="search-wrapper">
@@ -453,7 +471,6 @@ $galleryJson = json_encode($galleryItems);
             </div>
             <div class="search-dropdown" id="searchDropdown"></div>
         </div>
-        <button class="gallery-back-btn" title="Home" onclick="backToLanding()"><i class="fa-solid fa-house"></i></button>
     </div>
     <div class="gallery-grid" id="galleryGrid"></div>
 </div>
@@ -501,7 +518,9 @@ $galleryJson = json_encode($galleryItems);
             </div>
         </div>
     </div>
-    <button class="modal-close" onclick="closeModal()"><i class="fa-solid fa-house"></i></button>
+    <button class="modal-close" onclick="closeModal()" aria-label="Back to gallery">
+        <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="white"/></svg>
+    </button>
     <div class="modal-content">
         <div class="modal-image-container loading" id="modalImageContainer">
             <img class="modal-image" id="modalImage" src="" alt="">
@@ -546,7 +565,7 @@ $galleryJson = json_encode($galleryItems);
                 square: `/images/annotated_fav/${baseName}_fav_annotated.jpg`,
                 portrait: `/images/annotated_full/${baseName}_full_annotated.jpg`,
                 landscape: `/images/annotated_wall/${baseName}_wall_annotated.jpg`,
-                landscape4k: `/images/wall4k/${baseName}_4k_annotated.jpg`
+                landscape4k: `/images/annotated_wall4k/${baseName}_4k_annotated.jpg`
             },
             untitled: {
                 square: `/images/fav/${baseName}_fav.jpg`,
@@ -813,8 +832,33 @@ $galleryJson = json_encode($galleryItems);
     nextBtn.addEventListener('click',nextImage);
     playPauseBtn.addEventListener('click',togglePlayPause);
     document.addEventListener('keydown',e=>{if(e.key==='ArrowRight')nextImage();else if(e.key==='ArrowLeft')prevImage();else if(e.key===' '){e.preventDefault();togglePlayPause();}});
-    window.addEventListener('resize',chooseListByOrientation);
-    window.addEventListener('orientationchange',()=>setTimeout(chooseListByOrientation,120));
+    function updateModalImageForOrientation() {
+        if (!currentModalItem) return;
+        const modal = document.getElementById('modal');
+        if (!modal.classList.contains('active')) return;
+        
+        const modalImage = document.getElementById('modalImage');
+        const modalImageContainer = document.getElementById('modalImageContainer');
+        const isLandscape = window.innerWidth > window.innerHeight;
+        const newSrc = isLandscape && currentModalItem.wallpaperPath 
+            ? currentModalItem.wallpaperPath 
+            : currentModalItem.fullPath;
+        
+        // Only update if the source actually changed
+        if (!modalImage.src.endsWith(newSrc)) {
+            modalImageContainer.classList.add('loading');
+            modalImage.src = newSrc;
+        }
+    }
+
+    window.addEventListener('resize', function() {
+        chooseListByOrientation();
+        updateModalImageForOrientation();
+    });
+    window.addEventListener('orientationchange', () => setTimeout(function() {
+        chooseListByOrientation();
+        updateModalImageForOrientation();
+    }, 120));
     document.addEventListener('visibilitychange',()=>{if(document.hidden){stopAutoAdvance();}else{resetAutoAdvance();}});
     updatePlayPauseButton();
 

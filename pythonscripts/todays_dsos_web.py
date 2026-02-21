@@ -22,15 +22,15 @@ LAT_DEG = 43.69
 LON_DEG = -116.49
 TIME_ZONE = 'America/Boise'
 MIN_ALTITUDE_DEG = 25.0
-AZ_MIN_DEG = 10.0  # Due North
-AZ_MAX_DEG = 145.0  # Due South (Eastern Sky)
+AZ_MIN_DEG = 10.0  # Due North + 10 degrees
+AZ_MAX_DEG = 160.0  # Due South - 20 degrees (Eastern Sky)
 
-def get_viewing_window(target_date, ts, eph, observer):
+def get_viewing_window(specified_date, ts, eph, observer):
     """
     Determines the viewing window from astronomical twilight end to astronomical sunrise.
     """
-    t0 = ts.utc(target_date.year, target_date.month, target_date.day, 12)
-    t1 = ts.utc(target_date.year, target_date.month, target_date.day + 2, 12)
+    t0 = ts.utc(specified_date.year, specified_date.month, specified_date.day, 12)
+    t1 = ts.utc(specified_date.year, specified_date.month, specified_date.day + 2, 12)
 
     f = dark_twilight_day(eph, observer)
     times, events = find_discrete(t0, t1, f)
@@ -46,7 +46,7 @@ def get_viewing_window(target_date, ts, eph, observer):
         next_event = events[i + 1]
         t_local = t.astimezone(tz)
 
-        if event == 1 and next_event == 0 and viewing_start is None and t_local.date() >= target_date:
+        if event == 1 and next_event == 0 and viewing_start is None and t_local.date() >= specified_date:
             viewing_start = t
 
         if viewing_start is not None and event == 0 and next_event == 1 and viewing_end is None:
@@ -56,16 +56,16 @@ def get_viewing_window(target_date, ts, eph, observer):
     return viewing_start, viewing_end
 
 
-def calculate_visibility(target_date=None, profile_name='default'):
+def calculate_visibility(specified_date=None, profile_name='default'):
     """
     Main function to calculate visibility of objects and output HTML with sorting capability.
     
     Args:
-        target_date: datetime.date object or None for today
+        specified_date: datetime.date object or None for today
         profile_name: Name of location profile to use
     """
-    if target_date is None:
-        target_date = datetime.date.today()
+    if specified_date is None:
+        specified_date = datetime.date.today()
     
     # Load profile
     profile = load_profile(profile_name)
@@ -74,25 +74,25 @@ def calculate_visibility(target_date=None, profile_name='default'):
         return
     
     # Extract settings from profile
-    LOCATION_NAME = profile['location']
-    LAT_DEG = profile['latitude']
-    LON_DEG = profile['longitude']
-    TIME_ZONE = profile['timezone']
-    MIN_ALTITUDE_DEG = profile['min_altitude']
-    AZ_MIN_DEG = profile['az_min']
-    AZ_MAX_DEG = profile['az_max']
+    location_name = profile['location']
+    latitude = profile['latitude']
+    longitude = profile['longitude']
+    time_zone = profile['timezone']
+    minimum_altitude = profile['min_altitude']
+    azimuth_minimum_degrees = profile['az_min']
+    azimuth_maximum_degrees = profile['az_max']
 
     # Setup Skyfield
     ts = load.timescale(builtin=True)
     eph = load('de421.bsp')
-    observer = Topos(LAT_DEG, LON_DEG)
+    observer = Topos(latitude, longitude)
     earth = eph['earth']
     observer_pos = earth + observer
 
-    tz = ZoneInfo(TIME_ZONE)
+    tz = ZoneInfo(time_zone)
 
     # Get viewing window
-    viewing_start, viewing_end = get_viewing_window(target_date, ts, eph, observer)
+    viewing_start, viewing_end = get_viewing_window(specified_date, ts, eph, observer)
 
     if viewing_start is None or viewing_end is None:
         print("<p>Error: Could not determine astronomical twilight times.</p>")
@@ -134,9 +134,9 @@ def calculate_visibility(target_date=None, profile_name='default'):
             astrometric = observer_pos.at(time_range).observe(star)
             alt, az, _ = astrometric.apparent().altaz()
 
-            is_visible = (alt.degrees >= MIN_ALTITUDE_DEG) & \
-                         (az.degrees >= AZ_MIN_DEG) & \
-                         (az.degrees <= AZ_MAX_DEG)
+            is_visible = (alt.degrees >= minimum_altitude) & \
+                         (az.degrees >= azimuth_minimum_degrees) & \
+                         (az.degrees <= azimuth_maximum_degrees)
 
             visible_indices = np.where(is_visible)[0]
 
@@ -252,7 +252,7 @@ def calculate_visibility(target_date=None, profile_name='default'):
 
 
     # Output HTML
-    target_date_str = target_date.strftime('%Y-%m-%d')
+    target_date_str = specified_date.strftime('%Y-%m-%d')
 
     print(f"""<!DOCTYPE html>
 <html lang="en">
@@ -407,9 +407,9 @@ def calculate_visibility(target_date=None, profile_name='default'):
 <body>
     <h1>DSO Visibility Report</h1>
     <div class="info">
-        <p><strong>Location:</strong> {LOCATION_NAME}</p>
+        <p><strong>Location:</strong> {location_name}</p>
         <p><strong>Viewing Window:</strong> {start_local.strftime('%H:%M %Z')} to {end_local.strftime('%H:%M %Z')}</p>
-        <p><strong>Criteria:</strong> Altitude &gt;= {MIN_ALTITUDE_DEG}&deg;, Azimuth {AZ_MIN_DEG}&deg;-{AZ_MAX_DEG}&deg;</p>
+        <p><strong>Criteria:</strong> Altitude &gt;= {minimum_altitude}&deg;, Azimuth {azimuth_minimum_degrees}&deg;-{azimuth_maximum_degrees}&deg;</p>
     </div>
 
     <div class="controls">
