@@ -7,6 +7,7 @@
 require_once __DIR__ . '/config.php';
 
 session_name('dso_admin');
+session_set_cookie_params(['path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
 session_start();
 
 // Already logged in — nothing to do
@@ -87,6 +88,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['username'], $_POST['p
   <h1>DSO Admin</h1>
   <div class="subtitle">Deep Sky Object Database</div>
 
+  <?php if (isset($_GET['expired'])): ?>
+    <div class="error" style="background:rgba(210,153,34,0.1); border-color:var(--warn); color:var(--warn);">Your session expired. Please sign in again.</div>
+  <?php endif; ?>
   <?php if ($login_error): ?>
     <div class="error"><?= htmlspecialchars($login_error) ?></div>
   <?php endif; ?>

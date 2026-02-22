@@ -5,6 +5,7 @@
 <meta charset="UTF-8">
 <title>DSO Admin</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="favicon.png">
 <style>
   /* ── Reset / Base ── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -217,37 +218,7 @@
           <div class="field">
             <label>Object Type</label>
             <select id="f_ObjectTypeID">
-              <option value="">— select —</option>
-              <optgroup label="Nebulae">
-                <option value="EMISSION_NEBULA">Emission Nebula</option>
-                <option value="REFLECTION_NEBULA">Reflection Nebula</option>
-                <option value="DARK_NEBULA">Dark Nebula</option>
-                <option value="PLANETARY_NEBULA">Planetary Nebula</option>
-                <option value="SUPERNOVA_REMNANT">Supernova Remnant</option>
-                <option value="EMISSION_REFLECTION">Emission/Reflection Nebula</option>
-                <option value="WOLF_RAYET_BUBBLE">Wolf-Rayet Bubble</option>
-                <option value="HII_REGION">H II Region</option>
-              </optgroup>
-              <optgroup label="Galaxies">
-                <option value="SPIRAL_GALAXY">Spiral Galaxy</option>
-                <option value="BARRED_SPIRAL">Barred Spiral Galaxy</option>
-                <option value="ELLIPTICAL_GALAXY">Elliptical Galaxy</option>
-                <option value="IRREGULAR_GALAXY">Irregular Galaxy</option>
-                <option value="INTERACTING_GALAXIES">Interacting Galaxies</option>
-              </optgroup>
-              <optgroup label="Clusters">
-                <option value="OPEN_CLUSTER">Open Cluster</option>
-                <option value="GLOBULAR_CLUSTER">Globular Cluster</option>
-                <option value="CLUSTER_NEBULA">Cluster with Nebulosity</option>
-              </optgroup>
-              <optgroup label="Stars">
-                <option value="SINGLE_STAR">Star</option>
-                <option value="DOUBLE_STAR">Double Star</option>
-                <option value="VARIABLE_STAR">Variable Star</option>
-              </optgroup>
-              <optgroup label="Solar System">
-                <option value="SOLAR_SYSTEM">Solar System Object</option>
-              </optgroup>
+              <option value="">— loading —</option>
             </select>
           </div>
           <div class="field">
@@ -301,9 +272,32 @@
             <input type="number" id="f_Magnitude" step="0.1" placeholder="e.g. 4.0">
           </div>
           <div class="field span-3">
-            <label>Angular Size (arcminutes)</label>
-            <input type="text" id="f_AngularSize" placeholder="e.g. 90×40  or  45  for circular">
-            <div class="note">Largest dimension first. Use × for two-axis objects.</div>
+            <label>Object Size</label>
+            <input type="text" id="f_ObjectSize" placeholder="e.g. 70 light-years across with an apparent diameter of 45-50 arcminutes, about 1.5× the full moon">
+            <div class="note">Physical size, angular size, and moon comparison in one plain-English sentence.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Observation & Project -->
+      <div class="section">
+        <div class="section-header">Observation &amp; Project</div>
+        <div class="section-body grid-3">
+          <div class="field span-2">
+            <label>Project Folder</label>
+            <input type="text" id="f_ProjectFolder" placeholder="e.g. NGC1976_OrionNebula">
+            <div class="note">Folder name under C:\Astronomy\myWorks</div>
+          </div>
+          <div class="field">
+            <label>Most Recent Observation</label>
+            <input type="date" id="f_MostRecentObservation">
+          </div>
+          <div class="field">
+            <label>Is Mosaic?</label>
+            <select id="f_IsMosaic">
+              <option value="0">No</option>
+              <option value="1">Yes</option>
+            </select>
           </div>
         </div>
       </div>
@@ -330,7 +324,6 @@
             <thead>
               <tr>
                 <th>Catalog ID</th>
-                <th>Catalog Name</th>
                 <th>Primary?</th>
                 <th></th>
               </tr>
@@ -354,9 +347,44 @@
 // ──────────────────────────────────────────────
 let currentObject = null;   // The object currently loaded in the editor
 let searchTimer   = null;
+let blurbWatchSnapshot = {}; // Snapshot of fields that affect SocialBlurb
+
+const BLURB_WATCH = ['CommonName', 'ObjectSize', 'ConstellationID'];
+
+function snapshotBlurbFields() {
+  const snap = {};
+  BLURB_WATCH.forEach(f => {
+    const el = document.getElementById('f_' + f);
+    snap[f] = el ? el.value.trim() : '';
+  });
+  blurbWatchSnapshot = snap;
+}
+
+function blurbFieldsChanged() {
+  return BLURB_WATCH.some(f => {
+    const el = document.getElementById('f_' + f);
+    return el && el.value.trim() !== (blurbWatchSnapshot[f] ?? '');
+  });
+}
 
 const fields = ['DSOKey','CommonName','ObjectTypeID','ConstellationID',
-                'RAHours','DecDegrees','Magnitude','AngularSize','DistanceLY','SocialBlurb'];
+                'RAHours','DecDegrees','Magnitude','ObjectSize','DistanceLY',
+                'SocialBlurb','ProjectFolder','IsMosaic','MostRecentObservation'];
+
+// ──────────────────────────────────────────────
+// Fetch wrapper — redirects to login on 401
+// ──────────────────────────────────────────────
+async function apiFetch(url, options = {}) {
+  // Ensure session cookie is always sent with same-origin requests
+  options.credentials = 'same-origin';
+  const res = await fetch(url, options);
+  if (res.status === 401) {
+    window.location.href = 'index.php?expired=1';
+    // Return a promise that never resolves so the calling code stops cleanly
+    return new Promise(() => {});
+  }
+  return res;
+}
 
 // ──────────────────────────────────────────────
 // Toast helper
@@ -378,17 +406,20 @@ document.getElementById('search').addEventListener('input', function () {
 });
 
 async function fetchList(q = '') {
-  const res  = await fetch('api_search.php?q=' + encodeURIComponent(q));
+  const res  = await apiFetch('api_search.php?q=' + encodeURIComponent(q));
   const rows = await res.json();
   renderList(rows);
-  document.getElementById('search-hint').textContent = rows.length + ' object' + (rows.length === 1 ? '' : 's') + ' found';
+  const count = Array.isArray(rows) ? rows.length : 0;
+  document.getElementById('search-hint').textContent = Array.isArray(rows)
+    ? count + ' object' + (count === 1 ? '' : 's') + ' found'
+    : 'Error loading objects — check console';
 }
 
 function renderList(rows) {
   const ul = document.getElementById('object-list');
   ul.innerHTML = '';
-  if (!rows.length) {
-    ul.innerHTML = '<div style="padding:16px; color:var(--muted); font-size:13px;">No objects found</div>';
+  if (!Array.isArray(rows) || !rows.length) {
+    ul.innerHTML = '<div style="padding:16px; color:var(--muted); font-size:13px;">' + (Array.isArray(rows) ? 'No objects found' : 'Error loading objects') + '</div>';
     return;
   }
   rows.forEach(row => {
@@ -397,7 +428,7 @@ function renderList(rows) {
     div.dataset.key = row.DSOKey;
 
     // Completeness dot
-    const filled = [row.RAHours, row.DecDegrees, row.Magnitude, row.AngularSize, row.SocialBlurb].filter(v => v !== null && v !== '').length;
+    const filled = [row.RAHours, row.DecDegrees, row.Magnitude, row.ObjectSize, row.SocialBlurb].filter(v => v !== null && v !== '').length;
     const cls    = filled >= 4 ? 'full' : filled >= 2 ? 'partial' : 'empty';
 
     div.innerHTML = `
@@ -415,8 +446,38 @@ function renderList(rows) {
   });
 }
 
+// ──────────────────────────────────────────────
+// Load ObjectTypes dropdown from DB
+// ──────────────────────────────────────────────
+async function loadObjectTypes(selectedValue = '') {
+  const sel = document.getElementById('f_ObjectTypeID');
+  try {
+    const res  = await apiFetch('api_object_types.php');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    sel.innerHTML = '<option value="">— select —</option>';
+    Object.entries(data).forEach(([category, types]) => {
+      const grp = document.createElement('optgroup');
+      grp.label = category;
+      types.forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t.id;
+        opt.textContent = t.name;
+        if (t.id === selectedValue) opt.selected = true;
+        grp.appendChild(opt);
+      });
+      sel.appendChild(grp);
+    });
+  } catch (e) {
+    sel.innerHTML = '<option value="">— error loading —</option>';
+    console.error('Failed to load object types:', e);
+  }
+}
+
 // Populate list on load
 fetchList('');
+loadObjectTypes();
 
 // ──────────────────────────────────────────────
 // Load object into editor
@@ -432,12 +493,15 @@ function loadObject(row) {
   document.getElementById('f_DSOKey').value = row.DSOKey;
   document.getElementById('f_DSOKey').disabled = true; // can't change key of existing object
 
-  fields.filter(f => f !== 'DSOKey').forEach(f => {
+  fields.filter(f => f !== 'DSOKey' && f !== 'ObjectTypeID').forEach(f => {
     const el = document.getElementById('f_' + f);
     if (el) el.value = row[f] ?? '';
   });
+  // Re-render dropdown with this object's type selected
+  loadObjectTypes(row.ObjectTypeID || '');
 
   renderCatalogTable(row.CatalogIDs || []);
+  snapshotBlurbFields();
 }
 
 function newObject() {
@@ -452,6 +516,7 @@ function newObject() {
   });
   document.getElementById('f_DSOKey').disabled = false;
   renderCatalogTable([]);
+  snapshotBlurbFields();
 }
 
 function showEditor() {
@@ -475,7 +540,6 @@ function addCatRow(cat = {}) {
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td><input type="text" placeholder="e.g. M42" value="${cat.CatalogID || ''}" class="cat-id" style="text-transform:uppercase"></td>
-    <td><input type="text" placeholder="e.g. Messier" value="${cat.CatalogName || ''}" class="cat-name"></td>
     <td style="text-align:center"><input type="checkbox" class="cat-primary" ${cat.IsPrimary ? 'checked' : ''}></td>
     <td><button class="btn-icon" onclick="this.closest('tr').remove()" title="Remove">✕</button></td>
   `;
@@ -484,9 +548,8 @@ function addCatRow(cat = {}) {
 
 function getCatalogRows() {
   return Array.from(document.querySelectorAll('#cat-tbody tr')).map(tr => ({
-    CatalogID:   tr.querySelector('.cat-id').value.trim().toUpperCase(),
-    CatalogName: tr.querySelector('.cat-name').value.trim(),
-    IsPrimary:   tr.querySelector('.cat-primary').checked ? 1 : 0,
+    CatalogID: tr.querySelector('.cat-id').value.trim().toUpperCase(),
+    IsPrimary: tr.querySelector('.cat-primary').checked ? 1 : 0,
   })).filter(r => r.CatalogID);
 }
 
@@ -496,6 +559,12 @@ function getCatalogRows() {
 async function saveObject(silent = false) {
   const dsoKey = document.getElementById('f_DSOKey').value.trim().toUpperCase();
   if (!dsoKey) { toast('DSO Key is required', 'err'); return; }
+
+  // If any blurb-affecting fields changed, regenerate before saving
+  if (blurbFieldsChanged() && document.getElementById('f_SocialBlurb').value.trim() !== '') {
+    toast('Key fields changed — regenerating Social Blurb…', 'info', 6000);
+    await aiGenerateBlurb();
+  }
 
   const payload = { DSOKey: dsoKey };
   fields.filter(f => f !== 'DSOKey').forEach(f => {
@@ -512,10 +581,11 @@ async function saveObject(silent = false) {
   payload.CatalogIDs = getCatalogRows();
 
   try {
-    const res  = await fetch('api_save.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const res  = await apiFetch('api_save.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await res.json();
     if (data.success) {
       if (!silent) toast('Saved successfully', 'ok');
+      snapshotBlurbFields(); // Reset watch so next save doesn't re-trigger
       // Refresh the list and keep current selection
       const q = document.getElementById('search').value.trim();
       await fetchList(q);
@@ -539,12 +609,28 @@ async function aiPopulate() {
   btn.innerHTML = '<span class="spinner"></span> Searching…';
   toast('Asking AI about ' + dsoId + '…', 'info', 15000);
 
+  // Pass current form values so the AI uses them as ground truth for the blurb
+  const primaryRow = Array.from(document.querySelectorAll('#cat-tbody tr'))
+    .find(tr => tr.querySelector('.cat-primary')?.checked);
+  const primaryCatalogID = primaryRow ? primaryRow.querySelector('.cat-id').value.trim().toUpperCase() : dsoId;
+
+  const context = {
+    dso_id:             dsoId,
+    primary_catalog_id: primaryCatalogID,
+    common_name:        document.getElementById('f_CommonName').value.trim(),
+    constellation:      document.getElementById('f_ConstellationID').value.trim(),
+    object_size:        document.getElementById('f_ObjectSize').value.trim(),
+    distance:           document.getElementById('f_DistanceLY').value.trim(),
+  };
+
   try {
-    const res  = await fetch('api_populate.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dso_id: dsoId }) });
+    const res  = await apiFetch('api_populate.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(context) });
     const data = await res.json();
 
     if (!data.success) {
-      toast('AI error: ' + (data.error || 'Unknown error'), 'err', 6000);
+      const detail = data.detail ? JSON.parse(data.detail)?.error?.message : null;
+      toast('AI error: ' + (detail || data.error || 'Unknown error'), 'err', 10000);
+      console.error('AI populate error:', data);
       return;
     }
 
@@ -557,7 +643,7 @@ async function aiPopulate() {
       RAHours:         'f_RAHours',
       DecDegrees:      'f_DecDegrees',
       Magnitude:       'f_Magnitude',
-      AngularSize:     'f_AngularSize',
+      ObjectSize:      'f_ObjectSize',
       DistanceLY:      'f_DistanceLY',
     };
     let populated = 0;
@@ -573,6 +659,12 @@ async function aiPopulate() {
     // Always regenerate SocialBlurb
     if (f.SocialBlurb) {
       document.getElementById('f_SocialBlurb').value = f.SocialBlurb;
+      populated++;
+    }
+
+    // If AI returned CatalogIDs and the table is currently empty, populate it
+    if (Array.isArray(f.CatalogIDs) && f.CatalogIDs.length > 0 && getCatalogRows().length === 0) {
+      renderCatalogTable(f.CatalogIDs);
       populated++;
     }
 
@@ -596,10 +688,25 @@ async function aiGenerateBlurb() {
   const dsoId = document.getElementById('f_DSOKey').value.trim().toUpperCase();
   if (!dsoId) { toast('Enter a DSO Key first', 'err'); return; }
 
+  // Pass current form values so the AI uses them as ground truth
+  // Find the primary catalog ID from the catalog table, fall back to DSOKey
+  const primaryRow = Array.from(document.querySelectorAll('#cat-tbody tr'))
+    .find(tr => tr.querySelector('.cat-primary')?.checked);
+  const primaryCatalogID = primaryRow ? primaryRow.querySelector('.cat-id').value.trim().toUpperCase() : dsoId;
+
+  const context = {
+    dso_id:            dsoId,
+    primary_catalog_id: primaryCatalogID,
+    common_name:       document.getElementById('f_CommonName').value.trim(),
+    constellation:     document.getElementById('f_ConstellationID').value.trim(),
+    object_size:       document.getElementById('f_ObjectSize').value.trim(),
+    distance:          document.getElementById('f_DistanceLY').value.trim(),
+  };
+
   toast('Generating social blurb for ' + dsoId + '…', 'info', 15000);
 
   try {
-    const res  = await fetch('api_populate.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ dso_id: dsoId }) });
+    const res  = await apiFetch('api_populate.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(context) });
     const data = await res.json();
 
     if (!data.success) { toast('AI error: ' + (data.error || ''), 'err', 6000); return; }

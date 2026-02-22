@@ -6,8 +6,7 @@
 // Returns matching Objects + their primary CatalogID
 // ============================================================
 
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/auth_api.php';
 
 header('Content-Type: application/json');
 
@@ -30,7 +29,7 @@ try {
                 o.RAHours,
                 o.DecDegrees,
                 o.Magnitude,
-                o.AngularSize,
+                o.ObjectSize,
                 o.DistanceLY,
                 o.SocialBlurb,
                 o.LastUpdated,
@@ -55,7 +54,7 @@ try {
                 o.RAHours,
                 o.DecDegrees,
                 o.Magnitude,
-                o.AngularSize,
+                o.ObjectSize,
                 o.DistanceLY,
                 o.SocialBlurb,
                 o.LastUpdated,
@@ -74,7 +73,7 @@ try {
     if ($keys) {
         $placeholders = implode(',', array_fill(0, count($keys), '?'));
         $cat_stmt = $db->prepare("
-            SELECT CatalogID, DSOKey, CatalogName, IsPrimary
+            SELECT CatalogID, DSOKey, IsPrimary
             FROM CatalogIDs
             WHERE DSOKey IN ($placeholders)
             ORDER BY IsPrimary DESC, CatalogID

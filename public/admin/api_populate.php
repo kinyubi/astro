@@ -7,8 +7,7 @@
 // and returns structured field data as JSON.
 // ============================================================
 
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/auth_api.php';
 
 header('Content-Type: application/json');
 
@@ -19,7 +18,12 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 }
 
 $body = json_decode(file_get_contents('php://input'), true);
-$dso_id = trim($body['dso_id'] ?? '');
+$dso_id            = trim($body['dso_id']            ?? '');
+$primary_catalog_id = trim($body['primary_catalog_id'] ?? '') ?: $dso_id;
+$common_name       = trim($body['common_name']        ?? '');
+$constellation     = trim($body['constellation']      ?? '');
+$object_size       = trim($body['object_size']        ?? '');
+$distance          = trim($body['distance']            ?? '');
 
 if (!$dso_id) {
     http_response_code(400);
@@ -30,35 +34,68 @@ if (!$dso_id) {
 // ------------------------------------------------------------------
 // Build the prompt for Claude
 // ------------------------------------------------------------------
+$common_name_label  = $common_name  ?: '(not set — infer from catalog ID)';
+$constellation_label = $constellation ?: '(not set — infer from catalog ID)';
+$distance_label     = $distance     ?: '(not set — infer from catalog ID)';
+$object_size_label  = $object_size  ?: '(not set — infer from catalog ID)';
+
 $prompt = <<<PROMPT
-You are an astronomy database assistant with extensive knowledge of deep sky objects. Return a JSON object with data about the deep sky object "{$dso_id}" using your training knowledge of astronomical catalogs including SIMBAD, NASA, NGC/IC, and Sharpless.
+You are an astronomy database assistant with extensive knowledge of deep sky objects. Return a JSON object with data about the deep sky object "{$dso_id}".
+
+GROUND TRUTH — these values are set by the user and must be used exactly as provided. Do not substitute, correct, or infer alternatives for any field that is set:
+COMMON NAME : {$common_name_label}
+CATALOG ID  : {$primary_catalog_id}
+CONSTELLATION: {$constellation_label}
+DISTANCE    : {$distance_label}
+OBJECT SIZE : {$object_size_label}
+
+For the SocialBlurb, the first sentence MUST open with exactly: "The {$common_name_label} ({$primary_catalog_id}) is..."
 
 Return ONLY valid JSON — no markdown fences, no explanation text — in this exact structure:
 
 {
-  "CommonName": "string — popular name, e.g. Orion Nebula",
+  "CommonName": "string — use the GROUND TRUTH common name above if set, otherwise infer from catalog knowledge",
   "ObjectTypeID": "string — one of: EMISSION_NEBULA, REFLECTION_NEBULA, DARK_NEBULA, PLANETARY_NEBULA, SUPERNOVA_REMNANT, EMISSION_REFLECTION, WOLF_RAYET_BUBBLE, HII_REGION, SPIRAL_GALAXY, BARRED_SPIRAL, ELLIPTICAL_GALAXY, IRREGULAR_GALAXY, INTERACTING_GALAXIES, OPEN_CLUSTER, GLOBULAR_CLUSTER, CLUSTER_NEBULA, SINGLE_STAR, DOUBLE_STAR, VARIABLE_STAR, SOLAR_SYSTEM",
   "ConstellationID": "string — 3-letter IAU abbreviation, e.g. ORI, CYG, CAS",
   "RAHours": number — Right Ascension in decimal hours (0.0–24.0),
   "DecDegrees": number — Declination in decimal degrees (-90.0 to +90.0),
   "Magnitude": number — apparent visual magnitude,
-  "AngularSize": "string — the apparent angular dimensions as seen from Earth, expressed in arcminutes. Give LINEAR dimensions only (NOT area). Largest axis first, e.g. '90×40' for a 90 by 40 arcminute object, or '45' for a circular object ~45 arcminutes across. Do NOT compute or return area (sq arcmin).",
+  "ObjectSize": "string — a plain-English size description covering three things: (1) the actual physical size in light-years, (2) the apparent angular size in arcminutes, and (3) a comparison to the full moon's diameter (the full moon is 30 arcminutes across). Example: '70 light-years across with an apparent diameter of 45-50 arcminutes, about 1.5 times the size of the full moon.' Keep it to one sentence.",
   "DistanceLY": "string — human-readable distance, e.g. '~1,350 light-years'",
-  "SocialBlurb": "string — two paragraphs of warm, conversational prose for a social media post aimed at everyday people who love space and pretty astronomy images, not scientists. Avoid jargon, technical terms, and dry scientific language. Write like an enthusiastic friend sharing something amazing they just photographed. Paragraph 1: paint a vivid picture of what this object is and how far away it is — make the scale feel real and wondrous. Paragraph 2: two or three genuinely fascinating or surprising facts that make this object special, told in a way that would make someone say 'wow, I had no idea'. No hashtags. Separate paragraphs with the newline character \\n\\n."
+  "SocialBlurb": "string — conversational prose for a social media post for everyday people who enjoy space and astronomy images, not scientists. The blurb has ALREADY been started for you — your job is to complete it. It must begin with EXACTLY this text (do not alter, paraphrase, or restate it): 'The {$common_name_label} ({$primary_catalog_id}) is ' — then complete the sentence with a brief plain-English description of what this object is, and continue into a second paragraph. Rules: (1) Total length under 200 words. (2) Use short simple sentences. (3) Avoid jargon — if a term is unavoidable, explain it simply. (4) Be interesting but not over-the-top. (5) No hashtags. (6) Two paragraphs separated by \\n\\n. (7) Do NOT include distance, constellation, or size — those are shown separately.",
+  "CatalogIDs": [
+    { "CatalogID": "string — catalog identifier e.g. M42, NGC1976, IC434", "IsPrimary": 1 or 0 }
+  ]
 }
 
-If a field cannot be determined with confidence, use null for numbers and null for strings (not an empty string).
+For CatalogIDs, list all known catalog identifiers for this object. Mark exactly one as IsPrimary: 1 — prefer the most widely recognised identifier (Messier > NGC > IC > other).
+If a field cannot be determined with confidence, use null for numbers and null for strings. CatalogIDs should be an empty array [] if unknown.
 PROMPT;
 
 // ------------------------------------------------------------------
 // Call Anthropic API
 // ------------------------------------------------------------------
+// If we have a common name and catalog ID, prefill the assistant response
+// with the correct opening of the SocialBlurb. The model must continue from
+// this exact text and cannot substitute a different name.
+$messages = [['role' => 'user', 'content' => $prompt]];
+
+if ($common_name && $primary_catalog_id) {
+    // Build a partial JSON response with the blurb already opened correctly.
+    // The model will complete the JSON from this point.
+    $blurb_opening = 'The ' . $common_name . ' (' . $primary_catalog_id . ') is';
+    $prefill = '{' . "\n" .
+        '  "CommonName": ' . json_encode($common_name) . ',' . "\n" .
+        '  "SocialBlurb": ' . json_encode($blurb_opening, JSON_UNESCAPED_UNICODE);
+    // Strip the closing quote so the model continues the string
+    $prefill = rtrim($prefill, '"');
+    $messages[] = ['role' => 'assistant', 'content' => $prefill];
+}
+
 $request_body = json_encode([
     'model'      => ANTHROPIC_MODEL,
     'max_tokens' => 1500,
-    'messages' => [
-        ['role' => 'user', 'content' => $prompt]
-    ],
+    'messages'   => $messages,
 ]);
 
 $ch = curl_init('https://api.anthropic.com/v1/messages');
@@ -93,12 +130,17 @@ if ($http_status !== 200) {
 
 $api_result = json_decode($response, true);
 
-// Extract text from all content blocks (tool use + text may be interleaved)
+// Extract text from all content blocks
 $full_text = '';
 foreach ($api_result['content'] ?? [] as $block) {
     if ($block['type'] === 'text') {
         $full_text .= $block['text'];
     }
+}
+
+// If we prefilled the assistant response, prepend it so we have complete JSON
+if (!empty($prefill)) {
+    $full_text = $prefill . $full_text;
 }
 
 // Strip markdown fences if present
@@ -110,7 +152,7 @@ $fields = json_decode($full_text, true);
 
 // If that fails, try to extract just the JSON object from surrounding prose
 if (!$fields) {
-    if (preg_match('/\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}/s', $full_text, $matches)) {
+    if (preg_match('/\{.*\}/s', $full_text, $matches)) {
         $fields = json_decode($matches[0], true);
     }
 }
@@ -118,12 +160,37 @@ if (!$fields) {
 if (!$fields) {
     http_response_code(502);
     echo json_encode([
-        'error'    => 'Could not parse JSON from AI response',
-        'raw_text' => $full_text,
+        'error'       => 'Could not parse JSON from AI response',
+        'raw_text'    => $full_text,
         'stop_reason' => $api_result['stop_reason'] ?? null,
         'block_types' => array_column($api_result['content'] ?? [], 'type'),
     ]);
     exit;
+}
+
+// ------------------------------------------------------------------
+// Enforce correct opening sentence in SocialBlurb
+// ------------------------------------------------------------------
+if (!empty($fields['SocialBlurb']) && $common_name && $primary_catalog_id) {
+    $expected_open = 'The ' . $common_name . ' (' . $primary_catalog_id . ') is';
+    $blurb = $fields['SocialBlurb'];
+
+    // Check if blurb starts correctly (case-insensitive)
+    if (stripos($blurb, $expected_open) !== 0) {
+        // Find where the first sentence ends and strip it
+        $first_sentence_end = preg_match('/^.+?[.!?]\s*/s', $blurb, $m) ? strlen($m[0]) : 0;
+        $remainder = $first_sentence_end ? substr($blurb, $first_sentence_end) : $blurb;
+
+        // Re-attach with correct opening — AI still wrote the completion after "is"
+        // Try to salvage the "is ..." part from the wrong sentence if it exists
+        if (preg_match('/\bis\s+(.+)/is', $m[0] ?? '', $is_match)) {
+            $fields['SocialBlurb'] = $expected_open . ' ' . $is_match[1]
+                . ($remainder ? '\n\n' . trim($remainder) : '');
+        } else {
+            // AI wrote something completely unusable — prepend correct opener and keep the rest
+            $fields['SocialBlurb'] = $expected_open . ' ' . ltrim($remainder);
+        }
+    }
 }
 
 echo json_encode(['success' => true, 'fields' => $fields]);

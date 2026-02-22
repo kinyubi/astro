@@ -6,8 +6,7 @@
 // Also handles adding CatalogID entries.
 // ============================================================
 
-require_once __DIR__ . '/config.php';
-require_once __DIR__ . '/auth.php';
+require_once __DIR__ . '/auth_api.php';
 
 header('Content-Type: application/json');
 

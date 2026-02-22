@@ -23,11 +23,33 @@ function gatherImages($dir, $prefix, $extensions) {
     return array_values($images);
 }
 
-// Load DSO information
-$dsoInfoPath = __DIR__ . '/dso_watchlist_info.json';
+// Load DSO information from SQLite database
 $dsoInfo = [];
-if (file_exists($dsoInfoPath)) {
-    $dsoInfo = json_decode(file_get_contents($dsoInfoPath), true) ?: [];
+try {
+    $dbPath = __DIR__ . '/../dsodb/astro.db';
+    if (file_exists($dbPath)) {
+        $db = new PDO('sqlite:' . $dbPath);
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $stmt = $db->query("
+            SELECT
+                o.DSOKey,
+                o.CommonName,
+                o.ConstellationID,
+                con.Name AS ConstellationName,
+                o.DistanceLY,
+                o.ObjectSize,
+                o.SocialBlurb,
+                c.CatalogID AS PrimaryCatalogID
+            FROM Objects o
+            LEFT JOIN CatalogIDs c ON o.DSOKey = c.DSOKey AND c.IsPrimary = 1
+            LEFT JOIN Constellations con ON o.ConstellationID = con.ConstellationID
+        ");
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $dsoInfo[$row['DSOKey']] = $row;
+        }
+    }
+} catch (Exception $e) {
+    // Fall back to empty array — gallery still works, just no object info
 }
 
 $fullImages = gatherImages($dirFull, 'images/annotated_full', $extensions);
@@ -63,23 +85,13 @@ function extractBaseName($filename) {
 }
 
 /**
- * Look up DSO information with "See" redirection support
+ * Look up DSO information from the database-sourced array
  */
 function getDSOInfo($dsoKey, $dsoInfo) {
     if (!$dsoKey || !isset($dsoInfo[$dsoKey])) {
         return null;
     }
-    $entry = $dsoInfo[$dsoKey];
-    if (isset($entry['See']) && !empty($entry['See'])) {
-        $redirectKey = $entry['See'];
-        if (isset($dsoInfo[$redirectKey])) {
-            return $dsoInfo[$redirectKey];
-        }
-    }
-    if (count($entry) > 2 || (count($entry) === 2 && !isset($entry['See']))) {
-        return $entry;
-    }
-    return null;
+    return $dsoInfo[$dsoKey];
 }
 
 // Create gallery data
@@ -103,9 +115,10 @@ foreach ($fullImages as $imgPath) {
     $info = getDSOInfo($dsoKey, $dsoInfo);
     
     if ($info && isset($info['CommonName'])) {
-        $displayName = $info['CommonName'];
+        $primaryId = $info['PrimaryCatalogID'] ?? $dsoKey;
+        $displayName = $info['CommonName'] . ' (' . $primaryId . ')';
     } else {
-        $displayName = 'Unknown';
+        $displayName = $dsoKey;
     }
     
     $thumbPath = 'images/thumbs/' . $baseName . '_thumb.jpg';
@@ -390,6 +403,21 @@ $galleryJson = json_encode($galleryItems);
 
         .modal-info .no-info {
             font-size: 0.7em !important;
+        }
+
+        .social-blurb-para {
+            font-size: 0.7em;
+            line-height: 1.6;
+            color: #c9d1d9;
+            margin: 10px 16px;
+        }
+
+        .social-blurb-context {
+            color: #8b949e;
+            font-style: italic;
+            border-top: 1px solid rgba(255,255,255,0.07);
+            padding-top: 8px;
+            margin-top: 4px;
         }
 
         /* Mobile adjustments */
@@ -745,23 +773,27 @@ $galleryJson = json_encode($galleryItems);
         
         modalImage.src = imageSrc;
         modalImage.alt = item.displayName;
-        const titleText = item.info && item.info.CommonName ? item.info.CommonName : item.displayName;
+        const titleText = item.displayName || item.dsoKey;
         let h = `<div class="modal-header"><h2>${titleText}</h2></div>`;
         if (item.info) {
             const i = item.info;
-            if (i.OtherNames && i.OtherNames.length > 0) h += `<div class="info-section"><h3>Also Known As</h3> <p>${i.OtherNames.join(', ')}</p></div>`;
-            if (i.Constellation) h += `<div class="info-section"><h3>Constellation</h3> <p>${i.Constellation}</p></div>`;
-            if (i.Type) h += `<div class="info-section"><h3>Type</h3> <p>${i.Type}</p></div>`;
-            if (i.Distance) h += `<div class="info-section"><h3>Distance</h3> <p>${i.Distance}</p></div>`;
-            if (i.Size) h += `<div class="info-section"><h3>Size</h3> <p>${i.Size}</p></div>`;
-            if (i.Composition) h += `<div class="info-section"><h3>Composition</h3> <p>${i.Composition}</p></div>`;
-            if (i.FunFacts && i.FunFacts.length > 0) {
-                h += `<div class="info-section fun-facts"><h3>Fun Facts</h3><ul>`;
-                i.FunFacts.forEach(f => h += `<li>${f}</li>`);
-                h += `</ul></div>`;
+            if (i.ConstellationID) h += `<div class="info-section"><h3>Constellation</h3><p>${i.ConstellationID}</p></div>`;
+            if (i.DistanceLY)      h += `<div class="info-section"><h3>Distance</h3><p>${i.DistanceLY}</p></div>`;
+            if (i.SocialBlurb) {
+                // Convert \n\n to paragraph breaks
+                const paras = i.SocialBlurb.split(/\n\n+/);
+                h += paras.map(p => `<p class="social-blurb-para">${p}</p>`).join('');
             }
+            // Injected context paragraph — always built from structured DB fields
+            const name = i.CommonName || item.dsoKey;
+            const locParts = [];
+            if (i.ConstellationName) locParts.push(`located in the constellation ${i.ConstellationName}`);
+            if (i.DistanceLY)        locParts.push(`about ${i.DistanceLY}`);
+            let contextLine = locParts.length ? `The ${name} is ${locParts.join(', ')}.` : '';
+            if (i.ObjectSize) contextLine += (contextLine ? ` It is ${i.ObjectSize}` : `The ${name} is ${i.ObjectSize}`);
+            if (contextLine) h += `<p class="social-blurb-para social-blurb-context">${contextLine}</p>`;
         } else {
-            h += `<p class="no-info">No information found for this object.</p>`;
+            h += `<p class="no-info">No information available for this object.</p>`;
         }
         modalInfo.innerHTML = h;
         modal.classList.add('active');
