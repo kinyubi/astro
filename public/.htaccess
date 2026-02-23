@@ -1,8 +1,6 @@
 <IfModule mod_headers.c>
   <FilesMatch "\.(jpe?g|png|gif|webp)$">
-    Header set Cache-Control "no-store, no-cache, must-revalidate, proxy-revalidate"
-    Header set Pragma "no-cache"
-    Header set Expires "0"
+    Header set Cache-Control "no-cache"
   </FilesMatch>
 </IfModule>
 
@@ -10,6 +8,4 @@
 AddHandler cgi-script .py
 Options +ExecCGI
 
-# Rewrite rule for /vis to vis.php
 RewriteEngine On
-RewriteRule ^vis$ vis.php [L]

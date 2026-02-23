@@ -32,14 +32,20 @@ try {
                 o.ObjectSize,
                 o.DistanceLY,
                 o.SocialBlurb,
+                o.ProjectFolder,
+                o.IsMosaic,
+                o.MostRecentObservation,
                 o.LastUpdated,
                 c.CatalogID AS PrimaryCatalogID
             FROM Objects o
             LEFT JOIN CatalogIDs c ON o.DSOKey = c.DSOKey AND c.IsPrimary = 1
             WHERE
-                o.DSOKey      LIKE :q OR
-                o.CommonName  LIKE :q OR
-                c.CatalogID   LIKE :q
+                o.DSOKey     LIKE :q OR
+                o.CommonName LIKE :q OR
+                EXISTS (
+                    SELECT 1 FROM CatalogIDs ac
+                    WHERE ac.DSOKey = o.DSOKey AND ac.CatalogID LIKE :q
+                )
             ORDER BY o.DSOKey
             LIMIT 50
         ");
@@ -57,6 +63,9 @@ try {
                 o.ObjectSize,
                 o.DistanceLY,
                 o.SocialBlurb,
+                o.ProjectFolder,
+                o.IsMosaic,
+                o.MostRecentObservation,
                 o.LastUpdated,
                 c.CatalogID AS PrimaryCatalogID
             FROM Objects o

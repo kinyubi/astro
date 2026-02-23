@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 sync_myworks.py
-Scans C:\Astronomy\myWorks and updates Objects in the database with:
+Scans C:\\Astronomy\\myWorks and updates Objects in the database with:
   - ProjectFolder         : the folder name (relative to myWorks)
   - MostRecentObservation : the latest session date found in subfolders
 

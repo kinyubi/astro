@@ -47,6 +47,16 @@ try {
         foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
             $dsoInfo[$row['DSOKey']] = $row;
         }
+        // Also index by every CatalogID so M1, M42 etc. resolve correctly
+        $aliasStmt = $db->query("
+            SELECT CatalogID, DSOKey FROM CatalogIDs
+        ");
+        foreach ($aliasStmt->fetchAll(PDO::FETCH_ASSOC) as $alias) {
+            $key = strtoupper($alias['CatalogID']);
+            if (!isset($dsoInfo[$key]) && isset($dsoInfo[$alias['DSOKey']])) {
+                $dsoInfo[$key] = $dsoInfo[$alias['DSOKey']];
+            }
+        }
     }
 } catch (Exception $e) {
     // Fall back to empty array — gallery still works, just no object info
@@ -115,8 +125,7 @@ foreach ($fullImages as $imgPath) {
     $info = getDSOInfo($dsoKey, $dsoInfo);
     
     if ($info && isset($info['CommonName'])) {
-        $primaryId = $info['PrimaryCatalogID'] ?? $dsoKey;
-        $displayName = $info['CommonName'] . ' (' . $primaryId . ')';
+        $displayName = $info['CommonName'] . ' (' . $dsoKey . ')';
     } else {
         $displayName = $dsoKey;
     }

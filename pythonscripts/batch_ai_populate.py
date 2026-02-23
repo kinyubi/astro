@@ -11,6 +11,7 @@ Usage:
     python batch_ai_populate.py NGC1976      # single object
     python batch_ai_populate.py M1           # also works — resolves via CatalogIDs
     python batch_ai_populate.py --blurb-only # regenerate SocialBlurb only
+    python batch_ai_populate.py --empty-only # only objects with no ObjectTypeID
     python batch_ai_populate.py --dry-run    # show what would be processed
 
 Requires: pip install requests
@@ -31,7 +32,7 @@ API_BASE_URL = "http://localhost/astro/public/admin"
 DELAY_SECS = 3
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-def get_objects(db_path: Path, dso_key_filter: str = None) -> list[dict]:
+def get_objects(db_path: Path, dso_key_filter: str = None, empty_only: bool = False) -> list[dict]:
     """Fetch objects from the DB with their primary CatalogID."""
     con = sqlite3.connect(db_path)
     con.row_factory = sqlite3.Row
@@ -49,6 +50,16 @@ def get_objects(db_path: Path, dso_key_filter: str = None) -> list[dict]:
             WHERE o.DSOKey = ?
                OR o.DSOKey = (SELECT DSOKey FROM CatalogIDs WHERE CatalogID = ?)
         """, (key, key))
+    elif empty_only:
+        cur.execute("""
+            SELECT
+                o.DSOKey, o.CommonName, o.ConstellationID, o.DistanceLY, o.ObjectSize,
+                c.CatalogID AS PrimaryCatalogID
+            FROM Objects o
+            LEFT JOIN CatalogIDs c ON o.DSOKey = c.DSOKey AND c.IsPrimary = 1
+            WHERE o.ObjectTypeID IS NULL
+            ORDER BY o.DSOKey
+        """)
     else:
         cur.execute("""
             SELECT
@@ -109,21 +120,23 @@ def save_object(session: requests.Session, obj: dict, fields: dict, blurb_only: 
 def main():
     parser = argparse.ArgumentParser(description="Batch AI populate for all DSO objects")
     parser.add_argument("dso_key", nargs="?", help="Optional: process a single DSO key or catalog ID")
-    parser.add_argument("--blurb-only", action="store_true", help="Only regenerate SocialBlurb")
-    parser.add_argument("--dry-run",    action="store_true", help="Show what would be processed without calling the API")
+    parser.add_argument("--blurb-only",  action="store_true", help="Only regenerate SocialBlurb")
+    parser.add_argument("--empty-only",  action="store_true", help="Only process objects with no ObjectTypeID")
+    parser.add_argument("--dry-run",     action="store_true", help="Show what would be processed without calling the API")
     args = parser.parse_args()
 
     if not DB_PATH.exists():
         print(f"ERROR: Database not found at {DB_PATH}", file=sys.stderr)
         sys.exit(1)
 
-    objects = get_objects(DB_PATH, args.dso_key)
+    objects = get_objects(DB_PATH, args.dso_key, args.empty_only)
     if not objects:
         print("No objects found" + (f" matching '{args.dso_key}'" if args.dso_key else ""))
         sys.exit(0)
 
     print(f"{'DRY RUN — ' if args.dry_run else ''}Processing {len(objects)} object(s)"
-          + (" [blurb only]" if args.blurb_only else "") + "\n")
+          + (" [blurb only]" if args.blurb_only else "")
+          + (" [empty only]" if args.empty_only else "") + "\n")
 
     if args.dry_run:
         for obj in objects:
