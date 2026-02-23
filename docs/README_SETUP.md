@@ -89,10 +89,12 @@ C:\laragon7\www\astro\
 3. `vis.php` executes Python script with the virtual environment's Python interpreter
 4. Python script:
    - Calculates DSO visibility for the specified date
-   - Queries your Google Sheets watchlist
+   - Queries `astro.db` for object coordinates, names, types, and priority flags
    - Generates HTML output with styled table
    - Returns HTML to PHP
 5. PHP outputs the HTML to the browser
+
+**Note:** The Google Sheets watchlist is retired. All object data now comes from `astro.db`.
 
 ## Customization
 
@@ -127,7 +129,7 @@ Edit the CSS in the `<style>` section of `todays_dsos_web.py`
 - Read the error traceback
 - Common issues:
   - Missing Python packages (run pip install)
-  - Google Sheets access issues
+  - `astro.db` not found at expected path (`dsodb/astro.db`)
   - Invalid date format
 
 ### Page Not Found (404)
@@ -155,4 +157,4 @@ Edit the CSS in the `<style>` section of `todays_dsos_web.py`
 - shell_exec is used safely with escapeshellarg()
 - Consider adding rate limiting for production
 - Python script has no user input vulnerabilities
-- Google Sheets URL is public (as per original script)
+- `astro.db` is read-only at runtime; no write operations during report generation

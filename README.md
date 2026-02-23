@@ -23,7 +23,7 @@ C:\laragon7\www\astro\
 │   ├── cache-manager\      Visibility report cache viewer/manager
 │   ├── images\             All published web images (see below)
 │   ├── css\                Shared stylesheets
-│   └── dso_watchlist_info.json   Legacy JSON — kept as reference
+│   └── dso_watchlist_info.json   Retired — superseded by astro.db (kept for reference only)
 │
 ├── pythonscripts\          Web-facing Python scripts (called by PHP or CLI)
 │   └── migrations\         One-off scripts — already run, kept for reference
@@ -44,6 +44,7 @@ C:\laragon7\www\astro\
 | `wall4k/` | 4K wallpaper (no annotation) | 3840×2160 |
 | `annotated_wall4k/` | 4K wallpaper (with title) | 3840×2160 |
 | `thumbs/` | Gallery thumbnails | 300×375 |
+| `solar/` | Solar system images (Moon, Sun, planets) — flat directory, filename encodes object/descriptor/date/size | varies |
 
 ---
 
@@ -65,6 +66,8 @@ Parameters: `?date=YYYY-MM-DD` `?profile=name` `?rebuild=1`
 Calls `todays_dsos_web.py` to generate a visibility report for a given
 date and location profile. Output is cached in `public/vis/cache/` for 24
 hours. Cached responses return `X-Cache-Status: HIT`.
+Object data (coordinates, common names, type, `WantBetter` flag) is read
+directly from `astro.db` — the Google Sheets watchlist is retired.
 
 ### `GET /profiles` — Location Profile Manager
 File: `public/profiles/index.php`  
@@ -111,7 +114,7 @@ Schema defined in `dsodb/schema_v2.sql` — this is the source of truth.
 
 | Table | Purpose |
 |-------|---------|
-| `Objects` | One row per unique DSO. DSOKey uses M-designations where applicable (M1, M42 etc.) |
+| `Objects` | One row per unique DSO. DSOKey uses M-designations where applicable (M1, M42 etc.). `WantBetter=1` flags priority targets in the visibility report. |
 | `CatalogIDs` | All known IDs for each object (M1, NGC1952, Taurus A…). `IsPrimary=1` marks the preferred display ID |
 | `Projects` | One row per myWorks project folder, linked to an Object |
 | `Observations` | Individual imaging sessions within a project |
@@ -141,13 +144,29 @@ Schema defined in `dsodb/schema_v2.sql` — this is the source of truth.
 {YYYYMMDD}_{count}x{exp}s_{equip}/   Observation folder  e.g. 20260214_195x30s_S50/
 ```
 
-### Web Image Filenames
+### Web Image Filenames — DSO
 ```
 {dso_key}_{description}_{type}.jpg
   e.g. m1_crab_nebula_fav.jpg
        ngc6888_crescent_nebula_sho_wall_annotated.jpg
 ```
 Palette suffix (`_sho_`, `_hoo_`, `_hso_`) appears before the type suffix.
+
+### Web Image Filenames — Solar System (`images/solar/`)
+```
+{object}_{descriptor}_{YYYYMMDD}_{size}.jpg         descriptor present
+{object}_{YYYYMMDD}_{size}.jpg                      no descriptor
+  e.g. moon_full_20250510_full.jpg
+       moon_waxing_gibbous_20250506_fav.jpg
+       sun_ha_20250509_full.jpg
+       moon_crescent_20250628_thumb.jpg
+```
+Size suffixes: `thumb` (300×375, one per object for gallery card), `fav` (1080×1350),
+`full` (1080×1920), `wall` (1920×1080), plus `_annotated` variants.
+Technical descriptors (`ha`, `hb`, `oiii`, `sii`, `rgb`, `lrgb`, `nb`) render as
+`Object (H-Alpha)` in captions; all others render as `Descriptor Object`.
+Source files in `C:\Astronomy\MyWorks\{object}\` follow the same pattern before
+being processed by `titling.py` and copied to the web directory.
 
 ---
 

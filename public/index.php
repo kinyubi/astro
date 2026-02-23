@@ -154,6 +154,50 @@ usort($galleryItems, function($a, $b) {
 $fullJson = json_encode($fullImages);
 $wallJson = json_encode($wallImages);
 $galleryJson = json_encode($galleryItems);
+
+// Solar system image scanning
+$solarObjects = [];
+$solarDir = __DIR__ . '/images/solar';
+if (is_dir($solarDir)) {
+    // Order matters: longer suffixes must be checked first
+    $sizeOrder = ['full_annotated', 'fav_annotated', 'wall_annotated', 'thumb', 'full', 'fav', 'wall'];
+    foreach (scandir($solarDir) as $f) {
+        if ($f === '.' || $f === '..') continue;
+        $ext = strtolower(pathinfo($f, PATHINFO_EXTENSION));
+        if (!in_array($ext, $extensions, true)) continue;
+        $name = pathinfo($f, PATHINFO_FILENAME);
+        $sizeFound = null;
+        $baseName = $name;
+        foreach ($sizeOrder as $size) {
+            if (str_ends_with($name, '_' . $size)) {
+                $sizeFound = $size;
+                $baseName = substr($name, 0, -(strlen($size) + 1));
+                break;
+            }
+        }
+        if (!$sizeFound) continue;
+        $objectKey = explode('_', $baseName)[0]; // e.g. "moon", "sun"
+        if (!isset($solarObjects[$objectKey])) {
+            $solarObjects[$objectKey] = ['object' => $objectKey, 'thumb' => null, 'shots' => []];
+        }
+        if ($sizeFound === 'thumb') {
+            $solarObjects[$objectKey]['thumb'] = 'images/solar/' . $f;
+        } else {
+            if (!isset($solarObjects[$objectKey]['shots'][$baseName])) {
+                $solarObjects[$objectKey]['shots'][$baseName] = ['baseName' => $baseName, 'files' => []];
+            }
+            $solarObjects[$objectKey]['shots'][$baseName]['files'][$sizeFound] = 'images/solar/' . $f;
+        }
+    }
+}
+// Sort shots within each object chronologically (baseName contains date)
+foreach ($solarObjects as &$solarObj) {
+    ksort($solarObj['shots']);
+    $solarObj['shots'] = array_values($solarObj['shots']);
+}
+unset($solarObj);
+ksort($solarObjects); // alphabetical by object key
+$solarJson = json_encode(array_values($solarObjects));
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -429,6 +473,151 @@ $galleryJson = json_encode($galleryItems);
             margin-top: 4px;
         }
 
+        /* Gallery Tab Switcher */
+        .gallery-tabs {
+            display: flex;
+            gap: 8px;
+        }
+
+        .gallery-tab {
+            background: transparent;
+            border: 2px solid #2a3f5f;
+            color: #8a9aaa;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            font-family: inherit;
+            white-space: nowrap;
+        }
+
+        .gallery-tab:hover {
+            border-color: #4a9eff;
+            color: #e0e0e0;
+        }
+
+        .gallery-tab.active {
+            background: #2a3f5f;
+            border-color: #4a9eff;
+            color: #4a9eff;
+            font-weight: 600;
+        }
+
+        /* Solar Modal */
+        .solar-modal-body {
+            width: 100%;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            position: relative;
+        }
+
+        .solar-modal-body .modal-image {
+            max-height: 100vh;
+            max-width: 100%;
+            width: auto;
+            height: auto;
+            object-fit: contain;
+            display: block;
+        }
+
+        @media (orientation: portrait) {
+            .solar-modal-body .modal-image {
+                max-height: 100vh !important;
+            }
+        }
+
+        .solar-caption {
+            position: absolute;
+            bottom: 50px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.72);
+            color: #e0e0e0;
+            padding: 8px 22px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            white-space: nowrap;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        .solar-arrow {
+            position: absolute;
+            top: 90%;
+            transform: translateY(-50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0, 0, 0, 0.18);
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+            padding: 0;
+            width: calc(8vh + 8px);
+            height: calc(8vh + 8px);
+            z-index: 10;
+            transition: background 0.12s;
+        }
+
+        .solar-arrow:hover {
+            background: rgba(0, 0, 0, 0.45);
+        }
+
+        .solar-arrow img {
+            width: 60%;
+            height: 60%;
+            object-fit: contain;
+        }
+
+        .solar-arrow-left  { left:  calc(1.5vw + 2px); }
+        .solar-arrow-right { right: calc(1.5vw + 2px); }
+
+        .solar-counter {
+            position: absolute;
+            top: 18px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.6);
+            color: #9aa0a6;
+            padding: 5px 14px;
+            border-radius: 12px;
+            font-size: 0.82em;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        /* Solar download dropdown dynamic options */
+        .solar-download-option {
+            display: flex;
+            align-items: center;
+            padding: 10px 16px 10px 28px;
+            color: #e0e0e0;
+            cursor: pointer;
+            transition: background 0.2s ease;
+            font-size: 0.9em;
+        }
+
+        .solar-download-option:hover {
+            background: #2a3f5f;
+        }
+
+        .solar-download-option i {
+            margin-right: 10px;
+            color: #7ec8ff;
+            width: 18px;
+            text-align: center;
+        }
+
+        .solar-download-option .size-hint {
+            margin-left: auto;
+            color: #6a7a8a;
+            font-size: 0.8em;
+        }
+
         /* Mobile adjustments */
         /* Floating back button for gallery */
         .gallery-floating-back {
@@ -500,8 +689,11 @@ $galleryJson = json_encode($galleryItems);
         <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="white"/></svg>
     </button>
     <div class="gallery-header">
-        <h1>🔭 Deep Sky Objects</h1>
-        <div class="search-wrapper">
+        <div class="gallery-tabs">
+            <button class="gallery-tab active" id="tabDso" onclick="switchGalleryTab('dso')">🔭 Deep Sky</button>
+            <button class="gallery-tab" id="tabSolar" onclick="switchGalleryTab('solar')">☀️ Solar System</button>
+        </div>
+        <div class="search-wrapper" id="dsoSearchWrapper">
             <div class="search-input-container">
                 <i class="fa-solid fa-magnifying-glass"></i>
                 <input type="text" class="search-input" id="searchInput" placeholder="Search by name or catalog ID..." autocomplete="off">
@@ -509,7 +701,12 @@ $galleryJson = json_encode($galleryItems);
             <div class="search-dropdown" id="searchDropdown"></div>
         </div>
     </div>
-    <div class="gallery-grid" id="galleryGrid"></div>
+    <div id="dsoSection">
+        <div class="gallery-grid" id="galleryGrid"></div>
+    </div>
+    <div id="solarSection" style="display:none">
+        <div class="gallery-grid" id="solarGrid"></div>
+    </div>
 </div>
 <div class="modal" id="modal">
     <div class="scroll-hint" id="scrollHint"><i class="fa-solid fa-chevron-down"></i> Scroll for object information</div>
@@ -563,6 +760,27 @@ $galleryJson = json_encode($galleryItems);
             <img class="modal-image" id="modalImage" src="" alt="">
         </div>
         <div class="modal-info" id="modalInfo"></div>
+    </div>
+</div>
+<div class="modal" id="solarModal">
+    <button class="modal-download-btn" id="solarDownloadBtn" onclick="toggleSolarDownloadDropdown(event)" title="Download"><i class="fa-solid fa-download"></i></button>
+    <div class="download-dropdown" id="solarDownloadDropdown">
+        <div class="download-dropdown-header">Download Image</div>
+        <div id="solarDownloadOptions"></div>
+    </div>
+    <button class="modal-close" onclick="closeSolarModal()" aria-label="Back to gallery">
+        <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="white"/></svg>
+    </button>
+    <div class="solar-modal-body" id="solarModalBody">
+        <div class="solar-counter" id="solarCounter"></div>
+        <img class="modal-image" id="solarModalImage" src="" alt="">
+        <div class="solar-caption" id="solarCaption"></div>
+        <button class="solar-arrow solar-arrow-left" id="solarPrev" onclick="navigateSolar(-1)" aria-label="Previous">
+            <img src="images/left-arrow.png" alt="Previous">
+        </button>
+        <button class="solar-arrow solar-arrow-right" id="solarNext" onclick="navigateSolar(1)" aria-label="Next">
+            <img src="images/right-arrow.png" alt="Next">
+        </button>
     </div>
 </div>
 <script>
@@ -850,6 +1068,8 @@ $galleryJson = json_encode($galleryItems);
     
     document.addEventListener('keydown',e=>{
         if(e.key==='Escape') {
+            // Only handle DSO modal Escape when it is actually active
+            if (!document.getElementById('modal').classList.contains('active')) return;
             if (document.getElementById('downloadDropdown').classList.contains('active')) {
                 closeDownloadDropdown();
             } else {
@@ -872,7 +1092,13 @@ $galleryJson = json_encode($galleryItems);
     prevBtn.addEventListener('click',prevImage);
     nextBtn.addEventListener('click',nextImage);
     playPauseBtn.addEventListener('click',togglePlayPause);
-    document.addEventListener('keydown',e=>{if(e.key==='ArrowRight')nextImage();else if(e.key==='ArrowLeft')prevImage();else if(e.key===' '){e.preventDefault();togglePlayPause();}});
+    document.addEventListener('keydown',e=>{
+        if(document.getElementById('modal').classList.contains('active')) return;
+        if(document.getElementById('solarModal').classList.contains('active')) return;
+        if(e.key==='ArrowRight')nextImage();
+        else if(e.key==='ArrowLeft')prevImage();
+        else if(e.key===' '){e.preventDefault();togglePlayPause();}
+    });
     function updateModalImageForOrientation() {
         if (!currentModalItem) return;
         const modal = document.getElementById('modal');
@@ -1020,6 +1246,291 @@ $galleryJson = json_encode($galleryItems);
             searchDropdown.classList.remove('active');
         }
     });
+
+    // =====================================================================
+    // SOLAR SYSTEM GALLERY
+    // =====================================================================
+    const solarData = <?php echo $solarJson; ?>;
+
+    // --- Tab switching ---
+    function switchGalleryTab(tab) {
+        const dsoSection    = document.getElementById('dsoSection');
+        const solarSection  = document.getElementById('solarSection');
+        const dsoSearch     = document.getElementById('dsoSearchWrapper');
+        const tabDso        = document.getElementById('tabDso');
+        const tabSolar      = document.getElementById('tabSolar');
+
+        if (tab === 'dso') {
+            dsoSection.style.display   = '';
+            solarSection.style.display = 'none';
+            dsoSearch.style.display    = '';
+            tabDso.classList.add('active');
+            tabSolar.classList.remove('active');
+        } else {
+            dsoSection.style.display   = 'none';
+            solarSection.style.display = '';
+            dsoSearch.style.display    = 'none';
+            tabSolar.classList.add('active');
+            tabDso.classList.remove('active');
+            renderSolarGallery();
+        }
+    }
+
+    // --- Caption parser ---
+    const TECHNICAL_DESCRIPTORS = ['ha', 'hb', 'oiii', 'sii', 'rgb', 'lrgb', 'nb'];
+
+    function titleCase(str) {
+        return str.charAt(0).toUpperCase() + str.slice(1).toLowerCase();
+    }
+
+    function formatSolarDate(datePart) {
+        // datePart is YYYYMMDD (8 chars), may have trailing letter like '20250506a'
+        const d = datePart.substring(0, 8);
+        const year  = d.substring(0, 4);
+        const month = parseInt(d.substring(4, 6)) - 1;
+        const day   = parseInt(d.substring(6, 8));
+        return new Date(year, month, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    }
+
+    function parseSolarCaption(baseName) {
+        const parts = baseName.split('_');
+        const object = parts[0];
+
+        // Find first segment that looks like a date (8 digits + optional letter)
+        let dateIndex = -1;
+        for (let i = 1; i < parts.length; i++) {
+            if (/^\d{8}[a-z]?$/.test(parts[i])) {
+                dateIndex = i;
+                break;
+            }
+        }
+
+        const objectTitle = titleCase(object);
+        if (dateIndex === -1) return objectTitle;
+
+        const descriptorParts = parts.slice(1, dateIndex);
+        const dateStr = formatSolarDate(parts[dateIndex]);
+
+        if (descriptorParts.length === 0) {
+            return `${objectTitle} \u00b7 ${dateStr}`;
+        }
+
+        // Single-word technical descriptor?
+        const isTechnical = descriptorParts.length === 1 &&
+            TECHNICAL_DESCRIPTORS.includes(descriptorParts[0].toLowerCase());
+
+        if (isTechnical) {
+            const label = descriptorParts[0].toUpperCase()
+                .replace('HA', 'H-Alpha').replace('HB', 'H-Beta')
+                .replace('OIII', 'O-III').replace('SII', 'S-II');
+            return `${objectTitle} (${label}) \u00b7 ${dateStr}`;
+        }
+
+        const descriptor = descriptorParts.map(p => titleCase(p)).join(' ');
+        return `${descriptor} ${objectTitle} \u00b7 ${dateStr}`;
+    }
+
+    function solarObjectDisplayName(objectKey) {
+        const names = { moon: 'Moon', sun: 'Sun', mercury: 'Mercury', venus: 'Venus',
+            mars: 'Mars', jupiter: 'Jupiter', saturn: 'Saturn', uranus: 'Uranus', neptune: 'Neptune' };
+        return names[objectKey.toLowerCase()] || titleCase(objectKey);
+    }
+
+    // --- Solar gallery render ---
+    let solarRendered = false;
+
+    function renderSolarGallery() {
+        if (solarRendered) return;
+        solarRendered = true;
+
+        const grid = document.getElementById('solarGrid');
+        grid.innerHTML = '';
+
+        if (!solarData || solarData.length === 0) {
+            grid.innerHTML = '<p style="color:#8a9aaa;padding:40px;text-align:center;">No solar system images found.</p>';
+            return;
+        }
+
+        const cards = [];
+        solarData.forEach((obj, idx) => {
+            const card = document.createElement('div');
+            card.className = 'gallery-item';
+            card.onclick = () => openSolarModal(idx);
+
+            const wrapper = document.createElement('div');
+            wrapper.className = 'gallery-image-wrapper';
+
+            const img = document.createElement('img');
+            img.className = 'lazy-image';
+            img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+            img.alt = solarObjectDisplayName(obj.object);
+
+            if (obj.thumb) {
+                img.dataset.src = obj.thumb;
+            } else if (obj.shots && obj.shots.length > 0) {
+                // Fall back to most recent shot's fav, or full
+                const lastShot = obj.shots[obj.shots.length - 1];
+                img.dataset.src = lastShot.files.fav || lastShot.files.full || Object.values(lastShot.files)[0];
+            }
+
+            const info = document.createElement('div');
+            info.className = 'gallery-item-info';
+            const title = document.createElement('h3');
+            title.textContent = solarObjectDisplayName(obj.object);
+            const sub = document.createElement('p');
+            sub.textContent = `${obj.shots ? obj.shots.length : 0} image${obj.shots && obj.shots.length !== 1 ? 's' : ''}`;
+
+            img.onload = () => { img.classList.add('loaded'); wrapper.classList.add('loaded'); };
+            img.onerror = () => { wrapper.classList.add('loaded'); };
+
+            info.appendChild(title);
+            info.appendChild(sub);
+            wrapper.appendChild(img);
+            card.appendChild(wrapper);
+            card.appendChild(info);
+            grid.appendChild(card);
+            cards.push({ img, wrapper });
+        });
+
+        requestAnimationFrame(() => requestAnimationFrame(() => {
+            cards.forEach(({ img }) => {
+                if (img.dataset.src) {
+                    img.src = img.dataset.src;
+                } else {
+                    img.parentElement.classList.add('loaded');
+                }
+            });
+        }));
+    }
+
+    // --- Solar modal state ---
+    let currentSolarObjectIdx = -1;
+    let currentSolarShotIdx   = 0;
+
+    const SIZE_META = {
+        fav:            { icon: 'fa-solid fa-square',        label: 'Square (4:5)',    hint: '1080×1350' },
+        full:           { icon: 'fa-solid fa-mobile-screen', label: 'Portrait (9:16)', hint: '1080×1920' },
+        wall:           { icon: 'fa-solid fa-desktop',       label: 'Landscape (16:9)',hint: '1920×1080' },
+        fav_annotated:  { icon: 'fa-solid fa-square',        label: 'Square \u2013 Annotated',    hint: '1080×1350' },
+        full_annotated: { icon: 'fa-solid fa-mobile-screen', label: 'Portrait \u2013 Annotated',  hint: '1080×1920' },
+        wall_annotated: { icon: 'fa-solid fa-desktop',       label: 'Landscape \u2013 Annotated', hint: '1920×1080' },
+    };
+    const SIZE_DISPLAY_ORDER = ['fav', 'full', 'wall', 'fav_annotated', 'full_annotated', 'wall_annotated'];
+
+    function openSolarModal(objIdx) {
+        currentSolarObjectIdx = objIdx;
+        currentSolarShotIdx   = 0;
+        document.getElementById('solarModal').classList.add('active');
+        document.body.style.overflow = 'hidden';
+        renderSolarModalSlide();
+    }
+
+    function renderSolarModalSlide() {
+        const obj  = solarData[currentSolarObjectIdx];
+        const shot = obj.shots[currentSolarShotIdx];
+        const total = obj.shots.length;
+
+        const modalImg = document.getElementById('solarModalImage');
+        const caption  = document.getElementById('solarCaption');
+        const counter  = document.getElementById('solarCounter');
+        const prevBtn  = document.getElementById('solarPrev');
+        const nextBtn  = document.getElementById('solarNext');
+
+        // Choose best image for current orientation
+        const isLandscape = window.innerWidth > window.innerHeight;
+        const src = isLandscape
+            ? (shot.files.wall || shot.files.full || shot.files.fav || Object.values(shot.files)[0])
+            : (shot.files.full || shot.files.fav || shot.files.wall || Object.values(shot.files)[0]);
+
+        modalImg.src = src;
+        modalImg.alt = parseSolarCaption(shot.baseName);
+        caption.textContent = parseSolarCaption(shot.baseName);
+        counter.textContent = total > 1 ? `${currentSolarShotIdx + 1} / ${total}` : '';
+        prevBtn.style.display = total > 1 ? '' : 'none';
+        nextBtn.style.display = total > 1 ? '' : 'none';
+
+        // Build download options for this shot
+        const optionsDiv = document.getElementById('solarDownloadOptions');
+        optionsDiv.innerHTML = SIZE_DISPLAY_ORDER
+            .filter(size => shot.files[size])
+            .map(size => {
+                const m = SIZE_META[size];
+                return `<div class="solar-download-option" onclick="downloadSolarImage('${shot.files[size]}', '${shot.baseName}_${size}.jpg')">
+                    <i class="${m.icon}"></i> ${m.label}
+                    <span class="size-hint">${m.hint}</span>
+                </div>`;
+            }).join('');
+    }
+
+    function navigateSolar(dir) {
+        const obj = solarData[currentSolarObjectIdx];
+        currentSolarShotIdx = (currentSolarShotIdx + dir + obj.shots.length) % obj.shots.length;
+        renderSolarModalSlide();
+    }
+
+    function closeSolarModal() {
+        document.getElementById('solarModal').classList.remove('active');
+        document.getElementById('solarDownloadDropdown').classList.remove('active');
+        document.getElementById('solarModalImage').src = '';
+        document.body.style.overflow = '';
+        currentSolarObjectIdx = -1;
+    }
+
+    function toggleSolarDownloadDropdown(event) {
+        event.stopPropagation();
+        document.getElementById('solarDownloadDropdown').classList.toggle('active');
+    }
+
+    async function downloadSolarImage(path, filename) {
+        document.getElementById('solarDownloadDropdown').classList.remove('active');
+        try {
+            const response = await fetch(path);
+            if (!response.ok) throw new Error('Not found');
+            const blob = await response.blob();
+            if (canShareFiles()) {
+                const file = new File([blob], filename, { type: blob.type });
+                if (navigator.canShare({ files: [file] })) {
+                    try { await navigator.share({ files: [file] }); return; }
+                    catch (e) { if (e.name === 'AbortError') return; }
+                }
+            }
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = filename;
+            document.body.appendChild(a); a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (e) {
+            console.error('Download failed:', e);
+            alert('Unable to download image. Please try again.');
+        }
+    }
+
+    // Solar modal click / keyboard
+    document.getElementById('solarModal').addEventListener('click', e => {
+        if (!e.target.closest('#solarDownloadDropdown') && !e.target.closest('#solarDownloadBtn')) {
+            document.getElementById('solarDownloadDropdown').classList.remove('active');
+        }
+    });
+
+    document.addEventListener('keydown', e => {
+        const solarModal = document.getElementById('solarModal');
+        if (!solarModal.classList.contains('active')) return;
+        if (e.key === 'ArrowRight') navigateSolar(1);
+        else if (e.key === 'ArrowLeft') navigateSolar(-1);
+        else if (e.key === 'Escape') {
+            if (document.getElementById('solarDownloadDropdown').classList.contains('active')) {
+                document.getElementById('solarDownloadDropdown').classList.remove('active');
+            } else {
+                closeSolarModal();
+            }
+        }
+    });
+
+    // Re-render slide on orientation change (portrait<->landscape image swap)
+    window.addEventListener('orientationchange', () => setTimeout(() => {
+        if (currentSolarObjectIdx >= 0) renderSolarModalSlide();
+    }, 120));
 </script>
 </body>
 </html>

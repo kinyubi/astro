@@ -2,18 +2,19 @@
 Calculates and lists deep-sky objects (DSOs) visible from a specified location on a given date.
 Web version with sortable output: Outputs HTML for browser display with dropdown to change sort order.
 """
-import csv
 import datetime
+import sqlite3
 import numpy as np
-import pandas as pd
 from zoneinfo import ZoneInfo
 from skyfield.api import load, Topos, Star, Angle
 from skyfield.almanac import dark_twilight_day, find_discrete
-from astropy.coordinates import SkyCoord
 import sys
 import json
 import argparse
 from profile_manager import load_profile
+from pathlib import Path
+
+ASTRO_DB = Path(r"C:\laragon7\www\astro\dsodb\astro.db")
 
 # No longer hardcoded - these come from profiles now
 # See profile_manager.py for profile management
@@ -109,26 +110,42 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
     try:
         log = []
-        sheet_id = '1ntqVhvlPvBZFG59KJVQgiIdV65MeYnYBin5CT0alpsA'
-        sheet_name = 'dso_watchlist'
-        csv_url = f'https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet={sheet_name}'
-        df = pd.read_csv(csv_url)
+        conn = sqlite3.connect(ASTRO_DB)
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                o.DSOKey,
+                o.CommonName,
+                ot.TypeName  AS TypeDesc,
+                con.Name     AS Constellation,
+                o.Magnitude,
+                o.RAHours,
+                o.DecDegrees,
+                o.WantBetter
+            FROM Objects o
+            LEFT JOIN ObjectTypes  ot  ON o.ObjectTypeID  = ot.ObjectTypeID
+            LEFT JOIN Constellations con ON o.ConstellationID = con.ConstellationID
+            WHERE o.RAHours IS NOT NULL
+              AND o.DecDegrees IS NOT NULL
+              AND o.ObjectTypeID NOT IN ('SOLAR_SYSTEM', 'SINGLE_STAR')
+        """)
+        dso_rows = cur.fetchall()
+        conn.close()
 
-        for index, row in df.iterrows():
-            name = row['Name']
-            aka = row['Aka']
-            type_desc = row['TypeDesc']
-            constellation = row['Constellation']
-            size = row['SqArcMins']
-            magnitude = row['Mag']
-            want_better = row.get('WantBetter', False)
-            do_me = '&#9733;' if str(want_better).upper() == 'TRUE' else ''
+        for row in dso_rows:
+            name      = row['DSOKey']
+            aka       = row['CommonName'] or name
+            type_desc = row['TypeDesc'] or ''
+            constellation = row['Constellation'] or ''
+            magnitude = row['Magnitude'] or 0.0
+            do_me     = '&#9733;' if row['WantBetter'] else ''
 
             try:
-                obj = SkyCoord.from_name(str(name))
-                star = Star(ra=Angle(degrees=obj.ra.deg), dec=Angle(degrees=obj.dec.deg))
+                star = Star(ra=Angle(hours=float(row['RAHours'])),
+                            dec=Angle(degrees=float(row['DecDegrees'])))
             except Exception as e:
-                log.append(f"Error resolving {name}: {e}")
+                log.append(f"Error building star for {name}: {e}")
                 continue
 
             astrometric = observer_pos.at(time_range).observe(star)
@@ -142,35 +159,33 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
             if len(visible_indices) > 0:
                 start_idx = visible_indices[0]
-                end_idx = visible_indices[-1]
+                end_idx   = visible_indices[-1]
 
                 obj_start = time_range[start_idx].astimezone(tz)
-                obj_end = time_range[end_idx].astimezone(tz)
+                obj_end   = time_range[end_idx].astimezone(tz)
                 time_span = (obj_end - obj_start).total_seconds() / 60
                 start_minutes = obj_start.hour * 60 + obj_start.minute
                 if obj_start.hour < 12:
-                    start_minutes += 24 * 60  # Adjust for sorting past midnight
+                    start_minutes += 24 * 60
                 end_minutes = obj_end.hour * 60 + obj_end.minute
                 if obj_end.hour < 12:
-                    end_minutes += 24 * 60  # Adjust for sorting past midnight
-                
-                # Get altitude and azimuth at start and end times
+                    end_minutes += 24 * 60
+
                 start_alt = alt.degrees[start_idx]
-                start_az = az.degrees[start_idx]
-                end_alt = alt.degrees[end_idx]
-                end_az = az.degrees[end_idx]
-                
+                start_az  = az.degrees[start_idx]
+                end_alt   = alt.degrees[end_idx]
+                end_az    = az.degrees[end_idx]
+
                 if time_span >= 60:
                     visible_objects.append({
                         'do_me': do_me,
                         'name': name,
                         'aka': aka,
                         'start': obj_start,
-                        'start_minutes': start_minutes,  # For sorting
+                        'start_minutes': start_minutes,
                         'end': obj_end,
                         'end_minutes': end_minutes,
                         'duration': time_span,
-                        'size': size,
                         'magnitude': magnitude,
                         'constellation': constellation,
                         'type_desc': type_desc,
@@ -179,8 +194,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                         'end_alt': end_alt,
                         'end_az': end_az
                     })
-        if len(log) > 0:
-            # write log to dso_visibility.log
+        if log:
             with open('dso_visibility.log', 'a') as log_file:
                 for entry in log:
                     log_file.write(f"{datetime.datetime.now().isoformat()} - {entry}\n")
@@ -227,10 +241,6 @@ def calculate_visibility(specified_date=None, profile_name='default'):
             pass
         return ''
 
-    # If you still have the `most_recent = row['MostRecent'] + row['S50Date']` line,
-    # replace it with a safe concatenation like:
-    # most_recent = safe_str(row.get('MostRecent')) + safe_str(row.get('S50Date'))
-
     objects_json = json.dumps([{
         'do_me': safe_str(obj.get('do_me', '')),
         'name': safe_str(obj.get('name', '')),
@@ -240,7 +250,6 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         'end': safe_time_str(obj.get('end')),
         'end_minutes': int(obj.get('end_minutes') or 0),
         'duration': safe_float(obj.get('duration')),
-        'size': safe_float(obj.get('size')),
         'magnitude': safe_float(obj.get('magnitude')),
         'constellation': safe_str(obj.get('constellation')),
         'type_desc': safe_str(obj.get('type_desc')),
@@ -421,7 +430,6 @@ def calculate_visibility(specified_date=None, profile_name='default'):
             <option value="start_az">Starting Azimuth (lowest first)</option>
             <option value="start_alt">Starting Altitude (highest first)</option>
             <option value="magnitude">Magnitude (brightest first)</option>
-            <option value="size">Size (largest first)</option>
             <option value="name">Name (A-Z)</option>
             <option value="aka">Friendly Name</option>
         </select>
@@ -447,7 +455,6 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                 <th>End Alt</th>
                 <th>End Az</th>
                 <th>Duration</th>
-                <th>Size (sq')</th>
                 <th>Mag</th>
                 <th>Constellation</th>
                 <th>Type</th>
@@ -486,7 +493,6 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                     <td>${obj.end_alt.toFixed(0)}&deg;</td>
                     <td>${obj.end_az.toFixed(0)}&deg;</td>
                     <td class="duration">${formatDuration(obj.duration)}</td>
-                    <td>${obj.size.toFixed(0)}</td>
                     <td>${obj.magnitude.toFixed(1)}</td>
                     <td>${obj.constellation}</td>
                     <td>${obj.type_desc}</td>
@@ -518,9 +524,6 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                     break;
                 case 'magnitude':
                     sortedData.sort((a, b) => a.magnitude - b.magnitude);
-                    break;
-                case 'size':
-                    sortedData.sort((a, b) => b.size - a.size);
                     break;
                 case 'name':
                     sortedData.sort((a, b) => a.name.localeCompare(b.name));

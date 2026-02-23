@@ -62,9 +62,9 @@ Cache files are stored in: `/public/cache/`
 ## When to Force Rebuild
 
 You should force a cache rebuild when:
-- You update the DSO watchlist in Google Sheets
+- You update object data in `astro.db` (e.g. `WantBetter` flags, coordinates)
 - You modify the Python calculation script
-- You change location parameters
+- You change a location profile
 - You want fresh data (though 24h cache is usually fine)
 
 ## Troubleshooting

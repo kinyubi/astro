@@ -1,5 +1,5 @@
 -- ============================================================
--- ASTRO DATABASE SCHEMA v2.0
+-- ASTRO DATABASE SCHEMA v2.1
 -- Deep Sky Object Observation & Image Management
 --
 -- Changes from v1.0:
@@ -8,6 +8,12 @@
 --   * CatalogIDs.CatalogName removed (not used in UI)
 --   * vw_GalleryObjects updated to reference ObjectSize
 --   * SUN/MOON seed data updated to use ObjectSize
+--
+-- Changes from v2.0:
+--   * Objects.WantBetter added (INTEGER NOT NULL DEFAULT 0)
+--     Flags priority targets in the DSO visibility report (1 = want better data)
+--   * Google Sheets watchlist retired; todays_dsos_web.py now reads
+--     coordinates, names, types, and WantBetter directly from this DB
 -- ============================================================
 
 -- Enable foreign keys
@@ -102,6 +108,7 @@ CREATE TABLE Objects (
                                         -- of 45-50 arcminutes, about 1.5× the full moon'
     DistanceLY TEXT,                    -- e.g., '~1,350 light-years'
     SocialBlurb TEXT,                   -- 1-2 paragraph conversational narrative for social media
+    WantBetter INTEGER NOT NULL DEFAULT 0, -- 1 = priority target (want improved data/imaging)
     LastUpdated DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (ObjectTypeID) REFERENCES ObjectTypes(ObjectTypeID),
     FOREIGN KEY (ConstellationID) REFERENCES Constellations(ConstellationID)

@@ -62,8 +62,8 @@ The cache manager (`/cache-manager.php`) lets you:
 ## 💡 When to Force Rebuild
 
 You should force a cache rebuild when:
-1. **Updated watchlist** - You modified the DSO watchlist in Google Sheets
-2. **Changed location** - You modified LAT_DEG, LON_DEG in the Python script
+1. **Updated object data** - You changed `WantBetter`, coordinates, or other fields in `astro.db`
+2. **Changed location** - You modified a location profile (lat/lon, altitude, azimuth limits)
 3. **Script updates** - You changed the visibility calculation logic
 4. **Testing** - You're debugging or want to verify current calculations
 
