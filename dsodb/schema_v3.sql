@@ -1,5 +1,5 @@
 -- ============================================================
--- ASTRO DATABASE SCHEMA v2.1
+-- ASTRO DATABASE SCHEMA v3.0
 -- Deep Sky Object Observation & Image Management
 --
 -- Changes from v1.0:
@@ -14,6 +14,13 @@
 --     Flags priority targets in the DSO visibility report (1 = want better data)
 --   * Google Sheets watchlist retired; todays_dsos_web.py now reads
 --     coordinates, names, types, and WantBetter directly from this DB
+--
+-- Changes from v2.1:
+--   * CatalogIDs cleaned: 67 non-standard entries removed; only HD, IC, NGC,
+--     M, LDN, SH2 catalog prefixes and comet designations (C20xx) retained
+--   * vw_ProcessingStatus fixed: removed invalid join on pr.PaletteID
+--     (PaletteID lives on Images, not ProcessingRuns; PaletteName column removed
+--     from this view until a proper palette-per-run design is decided)
 -- ============================================================
 
 -- Enable foreign keys
@@ -452,12 +459,10 @@ SELECT
     obj.CommonName,
     p.ProjectFolder,
     pr.ProcessingDateStart,
-    pt.PaletteName,
     pr.Status,
     pr.HoursSpent,
     (SELECT COUNT(*) FROM Images WHERE ProcessingID = pr.ProcessingID AND IsPublished = 1) AS PublishedImages
 FROM ProcessingRuns pr
 JOIN Projects p ON pr.ProjectID = p.ProjectID
 JOIN Objects obj ON p.DSOKey = obj.DSOKey
-LEFT JOIN PaletteTreatments pt ON pr.PaletteID = pt.PaletteID
 ORDER BY pr.ProcessingDateStart DESC;

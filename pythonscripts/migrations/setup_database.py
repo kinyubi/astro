@@ -298,7 +298,7 @@ def populate_objects_from_json(conn):
 
         social_blurb = build_social_blurb(info)
 
-        # AngularSize: parse from the legacy Size field if present.
+        # ObjectSize: parse from the legacy Size field if present.
         # The Size field is free-text (e.g. '~100 light-years across; ~2°—about 4× the full Moon').
         # We store it as-is for now; the admin tool can populate a clean arcmin value later.
         angular_size = None  # Will be populated via the admin tool / AI lookup
@@ -306,7 +306,7 @@ def populate_objects_from_json(conn):
         cursor.execute('''
             INSERT OR REPLACE INTO Objects (
                 DSOKey, CommonName, ObjectTypeID, ConstellationID,
-                DistanceLY, AngularSize, SocialBlurb
+                DistanceLY, ObjectSize, SocialBlurb
             ) VALUES (?, ?, ?, ?, ?, ?, ?)
         ''', (
             dso_key,

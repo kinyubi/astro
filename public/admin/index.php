@@ -223,24 +223,8 @@
           </div>
           <div class="field">
             <label>Constellation</label>
-            <select id="f_ConstellationID">
-              <option value="">— select —</option>
-              <option value="AND">Andromeda</option><option value="AQL">Aquila</option>
-              <option value="AQR">Aquarius</option><option value="ARI">Aries</option>
-              <option value="AUR">Auriga</option><option value="CMA">Canis Major</option>
-              <option value="CMI">Canis Minor</option><option value="CNC">Cancer</option>
-              <option value="CAS">Cassiopeia</option><option value="CEP">Cepheus</option>
-              <option value="CVN">Canes Venatici</option><option value="CYG">Cygnus</option>
-              <option value="DOR">Dorado</option><option value="ERI">Eridanus</option>
-              <option value="FOR">Fornax</option><option value="GEM">Gemini</option>
-              <option value="HER">Hercules</option><option value="LEO">Leo</option>
-              <option value="LYR">Lyra</option><option value="MON">Monoceros</option>
-              <option value="ORI">Orion</option><option value="PEG">Pegasus</option>
-              <option value="PER">Perseus</option><option value="PSC">Pisces</option>
-              <option value="SGR">Sagittarius</option><option value="SER">Serpens</option>
-              <option value="TAU">Taurus</option><option value="TRI">Triangulum</option>
-              <option value="UMA">Ursa Major</option><option value="UMI">Ursa Minor</option>
-              <option value="VIR">Virgo</option><option value="VUL">Vulpecula</option>
+            <select id="f_ConstellationID" onchange="handleConstellationChange(this)">
+              <option value="">— loading —</option>
             </select>
           </div>
           <div class="field">
@@ -271,10 +255,23 @@
             <label>Magnitude</label>
             <input type="number" id="f_Magnitude" step="0.1" placeholder="e.g. 4.0">
           </div>
-          <div class="field span-3">
+          <div class="field span-2">
             <label>Object Size</label>
             <input type="text" id="f_ObjectSize" placeholder="e.g. 70 light-years across with an apparent diameter of 45-50 arcminutes, about 1.5× the full moon">
             <div class="note">Physical size, angular size, and moon comparison in one plain-English sentence.</div>
+          </div>
+          <div class="field">
+            <label>Sq Arc Mins</label>
+            <input type="number" id="f_SqArcMins" step="0.01" min="0" placeholder="e.g. 1600">
+            <div class="note">Apparent area (arcmin²). Single dim: d². Two dims: d1 × d2.</div>
+          </div>
+          <div class="field">
+            <label>Want Better Data? &#9733;</label>
+            <select id="f_WantBetter">
+              <option value="0">No</option>
+              <option value="1">Yes &mdash; priority target</option>
+            </select>
+            <div class="note">Flags object in the visibility report as a priority.</div>
           </div>
         </div>
       </div>
@@ -368,8 +365,8 @@ function blurbFieldsChanged() {
 }
 
 const fields = ['DSOKey','CommonName','ObjectTypeID','ConstellationID',
-                'RAHours','DecDegrees','Magnitude','ObjectSize','DistanceLY',
-                'SocialBlurb','ProjectFolder','IsMosaic','MostRecentObservation'];
+                'RAHours','DecDegrees','Magnitude','ObjectSize','SqArcMins','DistanceLY',
+                'SocialBlurb','ProjectFolder','IsMosaic','MostRecentObservation','WantBetter'];
 
 // ──────────────────────────────────────────────
 // Fetch wrapper — redirects to login on 401
@@ -478,6 +475,7 @@ async function loadObjectTypes(selectedValue = '') {
 // Populate list on load
 fetchList('');
 loadObjectTypes();
+loadConstellations();
 
 // ──────────────────────────────────────────────
 // Load object into editor
@@ -493,7 +491,10 @@ function loadObject(row) {
   document.getElementById('f_DSOKey').value = row.DSOKey;
   document.getElementById('f_DSOKey').disabled = true; // can't change key of existing object
 
-  fields.filter(f => f !== 'DSOKey' && f !== 'ObjectTypeID').forEach(f => {
+  // Reload constellation dropdown with this object's value selected
+  loadConstellations(row.ConstellationID || '');
+
+  fields.filter(f => f !== 'DSOKey' && f !== 'ObjectTypeID' && f !== 'ConstellationID').forEach(f => {
     const el = document.getElementById('f_' + f);
     if (el) el.value = row[f] ?? '';
   });
@@ -510,9 +511,13 @@ function newObject() {
   showEditor();
   document.getElementById('editor-title').textContent = 'New Object';
   document.getElementById('editor-subtitle').textContent = '';
+  // Select fields with NOT NULL defaults need explicit reset (empty string → null would fail)
+  const selectDefaults = { WantBetter: '0', IsMosaic: '0' };
   fields.forEach(f => {
     const el = document.getElementById('f_' + f);
-    if (el) { el.value = ''; el.disabled = false; }
+    if (!el) return;
+    el.value = selectDefaults[f] ?? '';
+    el.disabled = false;
   });
   document.getElementById('f_DSOKey').disabled = false;
   renderCatalogTable([]);
@@ -559,12 +564,6 @@ function getCatalogRows() {
 async function saveObject(silent = false) {
   const dsoKey = document.getElementById('f_DSOKey').value.trim().toUpperCase();
   if (!dsoKey) { toast('DSO Key is required', 'err'); return; }
-
-  // If any blurb-affecting fields changed, regenerate before saving
-  if (blurbFieldsChanged() && document.getElementById('f_SocialBlurb').value.trim() !== '') {
-    toast('Key fields changed — regenerating Social Blurb…', 'info', 6000);
-    await aiGenerateBlurb();
-  }
 
   const payload = { DSOKey: dsoKey };
   fields.filter(f => f !== 'DSOKey').forEach(f => {
@@ -728,6 +727,77 @@ document.getElementById('f_DSOKey').addEventListener('input', function () {
   this.value = this.value.toUpperCase();
   this.setSelectionRange(pos, pos);
 });
+
+// ──────────────────────────────────────────────
+// Constellation dropdown — dynamic load + Add...
+// ──────────────────────────────────────────────
+async function loadConstellations(selectedValue = '') {
+  const sel = document.getElementById('f_ConstellationID');
+  try {
+    const res  = await apiFetch('api_constellations.php');
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    renderConstellationOptions(data, selectedValue);
+  } catch (e) {
+    sel.innerHTML = '<option value="">— error loading —</option>';
+    console.error('Failed to load constellations:', e);
+  }
+}
+
+function renderConstellationOptions(constellations, selectedValue = '') {
+  const sel = document.getElementById('f_ConstellationID');
+  sel.innerHTML = '<option value="">— select —</option>';
+  constellations.forEach(c => {
+    const opt = document.createElement('option');
+    opt.value       = c.ConstellationID;
+    opt.textContent = c.Name;
+    if (c.ConstellationID === selectedValue) opt.selected = true;
+    sel.appendChild(opt);
+  });
+  // Always append the Add... sentinel last
+  const addOpt = document.createElement('option');
+  addOpt.value       = '__ADD__';
+  addOpt.textContent = '＋ Add new constellation…';
+  addOpt.style.color = 'var(--accent)';
+  sel.appendChild(addOpt);
+}
+
+async function handleConstellationChange(sel) {
+  if (sel.value !== '__ADD__') return;  // Normal selection — nothing to do
+
+  // Reset immediately so it doesn't look selected
+  sel.value = '';
+
+  const name = prompt('Enter the constellation name (e.g. Scorpius):');
+  if (!name || !name.trim()) return;
+
+  toast('Looking up constellation data for "' + name.trim() + '"…', 'info', 10000);
+
+  try {
+    const res  = await apiFetch('api_constellation_add.php', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ name: name.trim() }),
+    });
+    const data = await res.json();
+
+    if (!data.success) {
+      toast('Error: ' + (data.error || 'Unknown error'), 'err', 6000);
+      return;
+    }
+
+    // Reload the dropdown with the new entry selected
+    await loadConstellations(data.ConstellationID);
+
+    if (data.already_exists) {
+      toast('"' + data.Name + '" (' + data.ConstellationID + ') was already in the database — selected.', 'info', 4000);
+    } else {
+      toast('Added ' + data.Name + ' (' + data.ConstellationID + ') — RA ' + data.RightAscensionHours + 'h, Dec ' + data.DeclinationDegrees + '°', 'ok', 5000);
+    }
+  } catch (e) {
+    toast('Network error: ' + e.message, 'err', 5000);
+  }
+}
 </script>
 </body>
 </html>

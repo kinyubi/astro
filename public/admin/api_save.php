@@ -39,7 +39,7 @@ try {
     $allowed_cols = [
         'CommonName', 'ObjectTypeID', 'ConstellationID',
         'RAHours', 'DecDegrees', 'Magnitude',
-        'AngularSize', 'DistanceLY', 'SocialBlurb',
+        'ObjectSize', 'SqArcMins', 'DistanceLY', 'SocialBlurb', 'WantBetter',
     ];
 
     $updates = [];
@@ -60,11 +60,19 @@ try {
 
         if ($stmt->rowCount() === 0) {
             // Object doesn't exist yet — INSERT it
+            // Columns with NOT NULL DEFAULT values that must never be null on insert
+            $not_null_defaults = [
+                'WantBetter' => 0,
+            ];
             $cols   = array_merge(['DSOKey'], $allowed_cols);
             $values = array_merge([':DSOKey'], array_map(fn($c) => ":$c", $allowed_cols));
             $insert_params = [':DSOKey' => $dso_key];
             foreach ($allowed_cols as $col) {
-                $insert_params[":$col"] = isset($body[$col]) && $body[$col] !== '' ? $body[$col] : null;
+                $val = isset($body[$col]) && $body[$col] !== '' ? $body[$col] : null;
+                if ($val === null && isset($not_null_defaults[$col])) {
+                    $val = $not_null_defaults[$col];
+                }
+                $insert_params[":$col"] = $val;
             }
             $sql = "INSERT INTO Objects (" . implode(',', $cols) . ") VALUES (" . implode(',', $values) . ")";
             $db->prepare($sql)->execute($insert_params);
@@ -74,8 +82,8 @@ try {
     // Handle catalog ID additions
     if (!empty($body['CatalogIDs']) && is_array($body['CatalogIDs'])) {
         $stmt = $db->prepare("
-            INSERT OR IGNORE INTO CatalogIDs (CatalogID, DSOKey, CatalogName, IsPrimary)
-            VALUES (:cid, :dkey, :cname, :primary)
+            INSERT OR IGNORE INTO CatalogIDs (CatalogID, DSOKey, IsPrimary)
+            VALUES (:cid, :dkey, :primary)
         ");
         foreach ($body['CatalogIDs'] as $entry) {
             $cid = strtoupper(trim($entry['CatalogID'] ?? ''));
@@ -83,7 +91,6 @@ try {
             $stmt->execute([
                 ':cid'     => $cid,
                 ':dkey'    => $dso_key,
-                ':cname'   => $entry['CatalogName'] ?? null,
                 ':primary' => $entry['IsPrimary'] ?? 0,
             ]);
         }

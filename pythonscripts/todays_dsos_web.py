@@ -14,7 +14,8 @@ import argparse
 from profile_manager import load_profile
 from pathlib import Path
 
-ASTRO_DB = Path(r"C:\laragon7\www\astro\dsodb\astro.db")
+# Derive DB path relative to this script: pythonscripts/ -> astro/ -> dsodb/astro.db
+ASTRO_DB = Path(__file__).parent.parent / 'dsodb' / 'astro.db'
 
 # No longer hardcoded - these come from profiles now
 # See profile_manager.py for profile management
@@ -122,7 +123,8 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                 o.Magnitude,
                 o.RAHours,
                 o.DecDegrees,
-                o.WantBetter
+                o.WantBetter,
+                o.SqArcMins
             FROM Objects o
             LEFT JOIN ObjectTypes  ot  ON o.ObjectTypeID  = ot.ObjectTypeID
             LEFT JOIN Constellations con ON o.ConstellationID = con.ConstellationID
@@ -192,7 +194,8 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                         'start_alt': start_alt,
                         'start_az': start_az,
                         'end_alt': end_alt,
-                        'end_az': end_az
+                        'end_az': end_az,
+                        'sq_arcmins': row['SqArcMins']
                     })
         if log:
             with open('dso_visibility.log', 'a') as log_file:
@@ -203,20 +206,16 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         return
 
     def safe_float(value, default=0.0):
-        if pd.isna(value) or value is None or value == '':
+        if value is None or value == '':
             return default
         try:
             return float(value)
         except (ValueError, TypeError):
-            try:
-                return float(str(value))
-            except Exception:
-                return default
+            return default
 
     def safe_str(value, default=''):
-        if pd.isna(value) or value is None:
+        if value is None:
             return default
-        # Handle numeric numpy and python types cleanly
         try:
             if isinstance(value, (float, int, np.floating, np.integer)):
                 if float(value).is_integer():
@@ -233,12 +232,6 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                 return value.strftime('%H:%M')
             except Exception:
                 pass
-        try:
-            ts = pd.to_datetime(value, errors='coerce')
-            if not pd.isna(ts):
-                return ts.strftime('%H:%M')
-        except Exception:
-            pass
         return ''
 
     objects_json = json.dumps([{
@@ -256,7 +249,8 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         'start_alt': safe_float(obj.get('start_alt')),
         'start_az': safe_float(obj.get('start_az')),
         'end_alt': safe_float(obj.get('end_alt')),
-        'end_az': safe_float(obj.get('end_az'))
+        'end_az': safe_float(obj.get('end_az')),
+        'sq_arcmins': safe_float(obj.get('sq_arcmins'))
     } for obj in visible_objects])
 
 
@@ -430,6 +424,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
             <option value="start_az">Starting Azimuth (lowest first)</option>
             <option value="start_alt">Starting Altitude (highest first)</option>
             <option value="magnitude">Magnitude (brightest first)</option>
+            <option value="sq_arcmins">Size (largest first)</option>
             <option value="name">Name (A-Z)</option>
             <option value="aka">Friendly Name</option>
         </select>
@@ -456,6 +451,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                 <th>End Az</th>
                 <th>Duration</th>
                 <th>Mag</th>
+                <th>Size (arcmin²)</th>
                 <th>Constellation</th>
                 <th>Type</th>
             </tr>
@@ -494,6 +490,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                     <td>${obj.end_az.toFixed(0)}&deg;</td>
                     <td class="duration">${formatDuration(obj.duration)}</td>
                     <td>${obj.magnitude.toFixed(1)}</td>
+                    <td>${obj.sq_arcmins > 0 ? obj.sq_arcmins.toFixed(0) : ''}</td>
                     <td>${obj.constellation}</td>
                     <td>${obj.type_desc}</td>
                 `;
@@ -524,6 +521,9 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                     break;
                 case 'magnitude':
                     sortedData.sort((a, b) => a.magnitude - b.magnitude);
+                    break;
+                case 'sq_arcmins':
+                    sortedData.sort((a, b) => b.sq_arcmins - a.sq_arcmins);
                     break;
                 case 'name':
                     sortedData.sort((a, b) => a.name.localeCompare(b.name));
