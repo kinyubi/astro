@@ -429,6 +429,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
             <option value="aka">Friendly Name</option>
         </select>
         <button id="force-rebuild-btn" onclick="window.location.href=window.location.pathname + '?date={target_date_str}&profile={profile_name}&rebuild=1'">Force Rebuild</button>
+        <button id="quickadd-btn" onclick="openQuickAdd()" style="background:#3fb950 !important; border-color:#3fb950 !important;">&#43; Quick Add DSO</button>
     </div>
 
 """)
@@ -539,6 +540,90 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         // Initial render with default sort (duration)
         sortTable();
     </script>
+<!-- Quick Add Modal -->
+<div id="qa-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:999; align-items:center; justify-content:center;">
+  <div style="background:#1a1f3a; border:1px solid #4a9eff; border-radius:8px; padding:28px; width:340px; max-width:90vw; display:flex; flex-direction:column; gap:14px;">
+    <h2 style="color:#4a9eff; font-size:16px; margin:0;">&#43; Quick Add DSO</h2>
+    <input id="qa-input" type="text" placeholder="e.g. NGC1499, M57, IC405"
+      style="background:#0a0e27; border:1px solid #4a9eff; border-radius:4px; color:#e0e0e0; padding:9px 12px; font-size:15px; outline:none; text-transform:uppercase;"
+      onkeydown="if(event.key==='Enter') submitQuickAdd(); if(event.key==='Escape') closeQuickAdd();">
+    <div id="qa-status" style="font-size:13px; min-height:18px; color:#7ec8a3;"></div>
+    <div style="display:flex; gap:10px; justify-content:flex-end;">
+      <button onclick="closeQuickAdd()"
+        style="padding:7px 16px; background:#2a3f5f; border:1px solid #4a9eff; border-radius:4px; color:#e0e0e0; cursor:pointer; font-size:13px;">Cancel</button>
+      <button id="qa-submit" onclick="submitQuickAdd()"
+        style="padding:7px 16px; background:#4a9eff; border:1px solid #4a9eff; border-radius:4px; color:#fff; font-weight:600; cursor:pointer; font-size:13px;">Add</button>
+    </div>
+  </div>
+</div>
+
+<script>
+function openQuickAdd() {{
+  const overlay = document.getElementById('qa-overlay');
+  overlay.style.display = 'flex';
+  const inp = document.getElementById('qa-input');
+  inp.value = '';
+  document.getElementById('qa-status').textContent = '';
+  document.getElementById('qa-submit').disabled = false;
+  setTimeout(() => inp.focus(), 50);
+}}
+
+function closeQuickAdd() {{
+  document.getElementById('qa-overlay').style.display = 'none';
+}}
+
+async function submitQuickAdd() {{
+  const inp    = document.getElementById('qa-input');
+  const status = document.getElementById('qa-status');
+  const btn    = document.getElementById('qa-submit');
+  const dsoKey = inp.value.trim().toUpperCase();
+  if (!dsoKey) {{ inp.focus(); return; }}
+
+  btn.disabled = true;
+  status.style.color = '#7ec8a3';
+  status.textContent = 'Looking up ' + dsoKey + '\u2026';
+
+  try {{
+    const res  = await fetch('/admin/api_quickadd.php', {{
+      method:  'POST',
+      headers: {{ 'Content-Type': 'application/json' }},
+      body:    JSON.stringify({{ dso_key: dsoKey }}),
+    }});
+    const data = await res.json();
+
+    if (data.exists) {{
+      status.style.color = '#ffd700';
+      status.textContent = dsoKey + ' is already in the database.';
+      btn.disabled = false;
+      return;
+    }}
+
+    if (data.success && data.created) {{
+      const name = data.CommonName ? data.CommonName + ' (' + dsoKey + ')' : dsoKey;
+      status.textContent = name + ' added! Rebuilding visibility report\u2026';
+      setTimeout(() => {{
+        window.location.href = '/vis?date={target_date_str}&profile={profile_name}&rebuild=1';
+      }}, 1200);
+      return;
+    }}
+
+    status.style.color = '#f85149';
+    status.textContent = 'Error: ' + (data.error || 'Unknown error');
+    btn.disabled = false;
+
+  }} catch (e) {{
+    status.style.color = '#f85149';
+    status.textContent = 'Network error: ' + e.message;
+    btn.disabled = false;
+  }}
+}}
+
+// Close overlay on background click
+document.getElementById('qa-overlay').addEventListener('click', function(e) {{
+  if (e.target === this) closeQuickAdd();
+}});
+</script>
+
 </body>
 </html>
 """)

@@ -146,13 +146,18 @@
   @keyframes spin { to { transform: rotate(360deg); } }
 
   /* ── Responsive collapse ── */
+
+  /* Tablet portrait (600px–900px): keep two columns but narrow the sidebar */
   @media (max-width: 900px) {
-    .app { grid-template-columns: 1fr; }
-    .sidebar { height: 250px; }
+    .app { grid-template-columns: 220px 1fr; }
     .grid-3 { grid-template-columns: 1fr 1fr; }
     .span-3 { grid-column: span 2; }
   }
+
+  /* Phone (<600px): stack sidebar above form */
   @media (max-width: 600px) {
+    .app { grid-template-columns: 1fr; }
+    .sidebar { height: 280px; }
     .grid-2, .grid-3 { grid-template-columns: 1fr; }
     .span-2, .span-3 { grid-column: span 1; }
   }
