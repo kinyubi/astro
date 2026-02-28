@@ -8,7 +8,9 @@
 // Set execution time limit (Python script may take 30-60 seconds)
 set_time_limit(120);
 
-// Get date parameter from query string, default to today
+// Get date parameter from query string, default to today in local timezone
+// Without this, date() uses server UTC which causes the wrong date after ~5pm Mountain Time
+date_default_timezone_set('America/Boise');
 $date = isset($_GET['date']) ? (string)$_GET['date'] : date('Y-m-d');
 
 // Get profile parameter from query string, default to 'default'
