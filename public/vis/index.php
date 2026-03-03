@@ -1,4 +1,8 @@
 <?php
+// Always serve fresh PHP — the vis/cache/ files handle content caching separately
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Pragma: no-cache');
+
 /**
  * DSO Visibility Report Handler with Caching
  * Route: /vis or /vis?date=YYYY-MM-DD

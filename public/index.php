@@ -1436,15 +1436,15 @@ $solarJson = json_encode(array_values($solarObjects));
         const prevBtn  = document.getElementById('solarPrev');
         const nextBtn  = document.getElementById('solarNext');
 
-        // Choose best image for current orientation
+        // Choose best image for current orientation, preferring annotated versions
         const isLandscape = window.innerWidth > window.innerHeight;
         const src = isLandscape
-            ? (shot.files.wall || shot.files.full || shot.files.fav || Object.values(shot.files)[0])
-            : (shot.files.full || shot.files.fav || shot.files.wall || Object.values(shot.files)[0]);
+            ? (shot.files.wall_annotated || shot.files.wall || shot.files.full_annotated || shot.files.full || shot.files.fav_annotated || shot.files.fav || Object.values(shot.files)[0])
+            : (shot.files.full_annotated || shot.files.full || shot.files.fav_annotated || shot.files.fav || shot.files.wall_annotated || shot.files.wall || Object.values(shot.files)[0]);
 
         modalImg.src = src;
         modalImg.alt = parseSolarCaption(shot.baseName);
-        caption.textContent = parseSolarCaption(shot.baseName);
+        caption.textContent = '';
         counter.textContent = total > 1 ? `${currentSolarShotIdx + 1} / ${total}` : '';
         prevBtn.style.display = total > 1 ? '' : 'none';
         nextBtn.style.display = total > 1 ? '' : 'none';

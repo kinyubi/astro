@@ -1,4 +1,9 @@
-<?php require_once __DIR__ . '/auth.php'; ?>
+<?php
+require_once __DIR__ . '/auth.php';
+// Always serve fresh — prevents stale JS/HTML after deployments
+header('Cache-Control: no-store, no-cache, must-revalidate');
+header('Pragma: no-cache');
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -525,6 +530,10 @@ function newObject() {
     el.disabled = false;
   });
   document.getElementById('f_DSOKey').disabled = false;
+  // Reload dropdowns with no selection — setting .value='' alone doesn't clear
+  // them after loadObject() has run with a specific selection
+  loadObjectTypes('');
+  loadConstellations('');
   renderCatalogTable([]);
   snapshotBlurbFields();
 }
