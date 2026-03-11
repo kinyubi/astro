@@ -658,6 +658,7 @@ async function aiPopulate() {
       Magnitude:       'f_Magnitude',
       ObjectSize:      'f_ObjectSize',
       DistanceLY:      'f_DistanceLY',
+      SqArcMins:       'f_SqArcMins',
     };
     let populated = 0;
     Object.entries(fieldMap).forEach(([key, elId]) => {
