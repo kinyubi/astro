@@ -36,6 +36,7 @@ try {
                 o.ProjectFolder,
                 o.IsMosaic,
                 o.WantBetter,
+                o.Notes,
                 o.MostRecentObservation,
                 o.LastUpdated,
                 c.CatalogID AS PrimaryCatalogID
@@ -69,6 +70,7 @@ try {
                 o.ProjectFolder,
                 o.IsMosaic,
                 o.WantBetter,
+                o.Notes,
                 o.MostRecentObservation,
                 o.LastUpdated,
                 c.CatalogID AS PrimaryCatalogID

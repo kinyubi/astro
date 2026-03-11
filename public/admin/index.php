@@ -123,6 +123,9 @@ header('Pragma: no-cache');
   /* social blurb gets more height */
   #f_SocialBlurb { min-height: 160px; }
 
+  /* notes — fixed 3-line height */
+  #f_Notes { min-height: 62px; max-height: 62px; resize: none; }
+
   /* Catalog IDs mini-table */
   .cat-table { width: 100%; border-collapse: collapse; font-size: 12px; }
   .cat-table th { color: var(--muted); font-weight: 500; text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
@@ -290,7 +293,7 @@ header('Pragma: no-cache');
       <div class="section">
         <div class="section-header">Observation &amp; Project</div>
         <div class="section-body grid-3">
-          <div class="field span-2">
+          <div class="field">
             <label>Project Folder</label>
             <input type="text" id="f_ProjectFolder" placeholder="e.g. NGC1976_OrionNebula">
             <div class="note">Folder name under C:\Astronomy\myWorks</div>
@@ -305,6 +308,10 @@ header('Pragma: no-cache');
               <option value="0">No</option>
               <option value="1">Yes</option>
             </select>
+          </div>
+          <div class="field span-3">
+            <label>Notes</label>
+            <textarea id="f_Notes" placeholder="Personal notes about this object, imaging sessions, equipment used, etc."></textarea>
           </div>
         </div>
       </div>
@@ -376,7 +383,7 @@ function blurbFieldsChanged() {
 
 const fields = ['DSOKey','CommonName','ObjectTypeID','ConstellationID',
                 'RAHours','DecDegrees','Magnitude','ObjectSize','SqArcMins','DistanceLY',
-                'SocialBlurb','ProjectFolder','IsMosaic','MostRecentObservation','WantBetter'];
+                'SocialBlurb','ProjectFolder','IsMosaic','MostRecentObservation','WantBetter','Notes'];
 
 // ──────────────────────────────────────────────
 // Fetch wrapper — redirects to login on 401
