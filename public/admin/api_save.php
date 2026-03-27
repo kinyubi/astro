@@ -40,6 +40,7 @@ try {
         'CommonName', 'ObjectTypeID', 'ConstellationID',
         'RAHours', 'DecDegrees', 'Magnitude',
         'ObjectSize', 'SqArcMins', 'DistanceLY', 'SocialBlurb', 'WantBetter',
+        'ProjectFolder', 'IsMosaic', 'MostRecentObservation', 'Notes',
     ];
 
     $updates = [];
