@@ -32,6 +32,22 @@ if (!$dso_id) {
 }
 
 // ------------------------------------------------------------------
+// Comet key normalisation
+// DSOKeys matching C\d{4}-[A-Z]{2} (e.g. C2023-YZ) are comets stored in a
+// DB-safe format. Convert to the standard IAU designation C/2023 YZ before
+// passing to the AI so it can look the object up correctly.
+// ------------------------------------------------------------------
+$lookup_catalog_id = $primary_catalog_id;
+if (preg_match('/^C(\d{4})-([A-Z]{2})$/', $dso_id)) {
+    // Transform stored key → IAU comet designation
+    $lookup_catalog_id = preg_replace('/^C(\d{4})-([A-Z]{2})$/', 'C/$1 $2', $dso_id);
+    // Also apply to primary_catalog_id if it still mirrors the stored key
+    if ($primary_catalog_id === $dso_id || $primary_catalog_id === '') {
+        $primary_catalog_id = $lookup_catalog_id;
+    }
+}
+
+// ------------------------------------------------------------------
 // Build the prompt for Claude
 // ------------------------------------------------------------------
 $common_name_label  = $common_name  ?: '(not set — infer from catalog ID)';
@@ -40,16 +56,16 @@ $distance_label     = $distance     ?: '(not set — infer from catalog ID)';
 $object_size_label  = $object_size  ?: '(not set — infer from catalog ID)';
 
 $prompt = <<<PROMPT
-You are an astronomy database assistant with extensive knowledge of deep sky objects. Return a JSON object with data about the deep sky object "{$dso_id}".
+You are an astronomy database assistant with extensive knowledge of deep sky objects. Return a JSON object with data about the deep sky object "{$lookup_catalog_id}".
 
 GROUND TRUTH — these values are set by the user and must be used exactly as provided. Do not substitute, correct, or infer alternatives for any field that is set:
 COMMON NAME : {$common_name_label}
-CATALOG ID  : {$primary_catalog_id}
+CATALOG ID  : {$lookup_catalog_id}
 CONSTELLATION: {$constellation_label}
 DISTANCE    : {$distance_label}
 OBJECT SIZE : {$object_size_label}
 
-For the SocialBlurb, the first sentence MUST open with exactly: "The {$common_name_label} ({$primary_catalog_id}) is..."
+For the SocialBlurb, the first sentence MUST open with exactly: "The {$common_name_label} ({$lookup_catalog_id}) is..."
 
 Return ONLY valid JSON — no markdown fences, no explanation text — in this exact structure:
 
@@ -63,7 +79,7 @@ Return ONLY valid JSON — no markdown fences, no explanation text — in this e
   "ObjectSize": "string — a plain-English size description covering three things: (1) the actual physical size in light-years, (2) the apparent angular size in arcminutes, and (3) a comparison to the full moon's diameter (the full moon is 30 arcminutes across). Example: '70 light-years across with an apparent diameter of 45-50 arcminutes, about 1.5 times the size of the full moon.' Keep it to one sentence.",
   "DistanceLY": "string — human-readable distance, e.g. '~1,350 light-years'",
   "SqArcMins": number — apparent area in square arcminutes. Calculate as follows: (1) If the angular size is given as a single diameter d (in any unit), convert to arcminutes then compute π × (d/2)². (2) If the angular size is given as two dimensions (width × height), convert both to arcminutes then compute width × height. Unit conversions: 1 degree = 60 arcminutes; 1 arcsecond = 1/60 arcminute. Round to two decimal places. Use null if angular size is unknown.,
-  "SocialBlurb": "string — conversational prose for a social media post for everyday people who enjoy space and astronomy images, not scientists. The blurb has ALREADY been started for you — your job is to complete it. It must begin with EXACTLY this text (do not alter, paraphrase, or restate it): 'The {$common_name_label} ({$primary_catalog_id}) is ' — then complete the sentence with a brief plain-English description of what this object is, and continue into a second paragraph. Rules: (1) Total length under 200 words. (2) Use short simple sentences. (3) Avoid jargon — if a term is unavoidable, explain it simply. (4) Be interesting but not over-the-top. (5) No hashtags. (6) Two paragraphs separated by \\n\\n. (7) Do NOT include distance, constellation, or size — those are shown separately.",
+  "SocialBlurb": "string — conversational prose for a social media post for everyday people who enjoy space and astronomy images, not scientists. The blurb has ALREADY been started for you — your job is to complete it. It must begin with EXACTLY this text (do not alter, paraphrase, or restate it): 'The {$common_name_label} ({$lookup_catalog_id}) is ' — then complete the sentence with a brief plain-English description of what this object is, and continue into a second paragraph. Rules: (1) Total length under 200 words. (2) Use short simple sentences. (3) Avoid jargon — if a term is unavoidable, explain it simply. (4) Be interesting but not over-the-top. (5) No hashtags. (6) Two paragraphs separated by \\n\\n. (7) Do NOT include distance, constellation, or size — those are shown separately.",
   "CatalogIDs": [
     { "CatalogID": "string — catalog identifier e.g. M42, NGC1976, IC434", "IsPrimary": 1 or 0 }
   ]

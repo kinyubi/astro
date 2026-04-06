@@ -92,6 +92,8 @@ header('Pragma: no-cache');
   .btn.success { background: var(--accent2); border-color: var(--accent2); color: #000; }
   .btn.success:hover { opacity: 0.85; color: #000; }
   .btn.warn { background: var(--warn); border-color: var(--warn); color: #000; }
+  .btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+  .btn.danger:hover { opacity: 0.85; color: #fff; }
   .btn:disabled { opacity: 0.4; cursor: default; }
 
   /* ── Form sections ── */
@@ -212,6 +214,7 @@ header('Pragma: no-cache');
         <div class="form-actions">
           <button class="btn warn" id="btn-ai" onclick="aiPopulate()">🤖 AI Populate</button>
           <button class="btn success" onclick="saveObject()">💾 Save</button>
+          <button class="btn danger" id="btn-delete" onclick="deleteObject()" disabled>🗑️ Delete Object</button>
         </div>
       </div>
 
@@ -507,6 +510,7 @@ function loadObject(row) {
   document.getElementById('editor-subtitle').textContent = row.CommonName || '';
   document.getElementById('f_DSOKey').value = row.DSOKey;
   document.getElementById('f_DSOKey').disabled = true; // can't change key of existing object
+  document.getElementById('btn-delete').disabled = false;
 
   // Reload constellation dropdown with this object's value selected
   loadConstellations(row.ConstellationID || '');
@@ -526,7 +530,7 @@ function newObject() {
   currentObject = null;
   document.querySelectorAll('.object-item').forEach(el => el.classList.remove('active'));
   showEditor();
-  document.getElementById('editor-title').textContent = 'New Object';
+  document.getElementById('editor-title').childNodes[0].textContent = 'New Object ';
   document.getElementById('editor-subtitle').textContent = '';
   // Select fields with NOT NULL defaults need explicit reset (empty string → null would fail)
   const selectDefaults = { WantBetter: '0', IsMosaic: '0' };
@@ -537,6 +541,7 @@ function newObject() {
     el.disabled = false;
   });
   document.getElementById('f_DSOKey').disabled = false;
+  document.getElementById('btn-delete').disabled = true;
   // Reload dropdowns with no selection — setting .value='' alone doesn't clear
   // them after loadObject() has run with a specific selection
   loadObjectTypes('');
@@ -611,6 +616,31 @@ async function saveObject(silent = false) {
       await fetchList(q);
     } else {
       toast('Save failed: ' + (data.error || 'Unknown error'), 'err', 5000);
+    }
+  } catch (e) {
+    toast('Network error: ' + e.message, 'err', 5000);
+  }
+}
+
+// ──────────────────────────────────────────────
+// Delete Object
+// ──────────────────────────────────────────────
+async function deleteObject() {
+  if (!currentObject) { toast('No object selected', 'err'); return; }
+  const key = currentObject.DSOKey;
+  if (!confirm(`Permanently delete "${key}"?\n\nThis will remove the object and all its catalog IDs. This cannot be undone.`)) return;
+
+  try {
+    const res  = await apiFetch('api_delete.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ DSOKey: key }) });
+    const data = await res.json();
+    if (data.success) {
+      toast(key + ' deleted', 'ok');
+      currentObject = null;
+      document.getElementById('editor').style.display       = 'none';
+      document.getElementById('empty-state').style.display  = '';
+      await fetchList(document.getElementById('search').value.trim());
+    } else {
+      toast('Delete failed: ' + (data.error || 'Unknown error'), 'err', 5000);
     }
   } catch (e) {
     toast('Network error: ' + e.message, 'err', 5000);
