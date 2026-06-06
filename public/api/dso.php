@@ -64,10 +64,11 @@ try {
 // ---------------------------------------------------------------------------
 try {
     $stmt = $db->prepare("
-        SELECT *
-        FROM vw_GalleryObjects
-        WHERE UPPER(DSOKey) = UPPER(:key)
-           OR DSOKey IN (
+        SELECT v.*, o.Notes, o.WantBetter, o.SqArcMins
+        FROM vw_GalleryObjects v
+        JOIN Objects o ON v.DSOKey = o.DSOKey
+        WHERE UPPER(v.DSOKey) = UPPER(:key)
+           OR v.DSOKey IN (
                SELECT DSOKey FROM CatalogIDs WHERE UPPER(CatalogID) = UPPER(:key)
            )
         LIMIT 1

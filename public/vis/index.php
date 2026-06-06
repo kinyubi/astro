@@ -102,7 +102,11 @@ if ($useCache) {
             echo "<!DOCTYPE html><html><body><h1>Error</h1><p>No output from Python script. Command: <pre>" . htmlspecialchars($command) . "</pre></p></body></html>";
             exit;
         }
-        if (stripos($output, 'Traceback') !== false || stripos($output, 'Error:') !== false) {
+        // Only treat output as a Python error if it looks like a real traceback,
+        // not just a JS string that happens to contain "Error:"
+        $looksLikePythonError = stripos($output, 'Traceback (most recent call last)') !== false
+            || preg_match('/^\s*(\w+Error|\w+Exception):/m', $output);
+        if ($looksLikePythonError) {
             http_response_code(500);
             echo "<!DOCTYPE html><html><body><h1>Python Error</h1><pre>" . htmlspecialchars($output) . "</pre></body></html>";
             exit;

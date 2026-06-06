@@ -405,6 +405,113 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                 align-items: flex-start;
             }}
         }}
+        /* Info button */
+        .info-btn {{
+            background: none;
+            border: 1px solid #4a9eff;
+            border-radius: 4px;
+            color: #4a9eff;
+            cursor: pointer;
+            font-size: 13px;
+            padding: 2px 8px;
+            line-height: 1.4;
+            transition: background 0.15s;
+        }}
+        .info-btn:hover {{
+            background: rgba(74,158,255,0.18);
+        }}
+        /* DSO Info Modal */
+        #dso-modal-overlay {{
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.78);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }}
+        #dso-modal-overlay.open {{
+            display: flex;
+        }}
+        #dso-modal {{
+            background: #1a1f3a;
+            border: 1px solid #4a9eff;
+            border-radius: 8px;
+            width: 580px;
+            max-width: 95vw;
+            max-height: 88vh;
+            overflow-y: auto;
+            padding: 24px;
+            position: relative;
+        }}
+        #dso-modal h2 {{
+            color: #4a9eff;
+            font-size: 18px;
+            margin: 0 0 16px 0;
+            padding-right: 32px;
+        }}
+        .modal-section {{
+            background: rgba(255,255,255,0.03);
+            border: 1px solid #2a3f5f;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            overflow: hidden;
+        }}
+        .modal-section-header {{
+            background: #2a3f5f;
+            color: #8b9dc3;
+            font-size: 11px;
+            font-weight: 600;
+            letter-spacing: 0.05em;
+            padding: 6px 12px;
+            text-transform: uppercase;
+        }}
+        .modal-section-body {{
+            padding: 12px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 16px;
+        }}
+        .modal-field {{
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }}
+        .modal-field-label {{
+            color: #8b9dc3;
+            font-size: 11px;
+            font-weight: 500;
+        }}
+        .modal-field-value {{
+            color: #e0e0e0;
+            font-size: 13px;
+        }}
+        .modal-full {{
+            grid-column: span 2;
+        }}
+        .modal-blurb {{
+            color: #c0cce0;
+            font-size: 13px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+        }}
+        .modal-close {{
+            position: absolute;
+            top: 12px;
+            right: 14px;
+            background: none;
+            border: none;
+            color: #8b9dc3;
+            font-size: 20px;
+            cursor: pointer;
+            line-height: 1;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }}
+        .modal-close:hover {{
+            color: #e0e0e0;
+            background: rgba(255,255,255,0.07);
+        }}
     </style>
 </head>
 <body>
@@ -455,6 +562,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                 <th>Size (arcmin²)</th>
                 <th>Constellation</th>
                 <th>Type</th>
+                <th></th>
             </tr>
         </thead>
         <tbody id="tableBody">
@@ -494,6 +602,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                     <td>${obj.sq_arcmins > 0 ? obj.sq_arcmins.toFixed(0) : ''}</td>
                     <td>${obj.constellation}</td>
                     <td>${obj.type_desc}</td>
+                    <td><button class="info-btn" onclick="showDSOInfo('${obj.name}')">&#x2139;</button></td>
                 `;
             });
 
@@ -540,6 +649,112 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         // Initial render with default sort (duration)
         sortTable();
     </script>
+<!-- DSO Info Modal -->
+<div id="dso-modal-overlay" onclick="if(event.target===this)closeDSOInfo()">
+  <div id="dso-modal">
+    <button class="modal-close" onclick="closeDSOInfo()">&#x2715;</button>
+    <h2 id="dso-modal-title">Loading&#x2026;</h2>
+    <div id="dso-modal-body"></div>
+  </div>
+</div>
+
+<script>
+async function showDSOInfo(dsoKey) {{
+  const overlay = document.getElementById('dso-modal-overlay');
+  const title   = document.getElementById('dso-modal-title');
+  const body    = document.getElementById('dso-modal-body');
+  title.textContent = dsoKey;
+  body.innerHTML = '<div style="color:#8b9dc3;text-align:center;padding:20px;">Fetching data&#x2026;</div>';
+  overlay.classList.add('open');
+
+  try {{
+    const res  = await fetch('/api/dso.php?key=' + encodeURIComponent(dsoKey));
+    const json = await res.json();
+    if (!json.success) {{
+      body.innerHTML = '<div style="color:#f85149;padding:12px;">Error: ' + (json.error || 'Unknown') + '</div>';
+      return;
+    }}
+    const d = json.data;
+    title.textContent = d.DSOKey + (d.CommonName ? ' \u2013 ' + d.CommonName : '');
+
+    function fv(v) {{ return (v !== null && v !== undefined && v !== '') ? String(v) : '\u2014'; }}
+    function fn(v, dec) {{ return (v !== null && v !== undefined && v !== '') ? parseFloat(v).toFixed(dec ?? 2) : '\u2014'; }}
+
+    let html = '';
+
+    // Identity
+    html += `<div class="modal-section">
+      <div class="modal-section-header">Identity</div>
+      <div class="modal-section-body">
+        <div class="modal-field"><span class="modal-field-label">DSO Key</span><span class="modal-field-value">${fv(d.DSOKey)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Primary Catalog ID</span><span class="modal-field-value">${fv(d.PrimaryCatalogID)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Common Name</span><span class="modal-field-value">${fv(d.CommonName)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Object Type</span><span class="modal-field-value">${fv(d.ObjectTypeName)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Constellation</span><span class="modal-field-value">${fv(d.ConstellationName)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Distance</span><span class="modal-field-value">${fv(d.DistanceLY)}</span></div>
+      </div>
+    </div>`;
+
+    // Astrometrics
+    const wantBetterHtml = d.WantBetter ? `<div class="modal-field modal-full"><span class="modal-field-value" style="color:#ffd700;">&#9733; Priority &#8212; want better data</span></div>` : '';
+    html += `<div class="modal-section">
+      <div class="modal-section-header">Astrometrics</div>
+      <div class="modal-section-body">
+        <div class="modal-field"><span class="modal-field-label">RA (hours)</span><span class="modal-field-value">${fn(d.RAHours, 4)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Dec (degrees)</span><span class="modal-field-value">${fn(d.DecDegrees, 4)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Magnitude</span><span class="modal-field-value">${fn(d.Magnitude, 1)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Size (arcmin&sup2;)</span><span class="modal-field-value">${d.SqArcMins ? parseFloat(d.SqArcMins).toFixed(0) : '\u2014'}</span></div>
+        <div class="modal-field modal-full"><span class="modal-field-label">Object Size</span><span class="modal-field-value">${fv(d.ObjectSize)}</span></div>
+        ${wantBetterHtml}
+      </div>
+    </div>`;
+
+    // Observation & Project
+    const integStr = d.TotalIntegrationMins ? (parseFloat(d.TotalIntegrationMins)/60).toFixed(1) + ' hrs' : '\u2014';
+    html += `<div class="modal-section">
+      <div class="modal-section-header">Observation &amp; Project</div>
+      <div class="modal-section-body">
+        <div class="modal-field"><span class="modal-field-label">Project Folder</span><span class="modal-field-value">${fv(d.ProjectFolder)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Mosaic?</span><span class="modal-field-value">${d.IsMosaic ? 'Yes' : 'No'}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Last Observed</span><span class="modal-field-value">${fv(d.MostRecentObservation)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Total Lights</span><span class="modal-field-value">${fv(d.TotalLights)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Integration Time</span><span class="modal-field-value">${integStr}</span></div>
+      </div>
+    </div>`;
+
+    // Notes
+    if (d.Notes) {{
+      html += `<div class="modal-section">
+        <div class="modal-section-header">Notes</div>
+        <div class="modal-section-body" style="grid-template-columns:1fr;">
+          <div class="modal-field"><span class="modal-field-value" style="white-space:pre-wrap;">${d.Notes}</span></div>
+        </div>
+      </div>`;
+    }}
+
+    // Social Blurb
+    if (d.SocialBlurb) {{
+      html += `<div class="modal-section">
+        <div class="modal-section-header">Social Blurb</div>
+        <div class="modal-section-body" style="grid-template-columns:1fr;">
+          <div class="modal-blurb">${d.SocialBlurb}</div>
+        </div>
+      </div>`;
+    }}
+
+    body.innerHTML = html;
+  }} catch (e) {{
+    body.innerHTML = '<div style="color:#f85149;padding:12px;">Network error: ' + e.message + '</div>';
+  }}
+}}
+
+function closeDSOInfo() {{
+  document.getElementById('dso-modal-overlay').classList.remove('open');
+}}
+
+document.addEventListener('keydown', e => {{ if (e.key === 'Escape') closeDSOInfo(); }});
+</script>
+
 <!-- Quick Add Modal -->
 <div id="qa-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:999; align-items:center; justify-content:center;">
   <div style="background:#1a1f3a; border:1px solid #4a9eff; border-radius:8px; padding:28px; width:340px; max-width:90vw; display:flex; flex-direction:column; gap:14px;">
