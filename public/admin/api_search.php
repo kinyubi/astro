@@ -3,7 +3,8 @@
 // api_search.php  —  Search objects in the database
 //
 // GET ?q=<search_term>
-// Returns matching Objects + their primary CatalogID
+// Returns matching Objects + their primary CatalogID,
+// plus GalleryImages and DSOLinks for each result.
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
@@ -83,10 +84,13 @@ try {
     }
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    // Also fetch all catalog IDs for each result
+    // Collect DSOKeys for batch sub-queries
     $keys = array_column($rows, 'DSOKey');
+
     if ($keys) {
         $placeholders = implode(',', array_fill(0, count($keys), '?'));
+
+        // ── CatalogIDs ────────────────────────────────────────────────────────
         $cat_stmt = $db->prepare("
             SELECT CatalogID, DSOKey, IsPrimary
             FROM CatalogIDs
@@ -100,8 +104,57 @@ try {
         foreach ($all_cats as $cat) {
             $cats_by_key[$cat['DSOKey']][] = $cat;
         }
+
+        // ── GalleryImages ─────────────────────────────────────────────────────
+        $gi_stmt = $db->prepare("
+            SELECT
+                gi.GalleryImageID,
+                gi.DSOKey,
+                gi.BaseName,
+                gi.Caption,
+                gi.PaletteID,
+                pt.PaletteName,
+                pt.PaletteCode,
+                gi.DateCaptured,
+                gi.Copyright,
+                gi.IsOwn,
+                gi.Attribution,
+                gi.SortOrder,
+                gi.IsFeature
+            FROM GalleryImages gi
+            LEFT JOIN PaletteTreatments pt ON gi.PaletteID = pt.PaletteID
+            WHERE gi.DSOKey IN ($placeholders)
+            ORDER BY gi.DSOKey, gi.SortOrder, gi.GalleryImageID
+        ");
+        $gi_stmt->execute($keys);
+        $all_gi = $gi_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $gi_by_key = [];
+        foreach ($all_gi as $gi) {
+            $gi_by_key[$gi['DSOKey']][] = $gi;
+        }
+
+        // ── DSOLinks ──────────────────────────────────────────────────────────
+        $lnk_stmt = $db->prepare("
+            SELECT LinkID, DSOKey, Label, URL, SortOrder
+            FROM DSOLinks
+            WHERE DSOKey IN ($placeholders)
+            ORDER BY DSOKey, SortOrder, LinkID
+        ");
+        $lnk_stmt->execute($keys);
+        $all_links = $lnk_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $links_by_key = [];
+        foreach ($all_links as $lnk) {
+            $links_by_key[$lnk['DSOKey']][] = $lnk;
+        }
+
+        // ── Merge into rows ───────────────────────────────────────────────────
         foreach ($rows as &$row) {
-            $row['CatalogIDs'] = $cats_by_key[$row['DSOKey']] ?? [];
+            $k = $row['DSOKey'];
+            $row['CatalogIDs']    = $cats_by_key[$k]  ?? [];
+            $row['GalleryImages'] = $gi_by_key[$k]    ?? [];
+            $row['DSOLinks']      = $links_by_key[$k] ?? [];
         }
     }
 

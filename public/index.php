@@ -1004,8 +1004,8 @@ $solarJson = json_encode(array_values($solarObjects));
         let h = `<div class="modal-header"><h2>${titleText}</h2></div>`;
         if (item.info) {
             const i = item.info;
-            if (i.ConstellationID) h += `<div class="info-section"><h3>Constellation</h3><p>${i.ConstellationID}</p></div>`;
-            if (i.DistanceLY)      h += `<div class="info-section"><h3>Distance</h3><p>${i.DistanceLY}</p></div>`;
+            if (i.ConstellationID) h += `<div class="info-section"><h3>Constellation&nbsp;</h3><p>${i.ConstellationID}</p></div>`;
+            if (i.DistanceLY)      h += `<div class="info-section"><h3>Distance&nbsp;</h3><p>${i.DistanceLY}</p></div>`;
             if (i.SocialBlurb) {
                 // Convert \n\n to paragraph breaks
                 const paras = i.SocialBlurb.split(/\n\n+/);
