@@ -44,7 +44,7 @@ try {
         'CommonName', 'ObjectTypeID', 'ConstellationID',
         'RAHours', 'DecDegrees', 'Magnitude',
         'ObjectSize', 'SqArcMins', 'DistanceLY', 'SocialBlurb', 'WantBetter',
-        'ProjectFolder', 'IsMosaic', 'MostRecentObservation', 'Notes',
+        'ProjectFolder', 'MostRecentObservation', 'Notes',
     ];
 
     $updates = [];
@@ -125,10 +125,12 @@ try {
         $upsert = $db->prepare("
             INSERT INTO GalleryImages
                 (GalleryImageID, DSOKey, BaseName, Caption, PaletteID,
-                 DateCaptured, Copyright, IsOwn, Attribution, SortOrder, IsFeature)
+                 DateCaptured, Copyright, IsOwn, Attribution,
+                 Equipment, IsMosaic, SessionDir, SortOrder, IsFeature)
             VALUES
                 (:id, :dso, :base, :caption, :palette,
-                 :date, :copyright, :isown, :attribution, :sort, :feature)
+                 :date, :copyright, :isown, :attribution,
+                 :equipment, :ismosaic, :sessiondir, :sort, :feature)
             ON CONFLICT(GalleryImageID) DO UPDATE SET
                 BaseName     = excluded.BaseName,
                 Caption      = excluded.Caption,
@@ -137,6 +139,9 @@ try {
                 Copyright    = excluded.Copyright,
                 IsOwn        = excluded.IsOwn,
                 Attribution  = excluded.Attribution,
+                Equipment    = excluded.Equipment,
+                IsMosaic     = excluded.IsMosaic,
+                SessionDir   = excluded.SessionDir,
                 SortOrder    = excluded.SortOrder,
                 IsFeature    = excluded.IsFeature
         ");
@@ -144,10 +149,12 @@ try {
         $insert_new = $db->prepare("
             INSERT INTO GalleryImages
                 (DSOKey, BaseName, Caption, PaletteID,
-                 DateCaptured, Copyright, IsOwn, Attribution, SortOrder, IsFeature)
+                 DateCaptured, Copyright, IsOwn, Attribution,
+                 Equipment, IsMosaic, SessionDir, SortOrder, IsFeature)
             VALUES
                 (:dso, :base, :caption, :palette,
-                 :date, :copyright, :isown, :attribution, :sort, :feature)
+                 :date, :copyright, :isown, :attribution,
+                 :equipment, :ismosaic, :sessiondir, :sort, :feature)
         ");
 
         foreach ($incoming as $img) {
@@ -161,10 +168,13 @@ try {
                 ':palette'     => $img['PaletteID']    ?? 0,
                 ':date'        => $img['DateCaptured'] ?? null,
                 ':copyright'   => $img['Copyright']    ?? null,
-                ':isown'       => isset($img['IsOwn'])  ? (int)$img['IsOwn']    : 1,
+                ':isown'       => isset($img['IsOwn'])      ? (int)$img['IsOwn']      : 1,
                 ':attribution' => $img['Attribution']  ?? null,
-                ':sort'        => isset($img['SortOrder']) ? (int)$img['SortOrder'] : 0,
-                ':feature'     => isset($img['IsFeature']) ? (int)$img['IsFeature'] : 0,
+                ':equipment'   => $img['Equipment']    ?? null,
+                ':ismosaic'    => isset($img['IsMosaic'])   ? (int)$img['IsMosaic']   : 0,
+                ':sessiondir'  => $img['SessionDir']   ?? null,
+                ':sort'        => isset($img['SortOrder'])  ? (int)$img['SortOrder']  : 0,
+                ':feature'     => isset($img['IsFeature'])  ? (int)$img['IsFeature']  : 0,
             ];
 
             if (!empty($img['GalleryImageID'])) {

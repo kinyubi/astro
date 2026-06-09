@@ -23,7 +23,30 @@ if (!$body) {
     exit;
 }
 
-$dso_key = trim($body['DSOKey'] ?? '');
+$dso_key        = trim($body['DSOKey']        ?? '');
+$gallery_img_id = isset($body['GalleryImageID']) ? (int)$body['GalleryImageID'] : null;
+
+// ── Delete a single GalleryImages row ────────────────────────────────────────
+if ($gallery_img_id) {
+    try {
+        $db = new PDO('sqlite:' . DB_PATH);
+        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $stmt = $db->prepare('DELETE FROM GalleryImages WHERE GalleryImageID = ?');
+        $stmt->execute([$gallery_img_id]);
+        if ($stmt->rowCount() === 0) {
+            http_response_code(404);
+            echo json_encode(['error' => "GalleryImage $gallery_img_id not found"]);
+            exit;
+        }
+        echo json_encode(['success' => true, 'GalleryImageID' => $gallery_img_id]);
+    } catch (Exception $e) {
+        http_response_code(500);
+        echo json_encode(['error' => $e->getMessage()]);
+    }
+    exit;
+}
+
+// ── Delete a whole DSO object ─────────────────────────────────────────────────
 if (!$dso_key) {
     http_response_code(400);
     echo json_encode(['error' => 'DSOKey is required']);

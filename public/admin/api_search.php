@@ -114,11 +114,13 @@ try {
                 gi.Caption,
                 gi.PaletteID,
                 pt.PaletteName,
-                pt.PaletteCode,
                 gi.DateCaptured,
                 gi.Copyright,
                 gi.IsOwn,
                 gi.Attribution,
+                gi.Equipment,
+                gi.IsMosaic,
+                gi.SessionDir,
                 gi.SortOrder,
                 gi.IsFeature
             FROM GalleryImages gi

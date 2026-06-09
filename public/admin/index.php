@@ -140,6 +140,44 @@ header('Pragma: no-cache');
   .btn-add-cat { background: none; border: 1px dashed var(--border); border-radius: var(--radius); color: var(--muted); padding: 5px 10px; font-size: 12px; cursor: pointer; margin-top: 8px; width: 100%; }
   .btn-add-cat:hover { border-color: var(--accent); color: var(--accent); }
 
+  /* ── Gallery Images cards ── */
+  .gi-list { display: flex; flex-direction: column; gap: 10px; }
+  .gi-card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 12px 14px; position: relative;
+  }
+  .gi-card.is-feature { border-color: var(--accent2); }
+  .gi-card-header {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+    font-size: 12px; color: var(--muted);
+  }
+  .gi-card-header .gi-basename {
+    font-weight: 600; color: var(--text); font-size: 13px; flex: 1;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .gi-feature-badge {
+    background: rgba(63,185,80,0.15); color: var(--accent2);
+    border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 600;
+    white-space: nowrap;
+  }
+  .gi-card-fields { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .gi-card-fields .field label { font-size: 11px; }
+  .gi-card-fields .field input,
+  .gi-card-fields .field select { font-size: 12px; padding: 5px 8px; }
+  .gi-card-actions {
+    display: flex; gap: 8px; align-items: center; margin-top: 10px;
+    padding-top: 10px; border-top: 1px solid var(--border);
+  }
+  .gi-attribution-row { display: none; }
+  .gi-attribution-row.visible { display: contents; }
+
+  /* ── DSO Links table ── */
+  .lnk-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .lnk-table th { color: var(--muted); font-weight: 500; text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  .lnk-table td { padding: 5px 8px; border-bottom: 1px solid rgba(48,54,61,0.5); vertical-align: middle; }
+  .lnk-table input { background: var(--bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text); padding: 3px 6px; font-size: 12px; width: 100%; }
+  .lnk-table input:focus { border-color: var(--accent); outline: none; }
+
   /* ── Toast / Status ── */
   #toast {
     position: fixed; bottom: 24px; right: 24px; padding: 10px 18px;
@@ -305,13 +343,6 @@ header('Pragma: no-cache');
             <label>Most Recent Observation</label>
             <input type="date" id="f_MostRecentObservation">
           </div>
-          <div class="field">
-            <label>Is Mosaic?</label>
-            <select id="f_IsMosaic">
-              <option value="0">No</option>
-              <option value="1">Yes</option>
-            </select>
-          </div>
           <div class="field span-3">
             <label>Notes</label>
             <textarea id="f_Notes" placeholder="Personal notes about this object, imaging sessions, equipment used, etc."></textarea>
@@ -352,6 +383,42 @@ header('Pragma: no-cache');
         </div>
       </div>
 
+      <!-- Gallery Images -->
+      <div class="section">
+        <div class="section-header">
+          Gallery Images
+          <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="syncFolder()">&#x21bb; Sync Folder</button>
+          <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="addGalleryImageCard()">+ Add Image</button>
+        </div>
+        <div class="section-body">
+          <div class="gi-list" id="gi-list"></div>
+          <div id="gi-empty" style="color:var(--muted); font-size:12px; padding:4px 0; display:none;">No gallery images yet &mdash; click &ldquo;Sync Folder&rdquo; or &ldquo;+ Add Image&rdquo;.</div>
+          <div id="gi-sync-result" style="display:none; margin-top:10px;"></div>
+        </div>
+      </div>
+
+      <!-- DSO Links -->
+      <div class="section">
+        <div class="section-header">
+          DSO Links
+          <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="addLinkRow()">+ Add Link</button>
+        </div>
+        <div class="section-body">
+          <table class="lnk-table" id="lnk-table">
+            <thead>
+              <tr>
+                <th style="width:22%">Label</th>
+                <th>URL</th>
+                <th style="width:70px">Order</th>
+                <th style="width:36px"></th>
+              </tr>
+            </thead>
+            <tbody id="lnk-tbody"></tbody>
+          </table>
+          <button class="btn-add-cat" onclick="addLinkRow()" style="margin-top:8px;">+ Add Link</button>
+        </div>
+      </div>
+
     </div><!-- /editor -->
   </main>
 </div><!-- /app -->
@@ -386,7 +453,7 @@ function blurbFieldsChanged() {
 
 const fields = ['DSOKey','CommonName','ObjectTypeID','ConstellationID',
                 'RAHours','DecDegrees','Magnitude','ObjectSize','SqArcMins','DistanceLY',
-                'SocialBlurb','ProjectFolder','IsMosaic','MostRecentObservation','WantBetter','Notes'];
+                'SocialBlurb','ProjectFolder','MostRecentObservation','WantBetter','Notes'];
 
 // ──────────────────────────────────────────────
 // Fetch wrapper — redirects to login on 401
@@ -434,6 +501,7 @@ async function fetchList(q = '') {
 
 function renderList(rows) {
   const ul = document.getElementById('object-list');
+  const scrollTop = ul.scrollTop;
   ul.innerHTML = '';
   if (!Array.isArray(rows) || !rows.length) {
     ul.innerHTML = '<div style="padding:16px; color:var(--muted); font-size:13px;">' + (Array.isArray(rows) ? 'No objects found' : 'Error loading objects') + '</div>';
@@ -461,6 +529,7 @@ function renderList(rows) {
     div.addEventListener('click', () => loadObject(row));
     ul.appendChild(div);
   });
+  ul.scrollTop = scrollTop;
 }
 
 // ──────────────────────────────────────────────
@@ -505,6 +574,8 @@ function loadObject(row) {
   document.querySelectorAll('.object-item').forEach(el => {
     el.classList.toggle('active', el.dataset.key === row.DSOKey);
   });
+  const activeEl = document.querySelector('.object-item.active');
+  if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
   showEditor();
   document.getElementById('editor-title').childNodes[0].textContent = row.DSOKey + ' ';
   document.getElementById('editor-subtitle').textContent = row.CommonName || '';
@@ -523,6 +594,8 @@ function loadObject(row) {
   loadObjectTypes(row.ObjectTypeID || '');
 
   renderCatalogTable(row.CatalogIDs || []);
+  renderGalleryImages(row.GalleryImages || []);
+  renderDSOLinks(row.DSOLinks || []);
   snapshotBlurbFields();
 }
 
@@ -533,7 +606,7 @@ function newObject() {
   document.getElementById('editor-title').childNodes[0].textContent = 'New Object ';
   document.getElementById('editor-subtitle').textContent = '';
   // Select fields with NOT NULL defaults need explicit reset (empty string → null would fail)
-  const selectDefaults = { WantBetter: '0', IsMosaic: '0' };
+  const selectDefaults = { WantBetter: '0' };
   fields.forEach(f => {
     const el = document.getElementById('f_' + f);
     if (!el) return;
@@ -547,6 +620,8 @@ function newObject() {
   loadObjectTypes('');
   loadConstellations('');
   renderCatalogTable([]);
+  renderGalleryImages([]);
+  renderDSOLinks([]);
   snapshotBlurbFields();
 }
 
@@ -603,7 +678,9 @@ async function saveObject(silent = false) {
       payload[f] = v === '' ? null : v;
     }
   });
-  payload.CatalogIDs = getCatalogRows();
+  payload.CatalogIDs    = getCatalogRows();
+  payload.GalleryImages  = getGalleryImageRows();
+  payload.DSOLinks       = getDSOLinkRows();
 
   try {
     const res  = await apiFetch('api_save.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
@@ -771,6 +848,383 @@ async function aiGenerateBlurb() {
   } catch (e) {
     toast('Network error: ' + e.message, 'err', 5000);
   }
+}
+
+// ──────────────────────────────────────────────
+// Gallery Images — Sync Folder
+// ──────────────────────────────────────────────
+
+async function syncFolder() {
+  const dsoKey = document.getElementById('f_DSOKey').value.trim();
+  if (!dsoKey) { toast('Save the DSO first before syncing.', 'err'); return; }
+
+  const resultPanel = document.getElementById('gi-sync-result');
+  resultPanel.style.display = '';
+  resultPanel.innerHTML = '<span style="color:var(--muted); font-size:12px;">Scanning folder&hellip;</span>';
+
+  try {
+    const res  = await apiFetch('api_sync_folder.php', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ DSOKey: dsoKey }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const { inserted, updated, warnings, projectFolder } = data;
+
+    // ── Folder not found — show candidate picker ─────────────────────
+    if (data.folder_not_found) {
+      let html = `<div style="font-size:12px; border:1px solid var(--danger); border-radius:var(--radius); padding:10px 14px; background:var(--bg);">`;
+      html += `<div style="color:var(--danger); font-weight:600; margin-bottom:8px;">&#x26A0; Folder not found: <code>${escHtml(projectFolder)}</code></div>`;
+      if (data.candidates.length > 0) {
+        html += `<div style="color:var(--muted); margin-bottom:8px;">Possible matches &mdash; click one to update Project Folder and re-sync:</div>`;
+        html += `<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">`;
+        data.candidates.forEach(c => {
+          html += `<button class="btn" style="font-size:11px; padding:3px 10px;"
+            onclick="syncWithFolder('${escHtml(c)}')"> ${escHtml(c)}</button>`;
+        });
+        html += `</div>`;
+      } else {
+        html += `<div style="color:var(--muted); margin-bottom:8px;">No similar folders found in MyWorks. Update the Project Folder field manually and try again.</div>`;
+      }
+      html += `<button class="btn" style="font-size:11px; padding:2px 10px;" onclick="dismissSyncResult()">Dismiss</button>`;
+      html += `</div>`;
+      resultPanel.innerHTML = html;
+      return;
+    }
+    let html = `<div style="font-size:12px; border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px; background:var(--bg);">`;
+    html += `<div style="font-weight:600; margin-bottom:8px;">Sync result &mdash; <span style="color:var(--muted); font-weight:400;">${escHtml(projectFolder)}</span></div>`;
+
+    if (inserted.length === 0 && updated.length === 0 && warnings.length === 0) {
+      html += `<div style="color:var(--muted);">No changes &mdash; already up to date.</div>`;
+    }
+
+    if (inserted.length > 0) {
+      html += `<div style="color:var(--accent2); margin-bottom:4px;">&#x2714; Inserted ${inserted.length} new image${inserted.length > 1 ? 's' : ''}:</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      inserted.forEach(r => {
+        html += `<li>${escHtml(r.BaseName)} &mdash; ${escHtml(r.DateCaptured || '')} ${escHtml(r.Equipment || '')}${r.IsMosaic ? ' &middot; Mosaic' : ''}${r.IsFeature ? ' <strong>&#9733; Featured</strong>' : ''}</li>`;
+      });
+      html += `</ul>`;
+    }
+
+    if (updated.length > 0) {
+      html += `<div style="color:var(--accent); margin-bottom:4px;">&#x21bb; Updated ${updated.length} image${updated.length > 1 ? 's' : ''}:</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      updated.forEach(r => {
+        html += `<li>${escHtml(r.BaseName)} &mdash; ${escHtml(r.DateCaptured || '')} ${escHtml(r.Equipment || '')}${r.IsMosaic ? ' &middot; Mosaic' : ''}</li>`;
+      });
+      html += `</ul>`;
+    }
+
+    if (warnings.length > 0) {
+      html += `<div style="color:var(--danger); margin-bottom:4px;">&#x26A0; ${warnings.length} image${warnings.length > 1 ? 's' : ''} not found on disk:</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      warnings.forEach(w => {
+        html += `<li>${escHtml(w.BaseName)}
+          <button class="btn" style="font-size:10px; padding:1px 7px; margin-left:8px; border-color:var(--danger); color:var(--danger);"
+            onclick="confirmRemoveGalleryImage(${w.GalleryImageID}, '${escHtml(w.BaseName)}', this)">Remove</button>
+        </li>`;
+      });
+      html += `</ul>`;
+    }
+
+    html += `<button class="btn" style="font-size:11px; padding:2px 10px; margin-top:4px;" onclick="dismissSyncResult()">Dismiss</button>`;
+    html += `</div>`;
+    resultPanel.innerHTML = html;
+
+    // Reload the image cards to reflect inserts/updates
+    if (inserted.length > 0 || updated.length > 0) {
+      const searchRes  = await apiFetch(`api_search.php?q=${encodeURIComponent(dsoKey)}`);
+      const searchData = await searchRes.json();
+      const row = Array.isArray(searchData)
+        ? searchData.find(r => r.DSOKey === dsoKey)
+        : null;
+      if (row) renderGalleryImages(row.GalleryImages || []);
+    }
+
+  } catch (e) {
+    resultPanel.innerHTML = `<span style="color:var(--danger); font-size:12px;">Sync failed: ${escHtml(e.message)}</span>`;
+  }
+}
+
+async function confirmRemoveGalleryImage(id, baseName, btn) {
+  if (!confirm(`Remove "${baseName}" from the gallery?\nThis cannot be undone.`)) return;
+  try {
+    const res  = await apiFetch('api_delete.php', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ GalleryImageID: id }),
+    });
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+    // Remove the list item from the warning panel
+    btn.closest('li').style.textDecoration = 'line-through';
+    btn.remove();
+    // Remove the card from the editor if present
+    const card = document.querySelector(`.gi-card[data-gallery-image-id="${id}"]`);
+    if (card) card.remove();
+    updateGiEmpty();
+    toast(`Removed: ${baseName}`, 'ok');
+  } catch (e) {
+    toast('Delete failed: ' + e.message, 'err');
+  }
+}
+
+function dismissSyncResult() {
+  const p = document.getElementById('gi-sync-result');
+  p.style.display = 'none';
+  p.innerHTML = '';
+}
+
+async function syncWithFolder(folderName) {
+  // Update the ProjectFolder field in the form and save it, then re-sync
+  const dsoKey = document.getElementById('f_DSOKey').value.trim();
+  const pfField = document.getElementById('f_ProjectFolder');
+  if (!pfField) { toast('ProjectFolder field not found', 'err'); return; }
+
+  const resultPanel = document.getElementById('gi-sync-result');
+  resultPanel.innerHTML = `<span style="color:var(--muted); font-size:12px;">Updating Project Folder to <strong>${escHtml(folderName)}</strong> and re-syncing&hellip;</span>`;
+
+  // Update the form field
+  pfField.value = folderName;
+
+  // Save just the ProjectFolder change
+  try {
+    const saveRes  = await apiFetch('api_save.php', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ DSOKey: dsoKey, ProjectFolder: folderName }),
+    });
+    const saveData = await saveRes.json();
+    if (saveData.error) throw new Error(saveData.error);
+  } catch (e) {
+    resultPanel.innerHTML = `<span style="color:var(--danger); font-size:12px;">Failed to save Project Folder: ${escHtml(e.message)}</span>`;
+    return;
+  }
+
+  // Now run the full sync with the corrected folder
+  await syncFolder();
+}
+
+// ──────────────────────────────────────────────
+// Gallery Images — cards
+// ──────────────────────────────────────────────
+
+const PALETTES = [
+  { id: 0, name: 'Natural' },
+  { id: 1, name: 'SHO' },
+  { id: 2, name: 'HOO' },
+  { id: 3, name: 'HSO' },
+  { id: 4, name: 'OHS' },
+  { id: 5, name: 'HOS' },
+  { id: 6, name: 'Starless' },
+  { id: 7, name: 'Mono' },
+];
+
+function paletteOptions(selectedId) {
+  return PALETTES.map(p =>
+    `<option value="${p.id}" ${parseInt(selectedId) === p.id ? 'selected' : ''}>${p.name}</option>`
+  ).join('');
+}
+
+function renderGalleryImages(images) {
+  const list  = document.getElementById('gi-list');
+  const empty = document.getElementById('gi-empty');
+  list.innerHTML = '';
+  images.forEach(img => addGalleryImageCard(img));
+  updateGiEmpty();
+}
+
+function updateGiEmpty() {
+  const list  = document.getElementById('gi-list');
+  const empty = document.getElementById('gi-empty');
+  empty.style.display = list.children.length === 0 ? '' : 'none';
+}
+
+function addGalleryImageCard(img = {}) {
+  const list = document.getElementById('gi-list');
+  const card = document.createElement('div');
+  const isFeature  = img.IsFeature  ? 1 : 0;
+  const isOwn      = img.IsOwn !== undefined ? parseInt(img.IsOwn) : 1;
+  const paletteId  = img.PaletteID !== undefined ? parseInt(img.PaletteID) : 0;
+  const sortOrder  = img.SortOrder !== undefined ? parseInt(img.SortOrder) : list.children.length;
+  const isMosaic   = img.IsMosaic  ? 1 : 0;
+  const equipment  = img.Equipment  || '';
+  const sessionDir = img.SessionDir || '';
+
+  card.className = 'gi-card' + (isFeature ? ' is-feature' : '');
+  card.dataset.galleryImageId = img.GalleryImageID || '';
+
+  card.innerHTML = `
+    <div class="gi-card-header">
+      <span class="gi-basename">${img.BaseName || 'New Image'}</span>
+      ${equipment  ? `<span style="font-size:11px; color:var(--muted);">${escHtml(equipment)}</span>` : ''}
+      ${isMosaic  ? '<span style="font-size:11px; color:var(--warn);">Mosaic</span>' : ''}
+      ${sessionDir ? `<span style="font-size:11px; color:var(--muted); font-family:monospace;">${escHtml(sessionDir)}</span>` : ''}
+      ${isFeature ? '<span class="gi-feature-badge">&#9733; Featured</span>' : ''}
+    </div>
+    <div class="gi-card-fields">
+      <div class="field">
+        <label>Base Name <em style="color:var(--danger)">*</em></label>
+        <input type="text" class="gi-basename-input" placeholder="e.g. m42_orion_a1228"
+               value="${escHtml(img.BaseName || '')}">
+      </div>
+      <div class="field">
+        <label>Palette</label>
+        <select class="gi-palette">${paletteOptions(paletteId)}</select>
+      </div>
+      <div class="field">
+        <label>Date Captured</label>
+        <input type="date" class="gi-date" value="${escHtml(img.DateCaptured || '')}">
+      </div>
+      <div class="field">
+        <label>Caption</label>
+        <input type="text" class="gi-caption" placeholder="Optional display caption"
+               value="${escHtml(img.Caption || '')}">
+      </div>
+      <div class="field">
+        <label>Copyright</label>
+        <input type="text" class="gi-copyright" placeholder="e.g. Carl Smith"
+               value="${escHtml(img.Copyright || '')}">
+      </div>
+      <div class="field">
+        <label>Equipment</label>
+        <input type="text" class="gi-equipment" placeholder="e.g. S30"
+               value="${escHtml(equipment)}">
+      </div>
+      <div class="field">
+        <label>Session Directory</label>
+        <input type="text" class="gi-sessiondir" placeholder="e.g. 20251108_165x60s_S30"
+               value="${escHtml(sessionDir)}">
+      </div>
+      <div class="field">
+        <label>Photographer</label>
+        <select class="gi-isown" onchange="toggleAttribution(this)">
+          <option value="1" ${isOwn === 1 ? 'selected' : ''}>Mine</option>
+          <option value="0" ${isOwn === 0 ? 'selected' : ''}>Other</option>
+        </select>
+      </div>
+      <div class="field gi-attribution-row ${isOwn === 0 ? 'visible' : ''}">
+        <label>Attribution</label>
+        <input type="text" class="gi-attribution" placeholder="Credit line for display"
+               value="${escHtml(img.Attribution || '')}">
+      </div>
+    </div>
+    <div class="gi-card-actions">
+      <input type="hidden" class="gi-sortorder" value="${sortOrder}">
+      <label style="font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="checkbox" class="gi-ismosaic" ${isMosaic ? 'checked' : ''}>
+        Mosaic
+      </label>
+      <label style="font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; cursor:pointer;">
+        <input type="checkbox" class="gi-isfeature" ${isFeature ? 'checked' : ''}>
+        Featured image (gallery card)
+      </label>
+      <div style="flex:1"></div>
+      <label style="font-size:12px; color:var(--muted);">Order</label>
+      <input type="number" class="gi-order-input" value="${sortOrder}" min="0" step="1"
+             style="width:60px; font-size:12px; padding:3px 6px;"
+             onchange="this.closest('.gi-card').querySelector('.gi-sortorder').value = this.value">
+      <button class="btn" style="font-size:11px; padding:3px 10px; border-color:var(--danger); color:var(--danger);"
+              onclick="removeGalleryImageCard(this)">Remove</button>
+    </div>
+  `;
+
+  // Keep header basename in sync as user types
+  card.querySelector('.gi-basename-input').addEventListener('input', function() {
+    card.querySelector('.gi-basename').textContent = this.value || 'New Image';
+  });
+
+  // Keep featured styling in sync
+  card.querySelector('.gi-isfeature').addEventListener('change', function() {
+    card.classList.toggle('is-feature', this.checked);
+    const badge = card.querySelector('.gi-feature-badge');
+    if (this.checked) {
+      if (!badge) {
+        const span = document.createElement('span');
+        span.className = 'gi-feature-badge';
+        span.innerHTML = '&#9733; Featured';
+        card.querySelector('.gi-card-header').appendChild(span);
+      }
+    } else {
+      if (badge) badge.remove();
+    }
+  });
+
+  list.appendChild(card);
+  updateGiEmpty();
+}
+
+function toggleAttribution(sel) {
+  const row = sel.closest('.gi-card').querySelector('.gi-attribution-row');
+  row.classList.toggle('visible', sel.value === '0');
+}
+
+function removeGalleryImageCard(btn) {
+  btn.closest('.gi-card').remove();
+  updateGiEmpty();
+}
+
+function getGalleryImageRows() {
+  return Array.from(document.querySelectorAll('.gi-card')).map(card => ({
+    GalleryImageID: card.dataset.galleryImageId || null,
+    BaseName:       card.querySelector('.gi-basename-input').value.trim(),
+    Caption:        card.querySelector('.gi-caption').value.trim()        || null,
+    PaletteID:      parseInt(card.querySelector('.gi-palette').value),
+    DateCaptured:   card.querySelector('.gi-date').value                  || null,
+    Copyright:      card.querySelector('.gi-copyright').value.trim()      || null,
+    IsOwn:          parseInt(card.querySelector('.gi-isown').value),
+    Attribution:    card.querySelector('.gi-attribution').value.trim()    || null,
+    Equipment:      card.querySelector('.gi-equipment').value.trim()      || null,
+    IsMosaic:       card.querySelector('.gi-ismosaic').checked ? 1 : 0,
+    SessionDir:     card.querySelector('.gi-sessiondir').value.trim()     || null,
+    SortOrder:      parseInt(card.querySelector('.gi-order-input').value) || 0,
+    IsFeature:      card.querySelector('.gi-isfeature').checked ? 1 : 0,
+  })).filter(r => r.BaseName);
+}
+
+// ──────────────────────────────────────────────
+// DSO Links
+// ──────────────────────────────────────────────
+
+function renderDSOLinks(links) {
+  const tbody = document.getElementById('lnk-tbody');
+  tbody.innerHTML = '';
+  links.forEach(lnk => addLinkRow(lnk));
+}
+
+function addLinkRow(lnk = {}) {
+  const tbody = document.getElementById('lnk-tbody');
+  const tr = document.createElement('tr');
+  tr.dataset.linkId = lnk.LinkID || '';
+  tr.innerHTML = `
+    <td><input type="text" class="lnk-label" placeholder="e.g. Wikipedia"
+               value="${escHtml(lnk.Label || '')}"></td>
+    <td><input type="url"  class="lnk-url"   placeholder="https://"
+               value="${escHtml(lnk.URL || '')}"></td>
+    <td><input type="number" class="lnk-order" value="${lnk.SortOrder || 0}"
+               min="0" step="1" style="width:54px;"></td>
+    <td><button class="btn-icon" onclick="this.closest('tr').remove()" title="Remove">&#x2715;</button></td>
+  `;
+  tbody.appendChild(tr);
+}
+
+function getDSOLinkRows() {
+  return Array.from(document.querySelectorAll('#lnk-tbody tr')).map(tr => ({
+    LinkID:    tr.dataset.linkId || null,
+    Label:     tr.querySelector('.lnk-label').value.trim(),
+    URL:       tr.querySelector('.lnk-url').value.trim(),
+    SortOrder: parseInt(tr.querySelector('.lnk-order').value) || 0,
+  })).filter(r => r.Label && r.URL);
+}
+
+// ──────────────────────────────────────────────
+// Utility
+// ──────────────────────────────────────────────
+function escHtml(str) {
+  return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // Auto-uppercase DSO Key as user types

@@ -16,6 +16,9 @@ if (file_exists($_secrets_file)) {
     die('secrets.php not found. Create C:\\laragon7\\www\\astro\\secrets.php with: define(\'ANTHROPIC_API_KEY\', \'your-key-here\');');
 }
 
+// Path to the astrophotography works directory (session subdirs live here)
+define('WORKS_ROOT', 'C:\\Astronomy\\MyWorks');
+
 // Anthropic model to use for AI field population
 // Haiku is ~10x cheaper than Sonnet and much faster for straightforward lookup tasks
 define('ANTHROPIC_MODEL', 'claude-haiku-4-5-20251001');
