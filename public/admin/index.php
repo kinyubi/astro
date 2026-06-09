@@ -141,7 +141,7 @@ header('Pragma: no-cache');
   .btn-add-cat:hover { border-color: var(--accent); color: var(--accent); }
 
   /* ── Gallery Images cards ── */
-  .gi-list { display: flex; flex-direction: column; gap: 10px; }
+  .gi-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
   .gi-card {
     background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius);
     padding: 12px 14px; position: relative;
@@ -160,7 +160,21 @@ header('Pragma: no-cache');
     border-radius: 4px; padding: 1px 7px; font-size: 11px; font-weight: 600;
     white-space: nowrap;
   }
-  .gi-card-fields { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+  .gi-preview {
+    aspect-ratio: 4 / 5; width: 100%; margin-bottom: 12px;
+    border: 1px solid rgba(48,54,61,0.85); border-radius: var(--radius);
+    background: #05070a; position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .gi-preview img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .gi-preview-empty {
+    color: var(--muted); font-size: 12px; text-align: center;
+    padding: 12px; line-height: 1.4; display: none;
+  }
+  .gi-preview.missing img { display: none; }
+  .gi-preview.missing .gi-preview-empty { display: block; }
+  .gi-preview.missing .gi-preview-empty { color: var(--danger); }
+  .gi-card-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .gi-card-fields .field label { font-size: 11px; }
   .gi-card-fields .field input,
   .gi-card-fields .field select { font-size: 12px; padding: 5px 8px; }
@@ -200,6 +214,7 @@ header('Pragma: no-cache');
     .app { grid-template-columns: 220px 1fr; }
     .grid-3 { grid-template-columns: 1fr 1fr; }
     .span-3 { grid-column: span 2; }
+    .gi-list { grid-template-columns: 1fr; }
   }
 
   /* Phone (<600px): stack sidebar above form */
@@ -208,6 +223,8 @@ header('Pragma: no-cache');
     .sidebar { height: 280px; }
     .grid-2, .grid-3 { grid-template-columns: 1fr; }
     .span-2, .span-3 { grid-column: span 1; }
+    .gi-card-fields { grid-template-columns: 1fr; }
+    .gi-card-actions { align-items: flex-start; flex-wrap: wrap; }
   }
 </style>
 </head>
@@ -1029,6 +1046,31 @@ function paletteOptions(selectedId) {
   ).join('');
 }
 
+function galleryFavUrl(baseName) {
+  const trimmed = String(baseName || '').trim();
+  return trimmed ? `/images/fav/${encodeURIComponent(trimmed)}_fav.jpg` : '';
+}
+
+function updateGalleryPreview(card, baseName) {
+  const preview = card.querySelector('.gi-preview');
+  const img = card.querySelector('.gi-preview-img');
+  const empty = card.querySelector('.gi-preview-empty');
+  const url = galleryFavUrl(baseName);
+
+  preview.classList.remove('missing');
+  if (!url) {
+    img.removeAttribute('src');
+    img.alt = '';
+    preview.classList.add('missing');
+    empty.textContent = 'Enter a base name to preview the fav image';
+    return;
+  }
+
+  img.src = url;
+  img.alt = `${baseName} fav image`;
+  empty.textContent = 'Image not found';
+}
+
 function renderGalleryImages(images) {
   const list  = document.getElementById('gi-list');
   const empty = document.getElementById('gi-empty');
@@ -1053,23 +1095,30 @@ function addGalleryImageCard(img = {}) {
   const isMosaic   = img.IsMosaic  ? 1 : 0;
   const equipment  = img.Equipment  || '';
   const sessionDir = img.SessionDir || '';
+  const baseName   = img.BaseName || '';
+  const favUrl     = galleryFavUrl(baseName);
 
   card.className = 'gi-card' + (isFeature ? ' is-feature' : '');
   card.dataset.galleryImageId = img.GalleryImageID || '';
 
   card.innerHTML = `
     <div class="gi-card-header">
-      <span class="gi-basename">${img.BaseName || 'New Image'}</span>
+      <span class="gi-basename">${escHtml(baseName || 'New Image')}</span>
       ${equipment  ? `<span style="font-size:11px; color:var(--muted);">${escHtml(equipment)}</span>` : ''}
       ${isMosaic  ? '<span style="font-size:11px; color:var(--warn);">Mosaic</span>' : ''}
       ${sessionDir ? `<span style="font-size:11px; color:var(--muted); font-family:monospace;">${escHtml(sessionDir)}</span>` : ''}
       ${isFeature ? '<span class="gi-feature-badge">&#9733; Featured</span>' : ''}
     </div>
+    <div class="gi-preview ${favUrl ? '' : 'missing'}">
+      <img class="gi-preview-img" ${favUrl ? `src="${escHtml(favUrl)}"` : ''} alt="${escHtml(baseName ? baseName + ' fav image' : '')}"
+           loading="lazy" onerror="this.closest('.gi-preview').classList.add('missing')">
+      <div class="gi-preview-empty">${favUrl ? 'Image not found' : 'Enter a base name to preview the fav image'}</div>
+    </div>
     <div class="gi-card-fields">
       <div class="field">
         <label>Base Name <em style="color:var(--danger)">*</em></label>
         <input type="text" class="gi-basename-input" placeholder="e.g. m42_orion_a1228"
-               value="${escHtml(img.BaseName || '')}">
+               value="${escHtml(baseName)}">
       </div>
       <div class="field">
         <label>Palette</label>
@@ -1135,6 +1184,7 @@ function addGalleryImageCard(img = {}) {
   // Keep header basename in sync as user types
   card.querySelector('.gi-basename-input').addEventListener('input', function() {
     card.querySelector('.gi-basename').textContent = this.value || 'New Image';
+    updateGalleryPreview(card, this.value);
   });
 
   // Keep featured styling in sync
