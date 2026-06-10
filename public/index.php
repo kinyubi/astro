@@ -226,10 +226,9 @@ $solarJson = json_encode(array_values($solarObjects));
             border: 2px solid #4a9eff;
         }
 
-        .modal-close svg {
-            width: 50%;
-            height: 50%;
-            fill: white;
+        .modal-close i {
+            font-size: 1.1rem;
+            color: white;
         }
 
         .download-dropdown {
@@ -686,6 +685,42 @@ $solarJson = json_encode(array_values($solarObjects));
             text-decoration: none;
         }
 
+        /* Filmstrip thumbnail strip */
+        .filmstrip {
+            display: flex;
+            gap: 6px;
+            padding: 8px 12px;
+            overflow-x: auto;
+            background: rgba(10,13,20,0.95);
+            justify-content: center;
+            scrollbar-width: thin;
+            scrollbar-color: rgba(255,255,255,0.15) transparent;
+        }
+        .filmstrip::-webkit-scrollbar { height: 4px; }
+        .filmstrip::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
+        .filmstrip-thumb {
+            flex-shrink: 0;
+            width: 54px;
+            height: 68px;
+            border-radius: 4px;
+            overflow: hidden;
+            cursor: pointer;
+            border: 2px solid rgba(255,255,255,0.45);
+            opacity: 0.45;
+            transition: opacity 0.15s, border-color 0.15s;
+        }
+        .filmstrip-thumb:hover { opacity: 0.8; }
+        .filmstrip-thumb.active {
+            border-color: #4a9eff;
+            opacity: 1;
+        }
+        .filmstrip-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
         /* DSO Links pills */
         .dso-links {
             display: flex;
@@ -779,8 +814,8 @@ $solarJson = json_encode(array_values($solarObjects));
     </div>
 </div>
 <div class="gallery-container" id="galleryContainer">
-    <button class="back-btn gallery-floating-back" onclick="backToLanding()" aria-label="Back to menu" type="button">
-        <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="white"/></svg>
+    <button class="back-btn gallery-floating-back" onclick="backToLanding()" aria-label="Back to menu" title="Back to gallery..." type="button">
+        <i class="fa-solid fa-reply"></i>
     </button>
     <div class="gallery-header">
         <div class="gallery-tabs">
@@ -846,8 +881,8 @@ $solarJson = json_encode(array_values($solarObjects));
             </div>
         </div>
     </div>
-    <button class="modal-close" onclick="closeModal()" aria-label="Back to gallery">
-        <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="white"/></svg>
+    <button class="modal-close" onclick="closeModal()" aria-label="Back to gallery" title="Back to gallery...">
+        <i class="fa-solid fa-reply"></i>
     </button>
     <div class="modal-content">
         <div class="modal-image-container loading" id="modalImageContainer">
@@ -862,8 +897,8 @@ $solarJson = json_encode(array_values($solarObjects));
         <div class="download-dropdown-header">Download Image</div>
         <div id="solarDownloadOptions"></div>
     </div>
-    <button class="modal-close" onclick="closeSolarModal()" aria-label="Back to gallery">
-        <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z" fill="white"/></svg>
+    <button class="modal-close" onclick="closeSolarModal()" aria-label="Back to gallery" title="Back to gallery...">
+        <i class="fa-solid fa-reply"></i>
     </button>
     <div class="solar-modal-body" id="solarModalBody">
         <div class="solar-counter" id="solarCounter"></div>
@@ -1154,6 +1189,50 @@ $solarJson = json_encode(array_values($solarObjects));
             carousel.insertAdjacentElement('afterend', bar);
         }
 
+        // ── Filmstrip ─────────────────────────────────────────────
+        // Only build the filmstrip once; on subsequent calls just update active thumb
+        let strip = document.querySelector('.filmstrip');
+        if (total > 1) {
+            if (!strip) {
+                strip = document.createElement('div');
+                strip.className = 'filmstrip';
+                item.images.forEach((im, i) => {
+                    const thumb = document.createElement('div');
+                    thumb.className = 'filmstrip-thumb' + (i === currentImageIndex ? ' active' : '');
+                    thumb.dataset.idx = i;
+                    const tImg = document.createElement('img');
+                    tImg.src = im.thumbPath || im.favPath;
+                    tImg.alt = '';
+                    tImg.loading = 'lazy';
+                    thumb.appendChild(tImg);
+                    thumb.onclick = () => {
+                        if (currentImageIndex === parseInt(thumb.dataset.idx)) return;
+                        currentImageIndex = parseInt(thumb.dataset.idx);
+                        renderDSOModalSlide();
+                    };
+                    strip.appendChild(thumb);
+                });
+                const captionBar = document.querySelector('.image-caption-bar');
+                (captionBar || carousel).insertAdjacentElement('afterend', strip);
+            } else {
+                // Already exists — just update active class and reposition after caption bar
+                strip.querySelectorAll('.filmstrip-thumb').forEach(t => {
+                    t.classList.toggle('active', parseInt(t.dataset.idx) === currentImageIndex);
+                });
+                // Ensure strip stays after caption bar (caption bar may have been recreated)
+                const captionBar = document.querySelector('.image-caption-bar');
+                const anchor = captionBar || carousel;
+                if (strip.previousElementSibling !== anchor) {
+                    anchor.insertAdjacentElement('afterend', strip);
+                }
+                // Scroll active thumb into view within the strip
+                const activeThumb = strip.querySelector('.filmstrip-thumb.active');
+                if (activeThumb) activeThumb.scrollIntoView({ inline: 'nearest', block: 'nearest' });
+            }
+        } else if (strip) {
+            strip.remove();
+        }
+
         // ── 4K download options ───────────────────────────────────────
         document.querySelector('.download-4k-annotated-option').style.display = img.has4kAnnotated ? 'flex' : 'none';
         document.querySelector('.download-4k-normal-option').style.display    = img.has4k         ? 'flex' : 'none';
@@ -1198,7 +1277,22 @@ $solarJson = json_encode(array_values($solarObjects));
         currentImageIndex = (currentImageIndex + dir + total) % total;
         renderDSOModalSlide();
     }
-    
+
+    // ── Swipe support for DSO modal ─────────────────────────────────
+    let swipeTouchStartX = 0;
+    let swipeTouchStartY = 0;
+    document.getElementById('modalImageContainer').addEventListener('touchstart', e => {
+        swipeTouchStartX = e.touches[0].clientX;
+        swipeTouchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    document.getElementById('modalImageContainer').addEventListener('touchend', e => {
+        if (!currentModalItem || currentModalItem.images.length < 2) return;
+        const dx = e.changedTouches[0].clientX - swipeTouchStartX;
+        const dy = e.changedTouches[0].clientY - swipeTouchStartY;
+        if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy) * 1.5) return; // too short or mostly vertical
+        navigateDSOCarousel(dx < 0 ? 1 : -1);
+    }, { passive: true });
+
     function closeModal(){
         document.getElementById('modal').classList.remove('active');
         document.body.style.overflow='';
