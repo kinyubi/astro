@@ -4,11 +4,9 @@
  * Provides options for slideshow or browsing DSO gallery
  */
 
-$dirFull = __DIR__ . '/images/annotated_full';
-$dirWall = __DIR__ . '/images/annotated_wall';
-$dirFav = __DIR__ . '/images/fav';
 $extensions = ['jpg','jpeg','png','gif','webp'];
 
+// ── Slideshow images (still from filesystem) ──────────────────────────────────
 function gatherImages($dir, $prefix, $extensions) {
     $images = [];
     if (!is_dir($dir)) return $images;
@@ -23,136 +21,123 @@ function gatherImages($dir, $prefix, $extensions) {
     return array_values($images);
 }
 
-// Load DSO information from SQLite database
-$dsoInfo = [];
+$fullImages = gatherImages(__DIR__ . '/images/annotated_full', 'images/annotated_full', $extensions);
+$wallImages = gatherImages(__DIR__ . '/images/annotated_wall', 'images/annotated_wall', $extensions);
+
+// ── Gallery data from GalleryImages + Objects DB ──────────────────────────────
+$galleryItems = [];
 try {
     $dbPath = __DIR__ . '/../dsodb/astro.db';
     if (file_exists($dbPath)) {
         $db = new PDO('sqlite:' . $dbPath);
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+        // One row per GalleryImages entry, joined to object metadata
         $stmt = $db->query("
             SELECT
-                o.DSOKey,
+                gi.GalleryImageID,
+                gi.DSOKey,
+                gi.BaseName,
+                gi.Caption,
+                gi.PaletteID,
+                pt.PaletteName,
+                gi.DateCaptured,
+                gi.Copyright,
+                gi.IsOwn,
+                gi.Attribution,
+                gi.IsMosaic,
+                gi.SortOrder,
+                gi.IsFeature,
                 o.CommonName,
                 o.ConstellationID,
-                con.Name AS ConstellationName,
+                con.Name        AS ConstellationName,
                 o.DistanceLY,
                 o.ObjectSize,
                 o.SocialBlurb,
-                c.CatalogID AS PrimaryCatalogID
-            FROM Objects o
-            LEFT JOIN CatalogIDs c ON o.DSOKey = c.DSOKey AND c.IsPrimary = 1
-            LEFT JOIN Constellations con ON o.ConstellationID = con.ConstellationID
+                c.CatalogID     AS PrimaryCatalogID
+            FROM GalleryImages gi
+            JOIN Objects o ON gi.DSOKey = o.DSOKey
+            LEFT JOIN PaletteTreatments pt  ON gi.PaletteID      = pt.PaletteID
+            LEFT JOIN CatalogIDs c          ON o.DSOKey          = c.DSOKey AND c.IsPrimary = 1
+            LEFT JOIN Constellations con     ON o.ConstellationID = con.ConstellationID
+            ORDER BY o.CommonName, o.DSOKey, gi.SortOrder, gi.GalleryImageID
         ");
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $dsoInfo[$row['DSOKey']] = $row;
+        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // Fetch DSOLinks keyed by DSOKey
+        $linkStmt = $db->query("
+            SELECT DSOKey, Label, URL, SortOrder
+            FROM DSOLinks
+            ORDER BY DSOKey, SortOrder, LinkID
+        ");
+        $allLinks = [];
+        foreach ($linkStmt->fetchAll(PDO::FETCH_ASSOC) as $lnk) {
+            $allLinks[$lnk['DSOKey']][] = ['label' => $lnk['Label'], 'url' => $lnk['URL']];
         }
-        // Also index by every CatalogID so M1, M42 etc. resolve correctly
-        $aliasStmt = $db->query("
-            SELECT CatalogID, DSOKey FROM CatalogIDs
-        ");
-        foreach ($aliasStmt->fetchAll(PDO::FETCH_ASSOC) as $alias) {
-            $key = strtoupper($alias['CatalogID']);
-            if (!isset($dsoInfo[$key]) && isset($dsoInfo[$alias['DSOKey']])) {
-                $dsoInfo[$key] = $dsoInfo[$alias['DSOKey']];
+
+        // Group by DSOKey — one gallery card per DSO
+        $byDso = [];
+        foreach ($rows as $row) {
+            $key = $row['DSOKey'];
+            if (!isset($byDso[$key])) {
+                $displayName = ($row['CommonName'] ?? $key) . ' (' . $key . ')';
+                $byDso[$key] = [
+                    'dsoKey'      => $key,
+                    'displayName' => $displayName,
+                    'info'        => [
+                        'CommonName'       => $row['CommonName'],
+                        'ConstellationID'  => $row['ConstellationID'],
+                        'ConstellationName'=> $row['ConstellationName'],
+                        'DistanceLY'       => $row['DistanceLY'],
+                        'ObjectSize'       => $row['ObjectSize'],
+                        'SocialBlurb'      => $row['SocialBlurb'],
+                        'PrimaryCatalogID' => $row['PrimaryCatalogID'],
+                    ],
+                    'links'       => $allLinks[$key] ?? [],
+                    'images'      => [],
+                ];
             }
+            $bn = $row['BaseName'];
+            $wall4kPath          = 'images/wall4k/'          . $bn . '_4k.jpg';
+            $wall4kAnnotatedPath = 'images/annotated_wall4k/' . $bn . '_4k_annotated.jpg';
+            $byDso[$key]['images'][] = [
+                'galleryImageID' => (int)$row['GalleryImageID'],
+                'baseName'       => $bn,
+                'caption'        => $row['Caption'],
+                'paletteName'    => $row['PaletteName'] ?? 'Natural',
+                'paletteID'      => (int)$row['PaletteID'],
+                'dateCaptured'   => $row['DateCaptured'],
+                'copyright'      => $row['Copyright'],
+                'isOwn'          => (int)$row['IsOwn'],
+                'attribution'    => $row['Attribution'],
+                'isMosaic'       => (int)$row['IsMosaic'],
+                'isFeature'      => (int)$row['IsFeature'],
+                'thumbPath'      => 'images/thumbs/' . $bn . '_thumb.jpg',
+                'favPath'        => 'images/fav/'    . $bn . '_fav.jpg',
+                'fullPath'       => 'images/annotated_full/' . $bn . '_full_annotated.jpg',
+                'wallPath'       => 'images/annotated_wall/' . $bn . '_wall_annotated.jpg',
+                'has4k'          => file_exists(__DIR__ . '/' . $wall4kPath),
+                'has4kAnnotated' => file_exists(__DIR__ . '/' . $wall4kAnnotatedPath),
+            ];
         }
+
+        // Sort DSOs by display name; ensure featured image is first within each DSO
+        uasort($byDso, fn($a, $b) => strcmp($a['displayName'], $b['displayName']));
+        foreach ($byDso as &$dso) {
+            usort($dso['images'], fn($a, $b) =>
+                $b['isFeature'] - $a['isFeature'] ?: $a['galleryImageID'] - $b['galleryImageID']
+            );
+        }
+        unset($dso);
+
+        $galleryItems = array_values($byDso);
     }
 } catch (Exception $e) {
-    // Fall back to empty array — gallery still works, just no object info
+    // Fall back to empty gallery
 }
 
-$fullImages = gatherImages($dirFull, 'images/annotated_full', $extensions);
-$wallImages = gatherImages($dirWall, 'images/annotated_wall', $extensions);
-$favImages = gatherImages($dirFav, 'images/fav', $extensions);
-
-/**
- * Extract DSO name from filename (new convention: scientific name at start, terminated by underscore)
- */
-function extractDSOName($filename) {
-    $name = pathinfo($filename, PATHINFO_FILENAME);
-    $parts = explode('_', $name);
-    if (count($parts) > 0) {
-        $dsoName = strtoupper(trim($parts[0]));
-        $dsoName = str_replace(' ', '', $dsoName);
-        return $dsoName;
-    }
-    return null;
-}
-
-/**
- * Extract base filename for download paths
- */
-function extractBaseName($filename) {
-    $name = pathinfo($filename, PATHINFO_FILENAME);
-    $suffixes = ['_fav_annotated', '_full_annotated', '_wall_annotated', '_fav', '_full', '_wall'];
-    foreach ($suffixes as $suffix) {
-        if (str_ends_with($name, $suffix)) {
-            return substr($name, 0, -strlen($suffix));
-        }
-    }
-    return $name;
-}
-
-/**
- * Look up DSO information from the database-sourced array
- */
-function getDSOInfo($dsoKey, $dsoInfo) {
-    if (!$dsoKey || !isset($dsoInfo[$dsoKey])) {
-        return null;
-    }
-    return $dsoInfo[$dsoKey];
-}
-
-// Create gallery data
-$galleryItems = [];
-foreach ($fullImages as $imgPath) {
-    $filename = basename($imgPath);
-    $dsoKey = extractDSOName($filename);
-    $baseName = extractBaseName($filename);
-    $fullPath = $imgPath;
-    $wallpaperPath = str_replace('images/annotated_full', 'images/annotated_wall', $imgPath);
-    $wallpaperPath = str_replace('_full_annotated', '_wall_annotated', $wallpaperPath);
-    $favPath = str_replace('images/annotated_full', 'images/fav', $imgPath);
-    $favPath = str_replace('_full_annotated', '_fav', $favPath);
-    
-    // Check if 4K wallpaper versions exist (separate check for annotated and normal)
-    $wall4kPath = 'images/wall4k/' . $baseName . '_4k.jpg';
-    $wall4kAnnotatedPath = 'images/annotated_wall4k/' . $baseName . '_4k_annotated.jpg';
-    $has4k = file_exists(__DIR__ . '/' . $wall4kPath);
-    $has4kAnnotated = file_exists(__DIR__ . '/' . $wall4kAnnotatedPath);
-    
-    $info = getDSOInfo($dsoKey, $dsoInfo);
-    
-    if ($info && isset($info['CommonName'])) {
-        $displayName = $info['CommonName'] . ' (' . $dsoKey . ')';
-    } else {
-        $displayName = $dsoKey;
-    }
-    
-    $thumbPath = 'images/thumbs/' . $baseName . '_thumb.jpg';
-    
-    $galleryItems[] = [
-        'filename' => $filename,
-        'baseName' => $baseName,
-        'fullPath' => $fullPath,
-        'favPath' => $favPath,
-        'thumbPath' => $thumbPath,
-        'wallpaperPath' => $wallpaperPath,
-        'displayName' => $displayName,
-        'dsoKey' => $dsoKey,
-        'info' => $info,
-        'has4k' => $has4k,
-        'has4kAnnotated' => $has4kAnnotated
-    ];
-}
-
-usort($galleryItems, function($a, $b) {
-    return strcmp($a['displayName'], $b['displayName']);
-});
-
-$fullJson = json_encode($fullImages);
-$wallJson = json_encode($wallImages);
+$fullJson    = json_encode($fullImages);
+$wallJson    = json_encode($wallImages);
 $galleryJson = json_encode($galleryItems);
 
 // Solar system image scanning
@@ -618,6 +603,115 @@ $solarJson = json_encode(array_values($solarObjects));
             font-size: 0.8em;
         }
 
+        /* Multi-image badge on gallery card */
+        .gallery-image-count {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: rgba(0,0,0,0.65);
+            color: #7ec8ff;
+            border: 1px solid rgba(74,158,255,0.4);
+            border-radius: 10px;
+            font-size: 0.72em;
+            padding: 2px 8px;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* DSO modal carousel */
+        .dso-carousel {
+            position: relative;
+        }
+        .carousel-arrow {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(0,0,0,0.35);
+            border: none;
+            border-radius: 50%;
+            width: 42px;
+            height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            z-index: 10;
+            transition: background 0.15s;
+        }
+        .carousel-arrow:hover { background: rgba(0,0,0,0.65); }
+        .carousel-arrow img { width: 55%; height: 55%; object-fit: contain; }
+        .carousel-arrow-left  { left:  8px; }
+        .carousel-arrow-right { right: 8px; }
+        .carousel-counter {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.55);
+            color: #9aa0a6;
+            padding: 3px 12px;
+            border-radius: 10px;
+            font-size: 0.78em;
+            pointer-events: none;
+            z-index: 5;
+        }
+
+        /* Image caption bar (palette + date + attribution) */
+        .image-caption-bar {
+            background: rgba(15,20,35,0.92);
+            padding: 7px 14px;
+            font-size: 0.72em;
+            color: #8b949e;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 14px;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+        }
+        .image-caption-bar .caption-palette {
+            color: #7ec8ff;
+            font-weight: 600;
+        }
+        .image-caption-bar .caption-date { color: #9aa0a6; }
+        .image-caption-bar .caption-mosaic {
+            color: #f0a030;
+            font-size: 0.92em;
+        }
+        .image-caption-bar .caption-attribution {
+            color: #8b949e;
+            font-style: italic;
+        }
+        .image-caption-bar .caption-attribution a {
+            color: #4a9eff;
+            text-decoration: none;
+        }
+
+        /* DSO Links pills */
+        .dso-links {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 10px 16px 4px;
+        }
+        .dso-link-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(74,158,255,0.1);
+            border: 1px solid rgba(74,158,255,0.3);
+            border-radius: 14px;
+            padding: 4px 12px;
+            font-size: 0.72em;
+            color: #7ec8ff;
+            text-decoration: none;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .dso-link-pill:hover {
+            background: rgba(74,158,255,0.22);
+            border-color: #4a9eff;
+            color: #fff;
+        }
+
         /* Mobile adjustments */
         /* Floating back button for gallery */
         .gallery-floating-back {
@@ -792,8 +886,9 @@ $solarJson = json_encode(array_values($solarObjects));
     const AUTO_ADVANCE_DELAY=5000;
     const slideImg=document.getElementById('slide'),prevBtn=document.getElementById('prevBtn'),nextBtn=document.getElementById('nextBtn'),playPauseBtn=document.getElementById('playPauseBtn'),pauseIcon=document.getElementById('pauseIcon'),playIcon=document.getElementById('playIcon');
     
-    // Current modal item for downloads
-    let currentModalItem = null;
+    // Current modal state
+    let currentModalItem  = null;  // the DSO item
+    let currentImageIndex = 0;     // which image in item.images[] is showing
     
     // Lazy loading observer - will be initialized after gallery renders
     let lazyImageObserver = null;
@@ -802,30 +897,19 @@ $solarJson = json_encode(array_values($solarObjects));
     let scrollHintShown = false;
     let scrollHintTimer = null;
 
-    // Helper function to append palette suffix based on filename
-    function getTitleWithPalette(displayName, filename) {
-        if (!filename) return displayName;
-        const lowerFilename = filename.toLowerCase();
-        if (lowerFilename.includes('_hoo_')) return displayName + ' (HOO palette)';
-        if (lowerFilename.includes('_hso_')) return displayName + ' (HSO palette)';
-        if (lowerFilename.includes('_sho_')) return displayName + ' (SHO palette)';
-        if (lowerFilename.includes('_hos_')) return displayName + ' (HOS palette)';
-        return displayName;
-    }
-
-    // Generate all image paths from base name (including 4K)
+    // Generate all image paths from base name
     function getImagePaths(baseName) {
         return {
             titled: {
-                square: `/images/annotated_fav/${baseName}_fav_annotated.jpg`,
-                portrait: `/images/annotated_full/${baseName}_full_annotated.jpg`,
-                landscape: `/images/annotated_wall/${baseName}_wall_annotated.jpg`,
+                square:      `/images/annotated_fav/${baseName}_fav_annotated.jpg`,
+                portrait:    `/images/annotated_full/${baseName}_full_annotated.jpg`,
+                landscape:   `/images/annotated_wall/${baseName}_wall_annotated.jpg`,
                 landscape4k: `/images/annotated_wall4k/${baseName}_4k_annotated.jpg`
             },
             untitled: {
-                square: `/images/fav/${baseName}_fav.jpg`,
-                portrait: `/images/full/${baseName}_full.jpg`,
-                landscape: `/images/wall/${baseName}_wall.jpg`,
+                square:      `/images/fav/${baseName}_fav.jpg`,
+                portrait:    `/images/full/${baseName}_full.jpg`,
+                landscape:   `/images/wall/${baseName}_wall.jpg`,
                 landscape4k: `/images/wall4k/${baseName}_4k.jpg`
             }
         };
@@ -838,15 +922,11 @@ $solarJson = json_encode(array_values($solarObjects));
 
     // Download or share image
     async function downloadImage(type, size) {
-        if (!currentModalItem || !currentModalItem.baseName) {
-            console.error('No image selected');
-            return;
-        }
-
-        const paths = getImagePaths(currentModalItem.baseName);
+        const img = currentModalItem && currentModalItem.images[currentImageIndex];
+        if (!img) return;
+        const paths    = getImagePaths(img.baseName);
         const imagePath = paths[type][size];
-        const filename = imagePath.split('/').pop();
-
+        const filename  = imagePath.split('/').pop();
         closeDownloadDropdown();
 
         try {
@@ -901,30 +981,38 @@ $solarJson = json_encode(array_values($solarObjects));
     function renderGallery() {
         const grid = document.getElementById('galleryGrid');
         grid.innerHTML = '';
-        
-        // Create all cards first
         const cards = [];
         galleryData.forEach((item, idx) => {
+            const featImg = item.images[0]; // featured image is always first (sorted server-side)
+            if (!featImg) return;
+
             const card = document.createElement('div');
             card.className = 'gallery-item';
             card.onclick = () => openModal(idx);
-            
-            // Wrapper maintains aspect ratio
+
             const wrapper = document.createElement('div');
             wrapper.className = 'gallery-image-wrapper';
-            
+
             const img = document.createElement('img');
-            img.dataset.src = item.thumbPath;
-            img.dataset.wrapperClass = 'gallery-image-wrapper';
+            // Use thumb, fall back to fav
+            img.dataset.src = featImg.thumbPath || featImg.favPath;
             img.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
             img.alt = item.displayName;
             img.className = 'lazy-image';
-            
+
+            // Multi-image badge
+            if (item.images.length > 1) {
+                const badge = document.createElement('div');
+                badge.className = 'gallery-image-count';
+                badge.textContent = item.images.length + ' images';
+                wrapper.appendChild(badge);
+            }
+
             const info = document.createElement('div');
             info.className = 'gallery-item-info';
             const title = document.createElement('h3');
-            title.textContent = getTitleWithPalette(item.displayName, item.filename);
-            
+            title.textContent = item.displayName;
+
             info.appendChild(title);
             wrapper.appendChild(img);
             card.appendChild(wrapper);
@@ -932,13 +1020,8 @@ $solarJson = json_encode(array_values($solarObjects));
             grid.appendChild(card);
             cards.push({ img, wrapper });
         });
-        
-        // Wait for layout to complete, then set up observer
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                initLazyLoading(cards);
-            });
-        });
+
+        requestAnimationFrame(() => requestAnimationFrame(() => initLazyLoading(cards)));
     }
     
     function initLazyLoading(cards) {
@@ -979,27 +1062,103 @@ $solarJson = json_encode(array_values($solarObjects));
         });
     }
 
-    function openModal(idx) {
+    function openModal(idx, imgIdx) {
         const item = galleryData[idx];
-        currentModalItem = item;
+        currentModalItem  = item;
+        currentImageIndex = imgIdx !== undefined ? imgIdx : 0;
         const modal = document.getElementById('modal');
-        const modalImage = document.getElementById('modalImage');
-        const modalImageContainer = document.getElementById('modalImageContainer');
-        const modalInfo = document.getElementById('modalInfo');
+        renderDSOModalSlide();
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        closeDownloadDropdown();
+        if (!scrollHintShown) {
+            scrollHintShown = true;
+            const hint = document.getElementById('scrollHint');
+            setTimeout(() => {
+                hint.classList.add('visible');
+                scrollHintTimer = setTimeout(() => hint.classList.remove('visible'), 5000);
+            }, 500);
+        }
+    }
+
+    function renderDSOModalSlide() {
+        const item  = currentModalItem;
+        const img   = item.images[currentImageIndex];
+        const total = item.images.length;
         const isLandscape = window.innerWidth > window.innerHeight;
-        const imageSrc = isLandscape && item.wallpaperPath ? item.wallpaperPath : item.fullPath;
-        
+        const modalImage          = document.getElementById('modalImage');
+        const modalImageContainer = document.getElementById('modalImageContainer');
+        const modalInfo           = document.getElementById('modalInfo');
+
+        // ── Image ─────────────────────────────────────────────
+        const src = isLandscape ? img.wallPath : img.fullPath;
         modalImageContainer.classList.add('loading');
-        
-        modalImage.onload = function() {
-            modalImageContainer.classList.remove('loading');
-        };
-        modalImage.onerror = function() {
-            modalImageContainer.classList.remove('loading');
-        };
-        
-        modalImage.src = imageSrc;
+        modalImage.onload  = () => modalImageContainer.classList.remove('loading');
+        modalImage.onerror = () => modalImageContainer.classList.remove('loading');
+        modalImage.src = src;
         modalImage.alt = item.displayName;
+
+        // Wrap image container in carousel div if needed
+        const existingCarousel = document.querySelector('.dso-carousel');
+        if (existingCarousel) {
+            existingCarousel.replaceWith(modalImageContainer);
+        }
+        const carousel = document.createElement('div');
+        carousel.className = 'dso-carousel';
+        modalImageContainer.parentNode.insertBefore(carousel, modalImageContainer);
+        carousel.appendChild(modalImageContainer);
+
+        // Carousel arrows
+        carousel.querySelectorAll('.carousel-arrow, .carousel-counter').forEach(e => e.remove());
+        if (total > 1) {
+            const counter = document.createElement('div');
+            counter.className = 'carousel-counter';
+            counter.textContent = `${currentImageIndex + 1} / ${total}`;
+            carousel.appendChild(counter);
+
+            const btnL = document.createElement('button');
+            btnL.className = 'carousel-arrow carousel-arrow-left';
+            btnL.innerHTML = `<img src="images/left-arrow.png" alt="Previous">`;
+            btnL.onclick = e => { e.stopPropagation(); navigateDSOCarousel(-1); };
+
+            const btnR = document.createElement('button');
+            btnR.className = 'carousel-arrow carousel-arrow-right';
+            btnR.innerHTML = `<img src="images/right-arrow.png" alt="Next">`;
+            btnR.onclick = e => { e.stopPropagation(); navigateDSOCarousel(1); };
+
+            carousel.appendChild(btnL);
+            carousel.appendChild(btnR);
+        }
+
+        // ── Caption bar ───────────────────────────────────────────
+        let captionParts = [];
+        if (img.paletteName && img.paletteID !== 0) captionParts.push(`<span class="caption-palette">${img.paletteName}</span>`);
+        if (img.dateCaptured) {
+            const d = new Date(img.dateCaptured + 'T00:00:00');
+            captionParts.push(`<span class="caption-date">${d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>`);
+        }
+        if (img.isMosaic) captionParts.push(`<span class="caption-mosaic">Mosaic</span>`);
+        if (!img.isOwn) {
+            const credit = img.attribution
+                ? `<span class="caption-attribution">© ${img.attribution}</span>`
+                : `<span class="caption-attribution">Image credit: third party</span>`;
+            captionParts.push(credit);
+        }
+
+        // Remove old caption bar if present
+        document.querySelector('.image-caption-bar')?.remove();
+        if (captionParts.length > 0) {
+            const bar = document.createElement('div');
+            bar.className = 'image-caption-bar';
+            bar.innerHTML = captionParts.join('');
+            carousel.insertAdjacentElement('afterend', bar);
+        }
+
+        // ── 4K download options ───────────────────────────────────────
+        document.querySelector('.download-4k-annotated-option').style.display = img.has4kAnnotated ? 'flex' : 'none';
+        document.querySelector('.download-4k-normal-option').style.display    = img.has4k         ? 'flex' : 'none';
+
+        // ── Info panel ────────────────────────────────────────────
         const titleText = item.displayName || item.dsoKey;
         let h = `<div class="modal-header"><h2>${titleText}</h2></div>`;
         if (item.info) {
@@ -1007,11 +1166,9 @@ $solarJson = json_encode(array_values($solarObjects));
             if (i.ConstellationID) h += `<div class="info-section"><h3>Constellation&nbsp;</h3><p>${i.ConstellationID}</p></div>`;
             if (i.DistanceLY)      h += `<div class="info-section"><h3>Distance&nbsp;</h3><p>${i.DistanceLY}</p></div>`;
             if (i.SocialBlurb) {
-                // Convert \n\n to paragraph breaks
                 const paras = i.SocialBlurb.split(/\n\n+/);
                 h += paras.map(p => `<p class="social-blurb-para">${p}</p>`).join('');
             }
-            // Injected context paragraph — always built from structured DB fields
             const name = i.CommonName || item.dsoKey;
             const locParts = [];
             if (i.ConstellationName) locParts.push(`located in the constellation ${i.ConstellationName}`);
@@ -1022,28 +1179,24 @@ $solarJson = json_encode(array_values($solarObjects));
         } else {
             h += `<p class="no-info">No information available for this object.</p>`;
         }
-        modalInfo.innerHTML = h;
-        modal.classList.add('active');
-        document.body.style.overflow = 'hidden';
-        closeDownloadDropdown();
-        
-        // Show/hide 4K options based on availability (separate for annotated and normal)
-        document.querySelector('.download-4k-annotated-option').style.display = item.has4kAnnotated ? 'flex' : 'none';
-        document.querySelector('.download-4k-normal-option').style.display = item.has4k ? 'flex' : 'none';
-        
-        // Show scroll hint on first modal open
-        if (!scrollHintShown) {
-            scrollHintShown = true;
-            const hint = document.getElementById('scrollHint');
-            // Small delay so it appears after modal opens
-            setTimeout(() => {
-                hint.classList.add('visible');
-                // Hide after 5 seconds
-                scrollHintTimer = setTimeout(() => {
-                    hint.classList.remove('visible');
-                }, 5000);
-            }, 500);
+
+        // DSO Links
+        if (item.links && item.links.length > 0) {
+            h += `<div class="dso-links">`;
+            item.links.forEach(lnk => {
+                h += `<a class="dso-link-pill" href="${lnk.url}" target="_blank" rel="noopener">`
+                   + `<i class="fa-solid fa-arrow-up-right-from-square" style="font-size:0.85em;"></i>${lnk.label}</a>`;
+            });
+            h += `</div>`;
         }
+
+        modalInfo.innerHTML = h;
+    }
+
+    function navigateDSOCarousel(dir) {
+        const total = currentModalItem.images.length;
+        currentImageIndex = (currentImageIndex + dir + total) % total;
+        renderDSOModalSlide();
     }
     
     function closeModal(){
@@ -1103,19 +1256,7 @@ $solarJson = json_encode(array_values($solarObjects));
         if (!currentModalItem) return;
         const modal = document.getElementById('modal');
         if (!modal.classList.contains('active')) return;
-        
-        const modalImage = document.getElementById('modalImage');
-        const modalImageContainer = document.getElementById('modalImageContainer');
-        const isLandscape = window.innerWidth > window.innerHeight;
-        const newSrc = isLandscape && currentModalItem.wallpaperPath 
-            ? currentModalItem.wallpaperPath 
-            : currentModalItem.fullPath;
-        
-        // Only update if the source actually changed
-        if (!modalImage.src.endsWith(newSrc)) {
-            modalImageContainer.classList.add('loading');
-            modalImage.src = newSrc;
-        }
+        renderDSOModalSlide();
     }
 
     window.addEventListener('resize', function() {
@@ -1140,7 +1281,7 @@ $solarJson = json_encode(array_values($solarObjects));
         const lowerQuery = query.toLowerCase();
         return galleryData.filter(item => {
             const nameMatch = item.displayName && item.displayName.toLowerCase().includes(lowerQuery);
-            const dsoMatch = item.dsoKey && item.dsoKey.toLowerCase().includes(lowerQuery);
+            const dsoMatch  = item.dsoKey     && item.dsoKey.toLowerCase().includes(lowerQuery);
             return nameMatch || dsoMatch;
         }).slice(0, 8);
     }
@@ -1148,7 +1289,6 @@ $solarJson = json_encode(array_values($solarObjects));
     function renderSearchDropdown(results) {
         searchResults = results;
         highlightedIndex = -1;
-        
         if (results.length === 0) {
             if (searchInput.value.length >= 2) {
                 searchDropdown.innerHTML = '<div class="search-no-results">No matching objects found</div>';
@@ -1158,22 +1298,21 @@ $solarJson = json_encode(array_values($solarObjects));
             }
             return;
         }
-
         searchDropdown.innerHTML = results.map((item, idx) => {
-            const galleryIdx = galleryData.findIndex(g => g.filename === item.filename);
+            const galleryIdx = galleryData.findIndex(g => g.dsoKey === item.dsoKey);
+            const featImg    = item.images[0];
+            const thumbSrc   = featImg ? (featImg.thumbPath || featImg.favPath) : '';
             return `
                 <div class="search-dropdown-item" data-index="${galleryIdx}" data-search-index="${idx}">
-                    <img src="${item.favPath}" alt="${item.displayName}" loading="lazy">
+                    <img src="${thumbSrc}" alt="${item.displayName}" loading="lazy">
                     <div class="search-dropdown-item-info">
-                        <div class="search-dropdown-item-name">${getTitleWithPalette(item.displayName, item.filename)}</div>
+                        <div class="search-dropdown-item-name">${item.displayName}</div>
                         <div class="search-dropdown-item-id">${item.dsoKey || ''}</div>
                     </div>
                 </div>
             `;
         }).join('');
-        
         searchDropdown.classList.add('active');
-        
         searchDropdown.querySelectorAll('.search-dropdown-item').forEach(el => {
             el.addEventListener('click', () => {
                 const idx = parseInt(el.dataset.index);
@@ -1229,7 +1368,7 @@ $solarJson = json_encode(array_values($solarObjects));
             case 'Enter':
                 e.preventDefault();
                 if (highlightedIndex >= 0) {
-                    const galleryIdx = galleryData.findIndex(g => g.filename === searchResults[highlightedIndex].filename);
+                    const galleryIdx = galleryData.findIndex(g => g.dsoKey === searchResults[highlightedIndex].dsoKey);
                     openModal(galleryIdx);
                     closeSearchDropdown();
                 }

@@ -61,6 +61,9 @@ IsOwn           INTEGER DEFAULT 1
 Attribution     TEXT  (credit line if IsOwn=0)
 SortOrder       INTEGER DEFAULT 0
 IsFeature       INTEGER DEFAULT 0
+Equipment       TEXT  (e.g. "S30", "S50") — added later
+IsMosaic        INTEGER DEFAULT 0 — moved here from Objects, added later
+SessionDir      TEXT  (e.g. "20251108_165x60s_S30") — added later
 ```
 
 **`DSOLinks`**
@@ -72,33 +75,63 @@ URL         TEXT NOT NULL
 SortOrder   INTEGER DEFAULT 0
 ```
 
-#### Migration script
+#### Migration scripts (all in `pythonscripts/`)
 
-**`pythonscripts/migrate_gallery_images.py`** (new file)
-- Creates `GalleryImages` and `DSOLinks` tables with `CREATE TABLE IF NOT EXISTS`.
-- Auto-populates `GalleryImages` by querying `Images → ProcessingRuns → Projects` to derive BaseName (strips `_fav.jpg` from the fav filename), PaletteID, and DSOKey.
-- Inserts 44 render groups across 41 DSOs. Three DSOs have 2 render groups each: IC1848 (Natural + HSO), NGC2244 (Natural + HSO), NGC2174 (S30 + S50 Natural — NGC2174_monkey_head_S50 is featured due to sort order; can be corrected in admin panel).
-- First render group per DSO gets `IsFeature=1`, `SortOrder=0`; subsequent ones increment SortOrder.
-- Safe to re-run: skips existing BaseName entries.
-- `DateCaptured` is NULL for all auto-populated rows (source field `ProcessingDateEnd` was always NULL); to be filled in via admin panel.
+- **`migrate_gallery_images.py`** — creates `GalleryImages` and `DSOLinks` tables; auto-populates 44 render groups from `Images → ProcessingRuns → Projects`
+- **`migrate_add_equipment_ismosaic.py`** — adds `Equipment` and `IsMosaic` columns to `GalleryImages`
+- **`migrate_add_session_dir.py`** — adds `SessionDir` column to `GalleryImages`; backfills by scanning `MyWorks` for each fav file
+- **`backfill_date_captured.py`** — backfills `DateCaptured`, `Equipment`, `IsMosaic`, `PaletteID` from filesystem; supports `--force` to reprocess all rows
 
 #### API changes
 
 **`public/admin/api_search.php`** (modified)
-- After fetching CatalogIDs, now also batch-fetches `GalleryImages` (with JOIN to `PaletteTreatments` for `PaletteName`/`PaletteCode`) and `DSOLinks` for all result DSOKeys.
-- Merges them into each row as `GalleryImages` and `DSOLinks` arrays.
+- Batch-fetches `GalleryImages` (with `PaletteName` JOIN) and `DSOLinks` for all result DSOKeys
+- `GalleryImages` SELECT includes: `GalleryImageID`, `BaseName`, `Caption`, `PaletteID`, `PaletteName`, `DateCaptured`, `Copyright`, `IsOwn`, `Attribution`, `Equipment`, `IsMosaic`, `SessionDir`, `SortOrder`, `IsFeature`
 
 **`public/admin/api_save.php`** (modified)
-- Added `GalleryImages` handler: full-replace strategy. Rows with a `GalleryImageID` are upserted via `ON CONFLICT`; rows without one are inserted. Any DB row for that DSO whose ID is absent from the payload is deleted.
-- Added `DSOLinks` handler: same full-replace strategy.
-- Both handlers are keyed on `array_key_exists('GalleryImages', $body)` / `array_key_exists('DSOLinks', $body)` so they only fire when the admin panel explicitly sends those arrays.
+- Full-replace handlers for both `GalleryImages` and `DSOLinks`
+- `GalleryImages` upsert includes all fields: `Equipment`, `IsMosaic`, `SessionDir` included
+- `IsMosaic` removed from `$allowed_cols` for the `Objects` table
 
-#### Remaining steps
+**`public/admin/api_sync_folder.php`** (new)
+- POST `{DSOKey}` → walks `WORKS_ROOT/<ProjectFolder>/<YYYYMMDD_*>/` for fav files
+- Infers `DateCaptured`, `Equipment`, `IsMosaic`, `PaletteID`, `SessionDir` from dir/filename
+- Upserts matching `GalleryImages` rows; inserts new ones (auto-features if none featured yet)
+- Returns `inserted`, `updated`, `warnings` (missing fav files) arrays
+- **Folder not found detection**: if `ProjectFolder` doesn't exist on disk, scans `WORKS_ROOT` for similar directory names using `similar_text()` + prefix matching and returns `folder_not_found: true` with `candidates` array
+- Candidate picker shown in UI — clicking a candidate saves the new `ProjectFolder` and re-runs sync automatically (`syncWithFolder()`)
 
-- **Step 3**: Admin panel UI (`public/admin/index.php`) — add collapsible Images and Links sections to the DSO editor. Images section: sortable list of render groups with fields for BaseName, Caption, Palette, DateCaptured, Copyright, IsOwn, Attribution, IsFeature. Links section: add/remove rows with Label, URL, SortOrder.
-- **Step 4**: Public gallery frontend (`public/index.php`) — update to query `GalleryImages` grouped by DSO, show multi-image badge on cards, add carousel/prev-next in modal, display palette + date caption, show attribution for others' images, render DSOLinks below social blurb.
+**`public/admin/api_delete.php`** (modified)
+- Extended to handle `GalleryImageID` deletion (single row) in addition to full DSO deletion
 
-### Key learnings
-- The existing `Images` table is a rich asset registry (331 rows, linked via `ProcessingRuns → Projects → DSOKey`). `GalleryImages` sits on top of it as a presentation-only layer; the two tables serve different purposes and should not be merged.
-- `PaletteTreatments` table already exists with IDs 0–7 (Natural, SHO, HOO, HSO, OHS, HOS, Starless, Mono) — reused as FK in `GalleryImages` rather than storing palette as a raw string.
-- Full-replace save strategy (delete absent IDs, upsert present ones) requires the admin JS to always send the complete current list for a DSO when saving — not just diffs.
+**`public/admin/config.php`** (modified)
+- Added `WORKS_ROOT` constant: `C:\Astronomy\MyWorks`
+
+#### Admin panel UI (Step 3 — complete)
+
+**`public/admin/index.php`** changes:
+- `IsMosaic` field removed from Objects / Observation & Project section
+- **Gallery Images section** added after Catalog IDs:
+  - Card per render group with fields: BaseName, Palette dropdown (all 8), Date Captured, Caption, Copyright, Photographer (Mine/Other), Attribution (shown when Other), Equipment, Session Directory, IsMosaic checkbox, Featured checkbox, Sort Order, Remove button
+  - Card header shows BaseName + Equipment badge + Mosaic badge + SessionDir (monospace) + Featured star
+  - **↻ Sync Folder** button — scans disk, populates/updates cards, shows colour-coded result panel
+  - Sync result panel: green inserted list, blue updated list, red warnings with inline Remove buttons
+  - Folder-not-found state shows candidate folder buttons; clicking one saves ProjectFolder and re-syncs
+- **DSO Links section** added after Gallery Images:
+  - Compact table with Label, URL, SortOrder, Remove per row
+  - "+ Add Link" button
+- `saveObject()` extended to include `GalleryImages` and `DSOLinks` arrays in payload
+- `loadObject()` and `newObject()` call `renderGalleryImages()` and `renderDSOLinks()`
+- Admin list scroll position preserved across re-renders (saves no longer reset scroll)
+- Active item scrolled into view on selection
+
+#### Key decisions & learnings
+- **`Images` table deprecated** for live app use — nothing queries it; `GalleryImages` is the sole source of truth going forward. `copy_images_to_local_web.py` kept as historical archive tool only.
+- **`IsMosaic` moved to `GalleryImages`** — it's a property of a specific imaging run, not the astronomical object
+- **`SessionDir` added** — `BaseName` alone doesn't tell you where the file lives; `ProjectFolder` (from Objects) + `SessionDir` (from GalleryImages) gives the full source path: `MyWorks/<ProjectFolder>/<SessionDir>/<BaseName>_fav.jpg`
+- **Three-place field rule** violations found and fixed for `Equipment`, `IsMosaic`, `SessionDir` — all three needed to be added to `api_search.php` SELECT, `api_save.php` upsert params, and JS card renderer/collector
+- **ProjectFolder mismatches** for IC1848, IC2118, NGC2264, NGC7000 — DB had stale `_mosaic` suffixed folder names; fixed via Sync Folder candidate picker
+- `similar_text()` PHP function used for fuzzy folder name matching in sync endpoint
+
+#### Remaining step
+- **Step 4**: Public gallery frontend (`public/index.php`) — update to query `GalleryImages` grouped by DSO, show multi-image badge on cards, carousel/prev-next in modal, palette + date caption line, attribution for others' images, DSOLinks below social blurb

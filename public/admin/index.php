@@ -209,7 +209,7 @@ header('Pragma: no-cache');
 
   /* ── Responsive collapse ── */
 
-  /* Tablet portrait (600px–900px): keep two columns but narrow the sidebar */
+  /* Tablet portrait (600px-900px): keep two columns but narrow the sidebar */
   @media (max-width: 900px) {
     .app { grid-template-columns: 220px 1fr; }
     .grid-3 { grid-template-columns: 1fr 1fr; }
@@ -231,7 +231,7 @@ header('Pragma: no-cache');
 <body>
 
 <header>
-  <h1>⭐ DSO Admin</h1>
+  <h1>&#11088; DSO Admin</h1>
   <span class="subtitle">Deep Sky Object Database Maintenance</span>
   <a href="logout.php" style="margin-left:auto; font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Sign out</a>
 </header>
@@ -241,7 +241,7 @@ header('Pragma: no-cache');
   <!-- ── Sidebar ── -->
   <aside class="sidebar">
     <div class="sidebar-search">
-      <input type="text" id="search" placeholder="Search by catalog ID, name…" autocomplete="off">
+      <input type="text" id="search" placeholder="Search by catalog ID, name&#8230;" autocomplete="off">
       <div class="hint" id="search-hint">Type to search, or leave blank to list all</div>
     </div>
     <div class="object-list" id="object-list">
@@ -255,7 +255,7 @@ header('Pragma: no-cache');
   <!-- ── Main panel ── -->
   <main class="main" id="main-panel">
     <div class="empty-state" id="empty-state">
-      <div class="icon">🔭</div>
+      <div class="icon">&#128301;</div>
       <div>Select an object or create a new one</div>
     </div>
 
@@ -267,9 +267,9 @@ header('Pragma: no-cache');
           <div class="form-title" id="editor-title">New Object <span id="editor-subtitle"></span></div>
         </div>
         <div class="form-actions">
-          <button class="btn warn" id="btn-ai" onclick="aiPopulate()">🤖 AI Populate</button>
-          <button class="btn success" onclick="saveObject()">💾 Save</button>
-          <button class="btn danger" id="btn-delete" onclick="deleteObject()" disabled>🗑️ Delete Object</button>
+          <button class="btn warn" id="btn-ai" onclick="aiPopulate()">&#129302; AI Populate</button>
+          <button class="btn success" onclick="saveObject()">&#128190; Save</button>
+          <button class="btn danger" id="btn-delete" onclick="deleteObject()" disabled>&#128465;&#65039; Delete Object</button>
         </div>
       </div>
 
@@ -280,7 +280,7 @@ header('Pragma: no-cache');
           <div class="field">
             <label>DSO Key <em style="color:var(--danger)">*</em></label>
             <input type="text" id="f_DSOKey" placeholder="e.g. NGC1976" style="text-transform:uppercase">
-            <div class="note">Canonical primary key — usually the primary catalog ID</div>
+            <div class="note">Canonical primary key &mdash; usually the primary catalog ID</div>
           </div>
           <div class="field">
             <label>Common Name</label>
@@ -289,13 +289,13 @@ header('Pragma: no-cache');
           <div class="field">
             <label>Object Type</label>
             <select id="f_ObjectTypeID">
-              <option value="">— loading —</option>
+              <option value="">&mdash; loading &mdash;</option>
             </select>
           </div>
           <div class="field">
             <label>Constellation</label>
             <select id="f_ConstellationID" onchange="handleConstellationChange(this)">
-              <option value="">— loading —</option>
+              <option value="">&mdash; loading &mdash;</option>
             </select>
           </div>
           <div class="field">
@@ -315,12 +315,12 @@ header('Pragma: no-cache');
           <div class="field">
             <label>RA (decimal hours)</label>
             <input type="number" id="f_RAHours" step="0.0001" min="0" max="24" placeholder="e.g. 5.5912">
-            <div class="note">0.0000 – 24.0000</div>
+            <div class="note">0.0000 &ndash; 24.0000</div>
           </div>
           <div class="field">
             <label>Dec (decimal degrees)</label>
             <input type="number" id="f_DecDegrees" step="0.0001" min="-90" max="90" placeholder="e.g. -5.3897">
-            <div class="note">−90.0000 – +90.0000</div>
+            <div class="note">&minus;90.0000 &ndash; +90.0000</div>
           </div>
           <div class="field">
             <label>Magnitude</label>
@@ -328,13 +328,13 @@ header('Pragma: no-cache');
           </div>
           <div class="field span-2">
             <label>Object Size</label>
-            <input type="text" id="f_ObjectSize" placeholder="e.g. 70 light-years across with an apparent diameter of 45-50 arcminutes, about 1.5× the full moon">
+            <input type="text" id="f_ObjectSize" placeholder="e.g. 70 light-years across with an apparent diameter of 45-50 arcminutes, about 1.5&#215; the full moon">
             <div class="note">Physical size, angular size, and moon comparison in one plain-English sentence.</div>
           </div>
           <div class="field">
             <label>Sq Arc Mins</label>
             <input type="number" id="f_SqArcMins" step="0.01" min="0" placeholder="e.g. 1600">
-            <div class="note">Apparent area (arcmin²). Single dim: d². Two dims: d1 × d2.</div>
+            <div class="note">Apparent area (arcmin&#178;). Single dim: d&#178;. Two dims: d1 &#215; d2.</div>
           </div>
           <div class="field">
             <label>Want Better Data? &#9733;</label>
@@ -371,11 +371,11 @@ header('Pragma: no-cache');
       <div class="section">
         <div class="section-header">
           Social Blurb
-          <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="aiGenerateBlurb()">🤖 Regenerate with AI</button>
+          <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="aiGenerateBlurb()">&#129302; Regenerate with AI</button>
         </div>
         <div class="section-body">
           <div class="field">
-            <textarea id="f_SocialBlurb" placeholder="Two paragraphs of engaging prose describing the object — what it is, its physical nature, distance, and what makes it special to image. This is the basis for social media captions."></textarea>
+            <textarea id="f_SocialBlurb" placeholder="Two paragraphs of engaging prose describing the object &mdash; what it is, its physical nature, distance, and what makes it special to image. This is the basis for social media captions."></textarea>
             <div class="note">Used as the basis for social media posts. Paragraph break = blank line.</div>
           </div>
         </div>
@@ -446,9 +446,9 @@ header('Pragma: no-cache');
 // ──────────────────────────────────────────────
 // State
 // ──────────────────────────────────────────────
-let currentObject = null;   // The object currently loaded in the editor
+let currentObject = null;
 let searchTimer   = null;
-let blurbWatchSnapshot = {}; // Snapshot of fields that affect SocialBlurb
+let blurbWatchSnapshot = {};
 
 const BLURB_WATCH = ['CommonName', 'ObjectSize', 'ConstellationID'];
 
@@ -473,15 +473,13 @@ const fields = ['DSOKey','CommonName','ObjectTypeID','ConstellationID',
                 'SocialBlurb','ProjectFolder','MostRecentObservation','WantBetter','Notes'];
 
 // ──────────────────────────────────────────────
-// Fetch wrapper — redirects to login on 401
+// Fetch wrapper
 // ──────────────────────────────────────────────
 async function apiFetch(url, options = {}) {
-  // Ensure session cookie is always sent with same-origin requests
   options.credentials = 'same-origin';
   const res = await fetch(url, options);
   if (res.status === 401) {
     window.location.href = 'index.php?expired=1';
-    // Return a promise that never resolves so the calling code stops cleanly
     return new Promise(() => {});
   }
   return res;
@@ -513,7 +511,7 @@ async function fetchList(q = '') {
   const count = Array.isArray(rows) ? rows.length : 0;
   document.getElementById('search-hint').textContent = Array.isArray(rows)
     ? count + ' object' + (count === 1 ? '' : 's') + ' found'
-    : 'Error loading objects — check console';
+    : 'Error loading objects';
 }
 
 function renderList(rows) {
@@ -529,14 +527,13 @@ function renderList(rows) {
     div.className = 'object-item' + (currentObject?.DSOKey === row.DSOKey ? ' active' : '');
     div.dataset.key = row.DSOKey;
 
-    // Completeness dot
     const filled = [row.RAHours, row.DecDegrees, row.Magnitude, row.ObjectSize, row.SocialBlurb].filter(v => v !== null && v !== '').length;
     const cls    = filled >= 4 ? 'full' : filled >= 2 ? 'partial' : 'empty';
 
     div.innerHTML = `
       <div style="min-width:0; flex:1">
         <div class="obj-key">${row.DSOKey}</div>
-        <div class="obj-name">${row.CommonName || '—'}</div>
+        <div class="obj-name">${row.CommonName || '&mdash;'}</div>
       </div>
       <div style="display:flex; align-items:center; gap:6px; flex-shrink:0">
         <span class="obj-type">${row.ConstellationID || ''}</span>
@@ -559,7 +556,7 @@ async function loadObjectTypes(selectedValue = '') {
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
-    sel.innerHTML = '<option value="">— select —</option>';
+    sel.innerHTML = '<option value="">&mdash; select &mdash;</option>';
     Object.entries(data).forEach(([category, types]) => {
       const grp = document.createElement('optgroup');
       grp.label = category;
@@ -573,12 +570,11 @@ async function loadObjectTypes(selectedValue = '') {
       sel.appendChild(grp);
     });
   } catch (e) {
-    sel.innerHTML = '<option value="">— error loading —</option>';
+    sel.innerHTML = '<option value="">&mdash; error loading &mdash;</option>';
     console.error('Failed to load object types:', e);
   }
 }
 
-// Populate list on load
 fetchList('');
 loadObjectTypes();
 loadConstellations();
@@ -597,17 +593,15 @@ function loadObject(row) {
   document.getElementById('editor-title').childNodes[0].textContent = row.DSOKey + ' ';
   document.getElementById('editor-subtitle').textContent = row.CommonName || '';
   document.getElementById('f_DSOKey').value = row.DSOKey;
-  document.getElementById('f_DSOKey').disabled = true; // can't change key of existing object
+  document.getElementById('f_DSOKey').disabled = true;
   document.getElementById('btn-delete').disabled = false;
 
-  // Reload constellation dropdown with this object's value selected
   loadConstellations(row.ConstellationID || '');
 
   fields.filter(f => f !== 'DSOKey' && f !== 'ObjectTypeID' && f !== 'ConstellationID').forEach(f => {
     const el = document.getElementById('f_' + f);
     if (el) el.value = row[f] ?? '';
   });
-  // Re-render dropdown with this object's type selected
   loadObjectTypes(row.ObjectTypeID || '');
 
   renderCatalogTable(row.CatalogIDs || []);
@@ -622,7 +616,6 @@ function newObject() {
   showEditor();
   document.getElementById('editor-title').childNodes[0].textContent = 'New Object ';
   document.getElementById('editor-subtitle').textContent = '';
-  // Select fields with NOT NULL defaults need explicit reset (empty string → null would fail)
   const selectDefaults = { WantBetter: '0' };
   fields.forEach(f => {
     const el = document.getElementById('f_' + f);
@@ -632,8 +625,6 @@ function newObject() {
   });
   document.getElementById('f_DSOKey').disabled = false;
   document.getElementById('btn-delete').disabled = true;
-  // Reload dropdowns with no selection — setting .value='' alone doesn't clear
-  // them after loadObject() has run with a specific selection
   loadObjectTypes('');
   loadConstellations('');
   renderCatalogTable([]);
@@ -664,7 +655,7 @@ function addCatRow(cat = {}) {
   tr.innerHTML = `
     <td><input type="text" placeholder="e.g. M42" value="${cat.CatalogID || ''}" class="cat-id" style="text-transform:uppercase"></td>
     <td style="text-align:center"><input type="checkbox" class="cat-primary" ${cat.IsPrimary ? 'checked' : ''}></td>
-    <td><button class="btn-icon" onclick="this.closest('tr').remove()" title="Remove">✕</button></td>
+    <td><button class="btn-icon" onclick="this.closest('tr').remove()" title="Remove">&#x2715;</button></td>
   `;
   tbody.appendChild(tr);
 }
@@ -688,7 +679,6 @@ async function saveObject(silent = false) {
     const el = document.getElementById('f_' + f);
     if (!el) return;
     let v = el.value.trim();
-    // Convert numeric fields
     if (['RAHours','DecDegrees','Magnitude'].includes(f)) {
       payload[f] = v === '' ? null : parseFloat(v);
     } else {
@@ -704,8 +694,7 @@ async function saveObject(silent = false) {
     const data = await res.json();
     if (data.success) {
       if (!silent) toast('Saved successfully', 'ok');
-      snapshotBlurbFields(); // Reset watch so next save doesn't re-trigger
-      // Refresh the list and keep current selection
+      snapshotBlurbFields();
       const q = document.getElementById('search').value.trim();
       await fetchList(q);
     } else {
@@ -750,10 +739,9 @@ async function aiPopulate() {
 
   const btn = document.getElementById('btn-ai');
   btn.disabled = true;
-  btn.innerHTML = '<span class="spinner"></span> Searching…';
-  toast('Asking AI about ' + dsoId + '…', 'info', 15000);
+  btn.innerHTML = '<span class="spinner"></span> Searching&#8230;';
+  toast('Asking AI about ' + dsoId + '&#8230;', 'info', 15000);
 
-  // Pass current form values so the AI uses them as ground truth for the blurb
   const primaryRow = Array.from(document.querySelectorAll('#cat-tbody tr'))
     .find(tr => tr.querySelector('.cat-primary')?.checked);
   const primaryCatalogID = primaryRow ? primaryRow.querySelector('.cat-id').value.trim().toUpperCase() : dsoId;
@@ -779,7 +767,6 @@ async function aiPopulate() {
     }
 
     const f = data.fields;
-    // Fields to populate — only fill if currently empty, EXCEPT SocialBlurb which always gets regenerated
     const fieldMap = {
       CommonName:      'f_CommonName',
       ObjectTypeID:    'f_ObjectTypeID',
@@ -795,34 +782,29 @@ async function aiPopulate() {
     Object.entries(fieldMap).forEach(([key, elId]) => {
       const el = document.getElementById(elId);
       const aiVal = f[key];
-      // Only fill if AI returned a value AND the field is currently empty
       if (aiVal !== null && aiVal !== undefined && aiVal !== '' && el.value.trim() === '') {
         el.value = aiVal;
         populated++;
       }
     });
-    // Always regenerate SocialBlurb
     if (f.SocialBlurb) {
       document.getElementById('f_SocialBlurb').value = f.SocialBlurb;
       populated++;
     }
-
-    // If AI returned CatalogIDs and the table is currently empty, populate it
     if (Array.isArray(f.CatalogIDs) && f.CatalogIDs.length > 0 && getCatalogRows().length === 0) {
       renderCatalogTable(f.CatalogIDs);
       populated++;
     }
 
-    // Auto-save to DB before displaying so data isn't lost if user navigates away
-    toast('Auto-saving…', 'info', 3000);
+    toast('Auto-saving&#8230;', 'info', 3000);
     await saveObject(silent = true);
-    toast('AI filled ' + populated + ' field(s) and saved — edit and save again if needed', 'ok', 5000);
+    toast('AI filled ' + populated + ' field(s) and saved', 'ok', 5000);
 
   } catch (e) {
     toast('Network error: ' + e.message, 'err', 5000);
   } finally {
     btn.disabled = false;
-    btn.innerHTML = '🤖 AI Populate';
+    btn.innerHTML = '&#129302; AI Populate';
   }
 }
 
@@ -833,8 +815,6 @@ async function aiGenerateBlurb() {
   const dsoId = document.getElementById('f_DSOKey').value.trim().toUpperCase();
   if (!dsoId) { toast('Enter a DSO Key first', 'err'); return; }
 
-  // Pass current form values so the AI uses them as ground truth
-  // Find the primary catalog ID from the catalog table, fall back to DSOKey
   const primaryRow = Array.from(document.querySelectorAll('#cat-tbody tr'))
     .find(tr => tr.querySelector('.cat-primary')?.checked);
   const primaryCatalogID = primaryRow ? primaryRow.querySelector('.cat-id').value.trim().toUpperCase() : dsoId;
@@ -848,7 +828,7 @@ async function aiGenerateBlurb() {
     distance:          document.getElementById('f_DistanceLY').value.trim(),
   };
 
-  toast('Generating social blurb for ' + dsoId + '…', 'info', 15000);
+  toast('Generating social blurb for ' + dsoId + '&#8230;', 'info', 15000);
 
   try {
     const res  = await apiFetch('api_populate.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(context) });
@@ -858,7 +838,7 @@ async function aiGenerateBlurb() {
 
     if (data.fields?.SocialBlurb) {
       document.getElementById('f_SocialBlurb').value = data.fields.SocialBlurb;
-      toast('Blurb generated — review and save', 'ok');
+      toast('Blurb generated &mdash; review and save', 'ok');
     } else {
       toast('AI did not return a blurb', 'err');
     }
@@ -868,10 +848,10 @@ async function aiGenerateBlurb() {
 }
 
 // ──────────────────────────────────────────────
-// Gallery Images — Sync Folder
+// Gallery Images -- Sync Folder
 // ──────────────────────────────────────────────
 
-async function syncFolder() {
+async function syncFolder(extraHints = {}) {
   const dsoKey = document.getElementById('f_DSOKey').value.trim();
   if (!dsoKey) { toast('Save the DSO first before syncing.', 'err'); return; }
 
@@ -883,37 +863,18 @@ async function syncFolder() {
     const res  = await apiFetch('api_sync_folder.php', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ DSOKey: dsoKey }),
+      body:    JSON.stringify({ DSOKey: dsoKey, sessionDirHints: extraHints }),
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
-    const { inserted, updated, warnings, projectFolder } = data;
+    const { inserted, updated, warnings, needs_session_dir, projectFolder, mode } = data;
 
-    // ── Folder not found — show candidate picker ─────────────────────
-    if (data.folder_not_found) {
-      let html = `<div style="font-size:12px; border:1px solid var(--danger); border-radius:var(--radius); padding:10px 14px; background:var(--bg);">`;
-      html += `<div style="color:var(--danger); font-weight:600; margin-bottom:8px;">&#x26A0; Folder not found: <code>${escHtml(projectFolder)}</code></div>`;
-      if (data.candidates.length > 0) {
-        html += `<div style="color:var(--muted); margin-bottom:8px;">Possible matches &mdash; click one to update Project Folder and re-sync:</div>`;
-        html += `<div style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:10px;">`;
-        data.candidates.forEach(c => {
-          html += `<button class="btn" style="font-size:11px; padding:3px 10px;"
-            onclick="syncWithFolder('${escHtml(c)}')"> ${escHtml(c)}</button>`;
-        });
-        html += `</div>`;
-      } else {
-        html += `<div style="color:var(--muted); margin-bottom:8px;">No similar folders found in MyWorks. Update the Project Folder field manually and try again.</div>`;
-      }
-      html += `<button class="btn" style="font-size:11px; padding:2px 10px;" onclick="dismissSyncResult()">Dismiss</button>`;
-      html += `</div>`;
-      resultPanel.innerHTML = html;
-      return;
-    }
     let html = `<div style="font-size:12px; border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px; background:var(--bg);">`;
-    html += `<div style="font-weight:600; margin-bottom:8px;">Sync result &mdash; <span style="color:var(--muted); font-weight:400;">${escHtml(projectFolder)}</span></div>`;
+    const modeLabel = mode === 'local' ? '(local &mdash; WORKS_ROOT)' : '(remote &mdash; web images only)';
+    html += `<div style="font-weight:600; margin-bottom:8px;">Sync result <span style="color:var(--muted); font-weight:400; font-size:11px;">${modeLabel}</span></div>`;
 
-    if (inserted.length === 0 && updated.length === 0 && warnings.length === 0) {
+    if (inserted.length === 0 && updated.length === 0 && warnings.length === 0 && (!needs_session_dir || needs_session_dir.length === 0)) {
       html += `<div style="color:var(--muted);">No changes &mdash; already up to date.</div>`;
     }
 
@@ -921,7 +882,8 @@ async function syncFolder() {
       html += `<div style="color:var(--accent2); margin-bottom:4px;">&#x2714; Inserted ${inserted.length} new image${inserted.length > 1 ? 's' : ''}:</div>`;
       html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
       inserted.forEach(r => {
-        html += `<li>${escHtml(r.BaseName)} &mdash; ${escHtml(r.DateCaptured || '')} ${escHtml(r.Equipment || '')}${r.IsMosaic ? ' &middot; Mosaic' : ''}${r.IsFeature ? ' <strong>&#9733; Featured</strong>' : ''}</li>`;
+        const dateStr = r.DateCaptured || (r.needs_session ? '<em style="color:var(--warn)">needs session dir</em>' : '');
+        html += `<li>${escHtml(r.BaseName)} &mdash; ${dateStr} ${escHtml(r.Equipment || '')}${r.IsMosaic ? ' &middot; Mosaic' : ''}${r.IsFeature ? ' <strong>&#9733; Featured</strong>' : ''}</li>`;
       });
       html += `</ul>`;
     }
@@ -936,7 +898,7 @@ async function syncFolder() {
     }
 
     if (warnings.length > 0) {
-      html += `<div style="color:var(--danger); margin-bottom:4px;">&#x26A0; ${warnings.length} image${warnings.length > 1 ? 's' : ''} not found on disk:</div>`;
+      html += `<div style="color:var(--danger); margin-bottom:4px;">&#x26A0; ${warnings.length} image${warnings.length > 1 ? 's' : ''} not found in public/images/fav/:</div>`;
       html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
       warnings.forEach(w => {
         html += `<li>${escHtml(w.BaseName)}
@@ -947,11 +909,25 @@ async function syncFolder() {
       html += `</ul>`;
     }
 
+    if (needs_session_dir && needs_session_dir.length > 0) {
+      html += `<div style="color:var(--warn); margin-bottom:6px; margin-top:4px;">&#x26A0; ${needs_session_dir.length} image${needs_session_dir.length > 1 ? 's' : ''} need a Session Directory to set date &amp; equipment:</div>`;
+      html += `<div id="session-dir-inputs" style="display:grid; gap:6px; margin-bottom:8px;">`;
+      needs_session_dir.forEach(item => {
+        html += `<div style="display:flex; align-items:center; gap:8px;">`;
+        html += `<span style="font-size:12px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(item.BaseName)}">${escHtml(item.BaseName)}</span>`;
+        html += `<input type="text" data-basename="${escHtml(item.BaseName)}" placeholder="e.g. 20251108_165x60s_S30"
+          style="flex:2; background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--text); padding:4px 8px; font-size:12px; font-family:monospace;">`;
+        html += `</div>`;
+      });
+      html += `</div>`;
+      html += `<button class="btn primary" style="font-size:11px; padding:4px 12px; margin-bottom:8px;"
+        onclick="submitSessionDirHints()">Apply Session Dirs &amp; Re-sync</button> `;
+    }
+
     html += `<button class="btn" style="font-size:11px; padding:2px 10px; margin-top:4px;" onclick="dismissSyncResult()">Dismiss</button>`;
     html += `</div>`;
     resultPanel.innerHTML = html;
 
-    // Reload the image cards to reflect inserts/updates
     if (inserted.length > 0 || updated.length > 0) {
       const searchRes  = await apiFetch(`api_search.php?q=${encodeURIComponent(dsoKey)}`);
       const searchData = await searchRes.json();
@@ -966,6 +942,18 @@ async function syncFolder() {
   }
 }
 
+async function submitSessionDirHints() {
+  const inputs = document.querySelectorAll('#session-dir-inputs input[data-basename]');
+  const hints  = {};
+  let   filled = 0;
+  inputs.forEach(inp => {
+    const val = inp.value.trim();
+    if (val) { hints[inp.dataset.basename] = val; filled++; }
+  });
+  if (filled === 0) { toast('Enter at least one Session Directory first', 'err'); return; }
+  await syncFolder(hints);
+}
+
 async function confirmRemoveGalleryImage(id, baseName, btn) {
   if (!confirm(`Remove "${baseName}" from the gallery?\nThis cannot be undone.`)) return;
   try {
@@ -976,10 +964,8 @@ async function confirmRemoveGalleryImage(id, baseName, btn) {
     });
     const data = await res.json();
     if (data.error) throw new Error(data.error);
-    // Remove the list item from the warning panel
     btn.closest('li').style.textDecoration = 'line-through';
     btn.remove();
-    // Remove the card from the editor if present
     const card = document.querySelector(`.gi-card[data-gallery-image-id="${id}"]`);
     if (card) card.remove();
     updateGiEmpty();
@@ -995,38 +981,8 @@ function dismissSyncResult() {
   p.innerHTML = '';
 }
 
-async function syncWithFolder(folderName) {
-  // Update the ProjectFolder field in the form and save it, then re-sync
-  const dsoKey = document.getElementById('f_DSOKey').value.trim();
-  const pfField = document.getElementById('f_ProjectFolder');
-  if (!pfField) { toast('ProjectFolder field not found', 'err'); return; }
-
-  const resultPanel = document.getElementById('gi-sync-result');
-  resultPanel.innerHTML = `<span style="color:var(--muted); font-size:12px;">Updating Project Folder to <strong>${escHtml(folderName)}</strong> and re-syncing&hellip;</span>`;
-
-  // Update the form field
-  pfField.value = folderName;
-
-  // Save just the ProjectFolder change
-  try {
-    const saveRes  = await apiFetch('api_save.php', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ DSOKey: dsoKey, ProjectFolder: folderName }),
-    });
-    const saveData = await saveRes.json();
-    if (saveData.error) throw new Error(saveData.error);
-  } catch (e) {
-    resultPanel.innerHTML = `<span style="color:var(--danger); font-size:12px;">Failed to save Project Folder: ${escHtml(e.message)}</span>`;
-    return;
-  }
-
-  // Now run the full sync with the corrected folder
-  await syncFolder();
-}
-
 // ──────────────────────────────────────────────
-// Gallery Images — cards
+// Gallery Images -- cards
 // ──────────────────────────────────────────────
 
 const PALETTES = [
@@ -1106,7 +1062,6 @@ function addGalleryImageCard(img = {}) {
       <span class="gi-basename">${escHtml(baseName || 'New Image')}</span>
       ${equipment  ? `<span style="font-size:11px; color:var(--muted);">${escHtml(equipment)}</span>` : ''}
       ${isMosaic  ? '<span style="font-size:11px; color:var(--warn);">Mosaic</span>' : ''}
-      ${sessionDir ? `<span style="font-size:11px; color:var(--muted); font-family:monospace;">${escHtml(sessionDir)}</span>` : ''}
       ${isFeature ? '<span class="gi-feature-badge">&#9733; Featured</span>' : ''}
     </div>
     <div class="gi-preview ${favUrl ? '' : 'missing'}">
@@ -1181,13 +1136,11 @@ function addGalleryImageCard(img = {}) {
     </div>
   `;
 
-  // Keep header basename in sync as user types
   card.querySelector('.gi-basename-input').addEventListener('input', function() {
     card.querySelector('.gi-basename').textContent = this.value || 'New Image';
     updateGalleryPreview(card, this.value);
   });
 
-  // Keep featured styling in sync
   card.querySelector('.gi-isfeature').addEventListener('change', function() {
     card.classList.toggle('is-feature', this.checked);
     const badge = card.querySelector('.gi-feature-badge');
@@ -1277,7 +1230,6 @@ function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// Auto-uppercase DSO Key as user types
 document.getElementById('f_DSOKey').addEventListener('input', function () {
   const pos = this.selectionStart;
   this.value = this.value.toUpperCase();
@@ -1285,7 +1237,7 @@ document.getElementById('f_DSOKey').addEventListener('input', function () {
 });
 
 // ──────────────────────────────────────────────
-// Constellation dropdown — dynamic load + Add...
+// Constellation dropdown
 // ──────────────────────────────────────────────
 async function loadConstellations(selectedValue = '') {
   const sel = document.getElementById('f_ConstellationID');
@@ -1295,14 +1247,14 @@ async function loadConstellations(selectedValue = '') {
     if (data.error) throw new Error(data.error);
     renderConstellationOptions(data, selectedValue);
   } catch (e) {
-    sel.innerHTML = '<option value="">— error loading —</option>';
+    sel.innerHTML = '<option value="">&mdash; error loading &mdash;</option>';
     console.error('Failed to load constellations:', e);
   }
 }
 
 function renderConstellationOptions(constellations, selectedValue = '') {
   const sel = document.getElementById('f_ConstellationID');
-  sel.innerHTML = '<option value="">— select —</option>';
+  sel.innerHTML = '<option value="">&mdash; select &mdash;</option>';
   constellations.forEach(c => {
     const opt = document.createElement('option');
     opt.value       = c.ConstellationID;
@@ -1310,24 +1262,21 @@ function renderConstellationOptions(constellations, selectedValue = '') {
     if (c.ConstellationID === selectedValue) opt.selected = true;
     sel.appendChild(opt);
   });
-  // Always append the Add... sentinel last
   const addOpt = document.createElement('option');
   addOpt.value       = '__ADD__';
-  addOpt.textContent = '＋ Add new constellation…';
+  addOpt.textContent = '+ Add new constellation...';
   addOpt.style.color = 'var(--accent)';
   sel.appendChild(addOpt);
 }
 
 async function handleConstellationChange(sel) {
-  if (sel.value !== '__ADD__') return;  // Normal selection — nothing to do
-
-  // Reset immediately so it doesn't look selected
+  if (sel.value !== '__ADD__') return;
   sel.value = '';
 
   const name = prompt('Enter the constellation name (e.g. Scorpius):');
   if (!name || !name.trim()) return;
 
-  toast('Looking up constellation data for "' + name.trim() + '"…', 'info', 10000);
+  toast('Looking up constellation data for "' + name.trim() + '"...', 'info', 10000);
 
   try {
     const res  = await apiFetch('api_constellation_add.php', {
@@ -1342,13 +1291,12 @@ async function handleConstellationChange(sel) {
       return;
     }
 
-    // Reload the dropdown with the new entry selected
     await loadConstellations(data.ConstellationID);
 
     if (data.already_exists) {
-      toast('"' + data.Name + '" (' + data.ConstellationID + ') was already in the database — selected.', 'info', 4000);
+      toast('"' + data.Name + '" (' + data.ConstellationID + ') was already in the database.', 'info', 4000);
     } else {
-      toast('Added ' + data.Name + ' (' + data.ConstellationID + ') — RA ' + data.RightAscensionHours + 'h, Dec ' + data.DeclinationDegrees + '°', 'ok', 5000);
+      toast('Added ' + data.Name + ' (' + data.ConstellationID + ') - RA ' + data.RightAscensionHours + 'h, Dec ' + data.DeclinationDegrees + 'deg', 'ok', 5000);
     }
   } catch (e) {
     toast('Network error: ' + e.message, 'err', 5000);

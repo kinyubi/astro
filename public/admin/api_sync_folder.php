@@ -3,25 +3,30 @@
 // api_sync_folder.php  —  Sync GalleryImages from disk
 //
 // POST { "DSOKey": "IC1805" }
+//   or with session hints for remote mode:
+// POST { "DSOKey": "IC1805", "sessionDirHints": { "basename": "sessiondir", ... } }
 //
-// Walks WORKS_ROOT/<ProjectFolder>/<YYYYMMDD_*>/ looking for
-// *_fav.jpg files (non-annotated). For each found:
-//   - If a GalleryImages row exists for that BaseName: update
-//     DateCaptured, Equipment, IsMosaic, PaletteID
-//   - If no row exists: insert with inferred values;
-//     set IsFeature=1 if no featured image exists for this DSO
+// Strategy:
+//   1. Scan public/images/fav/ for files matching <dsokey_lower>*_fav.jpg
+//   2. For each found fav file, derive BaseName (strip _fav.jpg)
+//   3. Try to resolve SessionDir (and thus DateCaptured/Equipment/IsMosaic) via:
+//      a. WORKS_ROOT walk (if WORKS_ROOT is accessible) — local mode
+//      b. Existing GalleryImages DB row for that BaseName — already known
+//      c. sessionDirHints supplied in the POST body — user-provided
+//      d. None of the above → returned in needs_session_dir[] for the UI to ask
+//   4. Upsert GalleryImages rows; return inserted/updated/warnings/needs_session_dir
 //
-// Also checks existing GalleryImages rows to see if their fav
-// file is still on disk. Missing files are returned as warnings
-// but NOT deleted. The client can confirm deletion separately.
+// DateCaptured is always derived from SessionDir: first 8 chars = YYYYMMDD.
 //
-// Response:
+// Response (success):
 // {
 //   "success": true,
-//   "inserted": [ {GalleryImageID, BaseName, DateCaptured, ...} ],
-//   "updated":  [ {GalleryImageID, BaseName, DateCaptured, ...} ],
-//   "warnings": [ {GalleryImageID, BaseName, reason} ],
-//   "projectFolder": "ic1805_heart_nebula"
+//   "mode": "local"|"remote",
+//   "projectFolder": "ic1805_heart_nebula",
+//   "inserted":          [ {GalleryImageID, BaseName, DateCaptured, ...} ],
+//   "updated":           [ {GalleryImageID, BaseName, DateCaptured, ...} ],
+//   "warnings":          [ {GalleryImageID, BaseName, reason} ],
+//   "needs_session_dir": [ {BaseName, paletteId} ]   ← only in remote mode
 // }
 // ============================================================
 
@@ -35,8 +40,10 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
-$body = json_decode(file_get_contents('php://input'), true);
-$dso_key = trim($body['DSOKey'] ?? '');
+$body        = json_decode(file_get_contents('php://input'), true);
+$dso_key     = trim($body['DSOKey'] ?? '');
+$hint_map    = $body['sessionDirHints'] ?? []; // { baseName => sessionDir }
+
 if (!$dso_key) {
     http_response_code(400);
     echo json_encode(['error' => 'DSOKey required']);
@@ -55,7 +62,6 @@ const PALETTE_MAP = [
 ];
 
 function infer_palette(string $fav_filename, string $base_name): int {
-    // Strip base_name prefix and _fav.jpg suffix → middle tokens
     $lower     = strtolower($fav_filename);
     $bn_lower  = strtolower($base_name);
     $remainder = $lower;
@@ -83,42 +89,68 @@ function infer_is_mosaic(string $session_dir, string $project_folder): int {
             stripos($project_folder, 'mosaic') !== false) ? 1 : 0;
 }
 
-function find_fav_files(string $project_folder): array {
-    // Returns array of [ 'file' => filename, 'session' => dir_name,
-    //                    'date' => YYYY-MM-DD, 'equipment' => S30|null,
-    //                    'is_mosaic' => 0|1 ]
+function date_from_session_dir(string $session_dir): ?string {
+    if (preg_match('/^(\d{4})(\d{2})(\d{2})/', $session_dir, $m)) {
+        return "{$m[1]}-{$m[2]}-{$m[3]}";
+    }
+    return null;
+}
+
+// ── Walk WORKS_ROOT to map BaseName → session metadata ────────────────────
+function build_works_root_map(string $project_folder): array {
+    // Returns [ baseName => ['session'=>..., 'date'=>..., 'equipment'=>..., 'is_mosaic'=>...] ]
     $proj_path = WORKS_ROOT . DIRECTORY_SEPARATOR . $project_folder;
     if (!is_dir($proj_path)) return [];
 
-    $results = [];
+    $map = [];
     foreach (scandir($proj_path) as $session_dir) {
         if ($session_dir === '.' || $session_dir === '..') continue;
         $session_path = $proj_path . DIRECTORY_SEPARATOR . $session_dir;
         if (!is_dir($session_path)) continue;
+        if (!preg_match('/^\d{8}/', $session_dir)) continue;
 
-        // Must start with YYYYMMDD
-        if (!preg_match('/^(\d{4})(\d{2})(\d{2})/', $session_dir, $dm)) continue;
-
-        $date_str = "{$dm[1]}-{$dm[2]}-{$dm[3]}";
-        $equip    = infer_equipment($session_dir);
-        $is_mos   = infer_is_mosaic($session_dir, $project_folder);
+        $date  = date_from_session_dir($session_dir);
+        $equip = infer_equipment($session_dir);
+        $mosaic = infer_is_mosaic($session_dir, $project_folder);
 
         foreach (scandir($session_path) as $file) {
-            // Match non-annotated fav files only
             if (!preg_match('/^(.+)_fav\.jpg$/i', $file, $fm)) continue;
             if (stripos($file, '_annotated') !== false) continue;
-
-            $results[] = [
-                'file'       => $file,
-                'base_name'  => $fm[1],
+            $map[$fm[1]] = [
                 'session'    => $session_dir,
-                'date'       => $date_str,
+                'date'       => $date,
                 'equipment'  => $equip,
-                'is_mosaic'  => $is_mos,
-                'palette_id' => infer_palette($file, $fm[1]),
-                'full_path'  => $session_path . DIRECTORY_SEPARATOR . $file,
+                'is_mosaic'  => $mosaic,
             ];
         }
+    }
+    return $map;
+}
+
+// ── Scan public/images/fav/ for fav files belonging to this DSO ───────────
+function find_fav_files_in_web(string $dso_key): array {
+    // Returns [ ['file' => filename, 'base_name' => baseName, 'palette_id' => int] ]
+    $fav_dir = __DIR__ . '/../../public/images/fav';
+    if (!is_dir($fav_dir)) {
+        // Fallback: fav dir is relative to this file's location in admin/
+        $fav_dir = __DIR__ . '/../images/fav';
+    }
+    if (!is_dir($fav_dir)) return [];
+
+    $prefix  = strtolower($dso_key);
+    $results = [];
+
+    foreach (scandir($fav_dir) as $file) {
+        if (!preg_match('/^(.+)_fav\.jpg$/i', $file, $fm)) continue;
+        if (stripos($file, '_annotated') !== false) continue;
+        $bn = $fm[1];
+        // Only include files that start with the DSO key (case-insensitive)
+        if (stripos($bn, $prefix) !== 0) continue;
+        $results[] = [
+            'file'       => $file,
+            'base_name'  => $bn,
+            'palette_id' => infer_palette($file, $bn),
+        ];
     }
     return $results;
 }
@@ -134,52 +166,34 @@ try {
     $stmt->execute([$dso_key]);
     $obj = $stmt->fetch(PDO::FETCH_ASSOC);
 
-    if (!$obj || !$obj['ProjectFolder']) {
+    if (!$obj) {
         http_response_code(400);
-        echo json_encode(['error' => "No ProjectFolder set for $dso_key"]);
+        echo json_encode(['error' => "DSO $dso_key not found"]);
         exit;
     }
-    $project_folder = $obj['ProjectFolder'];
+    $project_folder = $obj['ProjectFolder'] ?? '';
 
-    // ── Verify project folder exists; suggest candidates if not ─────────────
-    $proj_path = WORKS_ROOT . DIRECTORY_SEPARATOR . $project_folder;
-    if (!is_dir($proj_path)) {
-        // Scan WORKS_ROOT for similar directory names
-        $candidates = [];
-        $dso_lower  = strtolower($dso_key);  // e.g. 'ic1848'
-        // Strip catalog prefix to get the object identifier (e.g. 'ic1848' → '1848')
-        $dso_num    = preg_replace('/^[a-z]+/i', '', strtolower($dso_key));
-        $pf_lower   = strtolower($project_folder);
+    // ── Determine mode and build session map ──────────────────────────────
+    $works_root_available = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
+    $mode = $works_root_available ? 'local' : 'remote';
 
-        foreach (scandir(WORKS_ROOT) as $dir) {
-            if ($dir === '.' || $dir === '..') continue;
-            if (!is_dir(WORKS_ROOT . DIRECTORY_SEPARATOR . $dir)) continue;
-            $dir_lower = strtolower($dir);
-            // Match if dir contains the DSO number OR shares significant prefix with ProjectFolder
-            $pf_prefix = substr($pf_lower, 0, min(10, strlen($pf_lower)));
-            if (str_contains($dir_lower, $dso_num) ||
-                str_starts_with($dir_lower, $pf_prefix) ||
-                similar_text($pf_lower, $dir_lower) / max(strlen($pf_lower), 1) > 0.6) {
-                $candidates[] = $dir;
-            }
+    $works_map = []; // baseName → session metadata (populated in local mode)
+    if ($works_root_available && $project_folder) {
+        $proj_path = WORKS_ROOT . DIRECTORY_SEPARATOR . $project_folder;
+        if (is_dir($proj_path)) {
+            $works_map = build_works_root_map($project_folder);
         }
-        sort($candidates);
-
-        echo json_encode([
-            'success'        => false,
-            'folder_not_found' => true,
-            'projectFolder'  => $project_folder,
-            'candidates'     => $candidates,
-        ]);
-        exit;
+        // Note: if project folder doesn't exist locally we still fall through
+        // to the remote logic — no hard error, just no WORKS_ROOT data
     }
-    $fav_files = find_fav_files($project_folder);
-    $disk_basenames = array_column($fav_files, 'base_name', 'base_name'); // keyed set
 
-    // Load existing GalleryImages for this DSO
+    // ── Scan web fav directory ────────────────────────────────────────────
+    $fav_files = find_fav_files_in_web($dso_key);
+
+    // ── Load existing GalleryImages rows for this DSO ─────────────────────
     $stmt = $db->prepare("
         SELECT GalleryImageID, BaseName, DateCaptured, Equipment,
-               IsMosaic, PaletteID, IsFeature
+               IsMosaic, PaletteID, SessionDir, IsFeature
         FROM GalleryImages
         WHERE DSOKey = ?
         ORDER BY SortOrder, GalleryImageID
@@ -196,13 +210,77 @@ try {
         if ($row['IsFeature']) { $has_feature = true; break; }
     }
 
-    $inserted = [];
-    $updated  = [];
-    $warnings = [];
+    $inserted          = [];
+    $updated           = [];
+    $warnings          = [];
+    $needs_session_dir = []; // baseNames we can't resolve SessionDir for
 
-    // ── Process fav files found on disk ──────────────────────────────────
+    $disk_basenames = [];
+
+    // ── Process each fav file found in public/images/fav/ ─────────────────
     foreach ($fav_files as $f) {
         $bn = $f['base_name'];
+        $disk_basenames[$bn] = true;
+
+        // Resolve SessionDir via priority chain:
+        // 1. WORKS_ROOT map (local mode)
+        // 2. Existing DB row
+        // 3. User-supplied hint in this request
+        // 4. Unknown → defer
+
+        $session_dir = null;
+        $source      = null;
+
+        if (isset($works_map[$bn])) {
+            $session_dir = $works_map[$bn]['session'];
+            $source      = 'works_root';
+        } elseif (!empty($existing[$bn]['SessionDir'])) {
+            $session_dir = $existing[$bn]['SessionDir'];
+            $source      = 'db';
+        } elseif (!empty($hint_map[$bn])) {
+            $session_dir = trim($hint_map[$bn]);
+            $source      = 'hint';
+        }
+
+        if ($session_dir === null) {
+            // Can't resolve — ask the user (only for new or session-less rows)
+            $needs_session_dir[] = [
+                'BaseName'  => $bn,
+                'paletteId' => $f['palette_id'],
+            ];
+            // Still upsert with what we know (palette at minimum) if brand new
+            if (!isset($existing[$bn])) {
+                $is_feature = (!$has_feature) ? 1 : 0;
+                if ($is_feature) $has_feature = true;
+                $sort = count($existing) + count($inserted);
+                $stmt = $db->prepare("
+                    INSERT INTO GalleryImages
+                        (DSOKey, BaseName, PaletteID, DateCaptured,
+                         Equipment, IsMosaic, SessionDir, IsOwn, SortOrder, IsFeature)
+                    VALUES (?, ?, ?, NULL, NULL, 0, NULL, 1, ?, ?)
+                ");
+                $stmt->execute([$dso_key, $bn, $f['palette_id'], $sort, $is_feature]);
+                $new_id = (int)$db->lastInsertId();
+                $inserted[] = [
+                    'GalleryImageID' => $new_id,
+                    'BaseName'       => $bn,
+                    'DateCaptured'   => null,
+                    'Equipment'      => null,
+                    'IsMosaic'       => 0,
+                    'PaletteID'      => $f['palette_id'],
+                    'SessionDir'     => null,
+                    'IsFeature'      => $is_feature,
+                    'needs_session'  => true,
+                ];
+            }
+            continue;
+        }
+
+        // We have a SessionDir — derive everything from it
+        $date_captured = date_from_session_dir($session_dir);
+        $equipment     = infer_equipment($session_dir);
+        $is_mosaic     = infer_is_mosaic($session_dir, $project_folder);
+        $palette_id    = $f['palette_id'];
 
         if (isset($existing[$bn])) {
             // Update existing row
@@ -216,26 +294,23 @@ try {
                 WHERE BaseName = ? AND DSOKey = ?
             ");
             $stmt->execute([
-                $f['date'], $f['equipment'], $f['is_mosaic'],
-                $f['palette_id'], $f['session'], $bn, $dso_key
+                $date_captured, $equipment, $is_mosaic,
+                $palette_id, $session_dir, $bn, $dso_key
             ]);
 
             $updated[] = [
                 'GalleryImageID' => (int)$existing[$bn]['GalleryImageID'],
                 'BaseName'       => $bn,
-                'DateCaptured'   => $f['date'],
-                'Equipment'      => $f['equipment'],
-                'IsMosaic'       => $f['is_mosaic'],
-                'PaletteID'      => $f['palette_id'],
-                'SessionDir'     => $f['session'],
-                'session'        => $f['session'],
+                'DateCaptured'   => $date_captured,
+                'Equipment'      => $equipment,
+                'IsMosaic'       => $is_mosaic,
+                'PaletteID'      => $palette_id,
+                'SessionDir'     => $session_dir,
             ];
         } else {
             // Insert new row
-            // Auto-feature if no featured image exists yet
             $is_feature = (!$has_feature) ? 1 : 0;
-            if ($is_feature) $has_feature = true; // only first insert gets it
-
+            if ($is_feature) $has_feature = true;
             $sort = count($existing) + count($inserted);
 
             $stmt = $db->prepare("
@@ -245,42 +320,43 @@ try {
                 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             ");
             $stmt->execute([
-                $dso_key, $bn, $f['palette_id'], $f['date'],
-                $f['equipment'], $f['is_mosaic'], $f['session'], $sort, $is_feature
+                $dso_key, $bn, $palette_id, $date_captured,
+                $equipment, $is_mosaic, $session_dir, $sort, $is_feature
             ]);
             $new_id = (int)$db->lastInsertId();
 
             $inserted[] = [
                 'GalleryImageID' => $new_id,
                 'BaseName'       => $bn,
-                'DateCaptured'   => $f['date'],
-                'Equipment'      => $f['equipment'],
-                'IsMosaic'       => $f['is_mosaic'],
-                'PaletteID'      => $f['palette_id'],
-                'SessionDir'     => $f['session'],
+                'DateCaptured'   => $date_captured,
+                'Equipment'      => $equipment,
+                'IsMosaic'       => $is_mosaic,
+                'PaletteID'      => $palette_id,
+                'SessionDir'     => $session_dir,
                 'IsFeature'      => $is_feature,
-                'session'        => $f['session'],
             ];
         }
     }
 
-    // ── Check existing rows for missing fav files ─────────────────────────
+    // ── Check existing DB rows whose fav file is no longer in public/images/fav/
     foreach ($existing as $bn => $row) {
         if (!isset($disk_basenames[$bn])) {
             $warnings[] = [
                 'GalleryImageID' => (int)$row['GalleryImageID'],
                 'BaseName'       => $bn,
-                'reason'         => 'fav file not found on disk',
+                'reason'         => 'fav file not found in public/images/fav/',
             ];
         }
     }
 
     echo json_encode([
-        'success'       => true,
-        'projectFolder' => $project_folder,
-        'inserted'      => $inserted,
-        'updated'       => $updated,
-        'warnings'      => $warnings,
+        'success'           => true,
+        'mode'              => $mode,
+        'projectFolder'     => $project_folder,
+        'inserted'          => $inserted,
+        'updated'           => $updated,
+        'warnings'          => $warnings,
+        'needs_session_dir' => $needs_session_dir,
     ]);
 
 } catch (Exception $e) {
