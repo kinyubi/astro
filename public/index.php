@@ -45,6 +45,7 @@ try {
                 gi.Copyright,
                 gi.IsOwn,
                 gi.Attribution,
+                gi.Equipment,
                 gi.IsMosaic,
                 gi.SortOrder,
                 gi.IsFeature,
@@ -110,6 +111,7 @@ try {
                 'copyright'      => $row['Copyright'],
                 'isOwn'          => (int)$row['IsOwn'],
                 'attribution'    => $row['Attribution'],
+                'equipment'      => $row['Equipment'],
                 'isMosaic'       => (int)$row['IsMosaic'],
                 'isFeature'      => (int)$row['IsFeature'],
                 'thumbPath'      => 'images/thumbs/' . $bn . '_thumb.jpg',
@@ -676,6 +678,11 @@ $solarJson = json_encode(array_values($solarObjects));
             color: #f0a030;
             font-size: 0.92em;
         }
+        .image-caption-bar .caption-caption { color: #c9d1d9; font-style: italic; }
+        .image-caption-bar .caption-label { color: #6e7681; font-style: normal; }
+        .image-caption-bar .caption-equipment { color: #9aa0a6; }
+        .image-caption-bar .caption-photographer { color: #9aa0a6; }
+        .image-caption-bar .caption-copyright { color: #6e7681; }
         .image-caption-bar .caption-attribution {
             color: #8b949e;
             font-style: italic;
@@ -746,6 +753,73 @@ $solarJson = json_encode(array_values($solarObjects));
             border-color: #4a9eff;
             color: #fff;
         }
+
+        /* Fav image expand button */
+        .fav-expand-btn {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            z-index: 12;
+            background: rgba(0,0,0,0.55);
+            border: 1px solid rgba(255,255,255,0.3);
+            border-radius: 6px;
+            color: #e0e0e0;
+            width: 32px;
+            height: 32px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: background 0.15s, border-color 0.15s;
+        }
+        .fav-expand-btn:hover {
+            background: rgba(74,158,255,0.4);
+            border-color: #4a9eff;
+        }
+        /* On hover-capable devices, hide until the image is hovered */
+        @media (hover: hover) {
+            .fav-expand-btn { opacity: 0; transition: opacity 0.15s, background 0.15s, border-color 0.15s; }
+            .dso-carousel:hover .fav-expand-btn { opacity: 1; }
+        }
+
+        /* Fav image lightbox */
+        #fav-lightbox {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.92);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+        }
+        #fav-lightbox.active { display: flex; }
+        #fav-lightbox img {
+            max-width: 96vw;
+            max-height: 96vh;
+            object-fit: contain;
+            border-radius: 4px;
+            box-shadow: 0 0 40px rgba(0,0,0,0.8);
+        }
+        #fav-lightbox-close {
+            position: fixed;
+            top: 16px;
+            right: 16px;
+            background: rgba(74,158,255,0.3);
+            border: 2px solid #4a9eff;
+            border-radius: 50%;
+            width: 44px;
+            height: 44px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: white;
+            font-size: 1em;
+            z-index: 2001;
+            transition: background 0.15s;
+        }
+        #fav-lightbox-close:hover { background: rgba(74,158,255,0.55); }
 
         /* Mobile adjustments */
         /* Floating back button for gallery */
@@ -891,6 +965,15 @@ $solarJson = json_encode(array_values($solarObjects));
         <div class="modal-info" id="modalInfo"></div>
     </div>
 </div>
+
+<!-- Fav image lightbox -->
+<div id="fav-lightbox" onclick="closeFavLightbox()">
+    <button id="fav-lightbox-close" onclick="closeFavLightbox()" aria-label="Close">
+        <i class="fa-solid fa-xmark"></i>
+    </button>
+    <img id="fav-lightbox-img" src="" alt="" onclick="event.stopPropagation()">
+</div>
+
 <div class="modal" id="solarModal">
     <button class="modal-download-btn" id="solarDownloadBtn" onclick="toggleSolarDownloadDropdown(event)" title="Download"><i class="fa-solid fa-download"></i></button>
     <div class="download-dropdown" id="solarDownloadDropdown">
@@ -1101,6 +1184,10 @@ $solarJson = json_encode(array_values($solarObjects));
         const item = galleryData[idx];
         currentModalItem  = item;
         currentImageIndex = imgIdx !== undefined ? imgIdx : 0;
+        // Tear down any stale per-DSO DOM from a previous open so renderDSOModalSlide rebuilds cleanly
+        document.querySelector('.dso-carousel')?.remove();
+        document.querySelector('.image-caption-bar')?.remove();
+        document.querySelector('.filmstrip')?.remove();
         const modal = document.getElementById('modal');
         renderDSOModalSlide();
         modal.classList.add('active');
@@ -1125,72 +1212,108 @@ $solarJson = json_encode(array_values($solarObjects));
         const modalImageContainer = document.getElementById('modalImageContainer');
         const modalInfo           = document.getElementById('modalInfo');
 
-        // ── Image ─────────────────────────────────────────────
+        // ── Image src (only what changes) ─────────────────────────
         const src = isLandscape ? img.wallPath : img.fullPath;
-        modalImageContainer.classList.add('loading');
-        modalImage.onload  = () => modalImageContainer.classList.remove('loading');
-        modalImage.onerror = () => modalImageContainer.classList.remove('loading');
-        modalImage.src = src;
+        if (modalImage.src !== src) {
+            modalImageContainer.classList.add('loading');
+            modalImage.onload  = () => modalImageContainer.classList.remove('loading');
+            modalImage.onerror = () => modalImageContainer.classList.remove('loading');
+            modalImage.src = src;
+        }
         modalImage.alt = item.displayName;
 
-        // Wrap image container in carousel div if needed
-        const existingCarousel = document.querySelector('.dso-carousel');
-        if (existingCarousel) {
-            existingCarousel.replaceWith(modalImageContainer);
+        // ── Carousel wrapper — build once, never rebuild ───────────
+        let carousel = document.querySelector('.dso-carousel');
+        if (!carousel) {
+            carousel = document.createElement('div');
+            carousel.className = 'dso-carousel';
+            modalImageContainer.parentNode.insertBefore(carousel, modalImageContainer);
+            carousel.appendChild(modalImageContainer);
         }
-        const carousel = document.createElement('div');
-        carousel.className = 'dso-carousel';
-        modalImageContainer.parentNode.insertBefore(carousel, modalImageContainer);
-        carousel.appendChild(modalImageContainer);
 
-        // Carousel arrows
-        carousel.querySelectorAll('.carousel-arrow, .carousel-counter').forEach(e => e.remove());
+        // ── Counter & arrows — build once, update counter text ─────
         if (total > 1) {
-            const counter = document.createElement('div');
-            counter.className = 'carousel-counter';
+            let counter = carousel.querySelector('.carousel-counter');
+            if (!counter) {
+                counter = document.createElement('div');
+                counter.className = 'carousel-counter';
+                carousel.appendChild(counter);
+            }
             counter.textContent = `${currentImageIndex + 1} / ${total}`;
-            carousel.appendChild(counter);
 
-            const btnL = document.createElement('button');
-            btnL.className = 'carousel-arrow carousel-arrow-left';
-            btnL.innerHTML = `<img src="images/left-arrow.png" alt="Previous">`;
-            btnL.onclick = e => { e.stopPropagation(); navigateDSOCarousel(-1); };
-
-            const btnR = document.createElement('button');
-            btnR.className = 'carousel-arrow carousel-arrow-right';
-            btnR.innerHTML = `<img src="images/right-arrow.png" alt="Next">`;
-            btnR.onclick = e => { e.stopPropagation(); navigateDSOCarousel(1); };
-
-            carousel.appendChild(btnL);
-            carousel.appendChild(btnR);
+            if (!carousel.querySelector('.carousel-arrow-left')) {
+                const btnL = document.createElement('button');
+                btnL.className = 'carousel-arrow carousel-arrow-left';
+                btnL.innerHTML = `<img src="images/left-arrow.png" alt="Previous">`;
+                btnL.onclick = e => { e.stopPropagation(); navigateDSOCarousel(-1); };
+                carousel.appendChild(btnL);
+            }
+            if (!carousel.querySelector('.carousel-arrow-right')) {
+                const btnR = document.createElement('button');
+                btnR.className = 'carousel-arrow carousel-arrow-right';
+                btnR.innerHTML = `<img src="images/right-arrow.png" alt="Next">`;
+                btnR.onclick = e => { e.stopPropagation(); navigateDSOCarousel(1); };
+                carousel.appendChild(btnR);
+            }
+        } else {
+            carousel.querySelectorAll('.carousel-arrow, .carousel-counter').forEach(e => e.remove());
         }
 
-        // ── Caption bar ───────────────────────────────────────────
+        // ── Caption bar — update innerHTML in place ────────────────
         let captionParts = [];
-        if (img.paletteName && img.paletteID !== 0) captionParts.push(`<span class="caption-palette">${img.paletteName}</span>`);
+
+        // Caption text
+        if (img.caption) captionParts.push(`<span class="caption-caption">${img.caption}</span>`);
+
+        // Palette
+        if (img.paletteID && img.paletteID > 0 && img.paletteName) {
+            captionParts.push(`<span class="caption-palette">${img.paletteName} Palette</span>`);
+        }
+
+        // Equipment — prepend 'Seestar' for known Seestar models
+        if (img.equipment) {
+            const eq = img.equipment.trim();
+            const seestarModels = ['S30', 'S50', 'S30 Pro'];
+            const label = seestarModels.some(m => eq.toLowerCase() === m.toLowerCase())
+                ? `Seestar ${eq}` : eq;
+            captionParts.push(`<span class="caption-equipment"><span class="caption-label">Equipment:</span> ${label}</span>`);
+        }
+
+        // Date captured
         if (img.dateCaptured) {
             const d = new Date(img.dateCaptured + 'T00:00:00');
-            captionParts.push(`<span class="caption-date">${d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>`);
+            captionParts.push(`<span class="caption-date"><span class="caption-label">Date Taken:</span> ${d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>`);
         }
+
+        // Mosaic tag
         if (img.isMosaic) captionParts.push(`<span class="caption-mosaic">Mosaic</span>`);
-        if (!img.isOwn) {
-            const credit = img.attribution
-                ? `<span class="caption-attribution">© ${img.attribution}</span>`
-                : `<span class="caption-attribution">Image credit: third party</span>`;
-            captionParts.push(credit);
+
+        // Photographer & copyright
+        const currentYear = new Date().getFullYear();
+        if (img.isOwn) {
+            captionParts.push(`<span class="caption-photographer"><span class="caption-label">Photographer:</span> Carl Baker</span>`);
+            captionParts.push(`<span class="caption-copyright">© ${currentYear}</span>`);
+        } else {
+            // Third-party image
+            if (img.attribution) captionParts.push(`<span class="caption-photographer"><span class="caption-label">Photographer:</span> ${img.attribution}</span>`);
+            if (img.copyright)   captionParts.push(`<span class="caption-copyright">© ${img.copyright}</span>`);
+            if (!img.attribution && !img.copyright) captionParts.push(`<span class="caption-attribution">Image credit: third party</span>`);
         }
 
-        // Remove old caption bar if present
-        document.querySelector('.image-caption-bar')?.remove();
+        let bar = document.querySelector('.image-caption-bar');
         if (captionParts.length > 0) {
-            const bar = document.createElement('div');
-            bar.className = 'image-caption-bar';
+            if (!bar) {
+                bar = document.createElement('div');
+                bar.className = 'image-caption-bar';
+                carousel.insertAdjacentElement('afterend', bar);
+            }
             bar.innerHTML = captionParts.join('');
-            carousel.insertAdjacentElement('afterend', bar);
+        } else {
+            bar?.remove();
+            bar = null;
         }
 
-        // ── Filmstrip ─────────────────────────────────────────────
-        // Only build the filmstrip once; on subsequent calls just update active thumb
+        // ── Filmstrip — build once, update active class only ───────
         let strip = document.querySelector('.filmstrip');
         if (total > 1) {
             if (!strip) {
@@ -1212,25 +1335,26 @@ $solarJson = json_encode(array_values($solarObjects));
                     };
                     strip.appendChild(thumb);
                 });
-                const captionBar = document.querySelector('.image-caption-bar');
-                (captionBar || carousel).insertAdjacentElement('afterend', strip);
+                (bar || carousel).insertAdjacentElement('afterend', strip);
             } else {
-                // Already exists — just update active class and reposition after caption bar
                 strip.querySelectorAll('.filmstrip-thumb').forEach(t => {
                     t.classList.toggle('active', parseInt(t.dataset.idx) === currentImageIndex);
                 });
-                // Ensure strip stays after caption bar (caption bar may have been recreated)
-                const captionBar = document.querySelector('.image-caption-bar');
-                const anchor = captionBar || carousel;
-                if (strip.previousElementSibling !== anchor) {
-                    anchor.insertAdjacentElement('afterend', strip);
-                }
-                // Scroll active thumb into view within the strip
                 const activeThumb = strip.querySelector('.filmstrip-thumb.active');
                 if (activeThumb) activeThumb.scrollIntoView({ inline: 'nearest', block: 'nearest' });
             }
         } else if (strip) {
             strip.remove();
+        }
+
+        // ── Fav expand button — build once inside carousel ──────────
+        if (!carousel.querySelector('.fav-expand-btn')) {
+            const expandBtn = document.createElement('button');
+            expandBtn.className = 'fav-expand-btn';
+            expandBtn.title = 'View in social media format';
+            expandBtn.innerHTML = '<i class="fa-solid fa-expand"></i>';
+            expandBtn.onclick = e => { e.stopPropagation(); openFavLightbox(); };
+            carousel.appendChild(expandBtn);
         }
 
         // ── 4K download options ───────────────────────────────────────
@@ -1242,19 +1366,14 @@ $solarJson = json_encode(array_values($solarObjects));
         let h = `<div class="modal-header"><h2>${titleText}</h2></div>`;
         if (item.info) {
             const i = item.info;
-            if (i.ConstellationID) h += `<div class="info-section"><h3>Constellation&nbsp;</h3><p>${i.ConstellationID}</p></div>`;
-            if (i.DistanceLY)      h += `<div class="info-section"><h3>Distance&nbsp;</h3><p>${i.DistanceLY}</p></div>`;
             if (i.SocialBlurb) {
                 const paras = i.SocialBlurb.split(/\n\n+/);
                 h += paras.map(p => `<p class="social-blurb-para">${p}</p>`).join('');
             }
-            const name = i.CommonName || item.dsoKey;
-            const locParts = [];
-            if (i.ConstellationName) locParts.push(`located in the constellation ${i.ConstellationName}`);
-            if (i.DistanceLY)        locParts.push(`about ${i.DistanceLY}`);
-            let contextLine = locParts.length ? `The ${name} is ${locParts.join(', ')}.` : '';
-            if (i.ObjectSize) contextLine += (contextLine ? ` It is ${i.ObjectSize}` : `The ${name} is ${i.ObjectSize}`);
-            if (contextLine) h += `<p class="social-blurb-para social-blurb-context">${contextLine}</p>`;
+            if (i.ObjectSize) {
+                const name = i.CommonName || item.dsoKey;
+                h += `<p class="social-blurb-para social-blurb-context">The ${name} is ${i.ObjectSize}</p>`;
+            }
         } else {
             h += `<p class="no-info">No information available for this object.</p>`;
         }
@@ -1293,11 +1412,30 @@ $solarJson = json_encode(array_values($solarObjects));
         navigateDSOCarousel(dx < 0 ? 1 : -1);
     }, { passive: true });
 
+    function openFavLightbox() {
+        const img = currentModalItem && currentModalItem.images[currentImageIndex];
+        if (!img) return;
+        const lb    = document.getElementById('fav-lightbox');
+        const lbImg = document.getElementById('fav-lightbox-img');
+        lbImg.src = img.favPath;
+        lbImg.alt = currentModalItem.displayName;
+        lb.classList.add('active');
+    }
+
+    function closeFavLightbox() {
+        document.getElementById('fav-lightbox').classList.remove('active');
+        document.getElementById('fav-lightbox-img').src = '';
+    }
+
     function closeModal(){
         document.getElementById('modal').classList.remove('active');
         document.body.style.overflow='';
         closeDownloadDropdown();
         currentModalItem = null;
+        // Tear down per-DSO DOM so renderDSOModalSlide rebuilds cleanly for the next DSO
+        document.querySelector('.dso-carousel')?.remove();
+        document.querySelector('.image-caption-bar')?.remove();
+        document.querySelector('.filmstrip')?.remove();
         // Clear scroll hint timer and hide if visible
         if (scrollHintTimer) {
             clearTimeout(scrollHintTimer);
@@ -1315,6 +1453,10 @@ $solarJson = json_encode(array_values($solarObjects));
     
     document.addEventListener('keydown',e=>{
         if(e.key==='Escape') {
+            // Fav lightbox takes priority
+            if (document.getElementById('fav-lightbox').classList.contains('active')) {
+                closeFavLightbox(); return;
+            }
             // Only handle DSO modal Escape when it is actually active
             if (!document.getElementById('modal').classList.contains('active')) return;
             if (document.getElementById('downloadDropdown').classList.contains('active')) {
