@@ -338,14 +338,34 @@ try {
         }
     }
 
-    // ── Check existing DB rows whose fav file is no longer in public/images/fav/
+    // ── Remove DB rows whose fav file is no longer in public/images/fav/ ──────
+    $removed_feature = false;
     foreach ($existing as $bn => $row) {
         if (!isset($disk_basenames[$bn])) {
+            $del = $db->prepare("DELETE FROM GalleryImages WHERE GalleryImageID = ?");
+            $del->execute([(int)$row['GalleryImageID']]);
+            if ($row['IsFeature']) $removed_feature = true;
             $warnings[] = [
                 'GalleryImageID' => (int)$row['GalleryImageID'],
                 'BaseName'       => $bn,
-                'reason'         => 'fav file not found in public/images/fav/',
+                'reason'         => 'fav file not found in public/images/fav/ — removed from DB',
             ];
+        }
+    }
+
+    // If the featured image was removed, promote the first remaining DB row
+    if ($removed_feature) {
+        $stmt = $db->prepare("
+            SELECT GalleryImageID FROM GalleryImages
+            WHERE DSOKey = ?
+            ORDER BY SortOrder, GalleryImageID
+            LIMIT 1
+        ");
+        $stmt->execute([$dso_key]);
+        $next = $stmt->fetchColumn();
+        if ($next) {
+            $db->prepare("UPDATE GalleryImages SET IsFeature = 1 WHERE GalleryImageID = ?")
+               ->execute([$next]);
         }
     }
 

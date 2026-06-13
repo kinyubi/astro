@@ -1185,7 +1185,15 @@ $solarJson = json_encode(array_values($solarObjects));
         currentModalItem  = item;
         currentImageIndex = imgIdx !== undefined ? imgIdx : 0;
         // Tear down any stale per-DSO DOM from a previous open so renderDSOModalSlide rebuilds cleanly
-        document.querySelector('.dso-carousel')?.remove();
+        const staleCarousel = document.querySelector('.dso-carousel');
+        if (staleCarousel) {
+            const modalContent = document.querySelector('.modal-content');
+            const mic = document.getElementById('modalImageContainer');
+            if (mic && staleCarousel.contains(mic)) {
+                staleCarousel.parentNode.insertBefore(mic, staleCarousel);
+            }
+            staleCarousel.remove();
+        }
         document.querySelector('.image-caption-bar')?.remove();
         document.querySelector('.filmstrip')?.remove();
         const modal = document.getElementById('modal');

@@ -3,6 +3,9 @@ _gsdata_/
 cache/
 *.jpg
 *.log
+*.bkp
 secrets.php
 /public/dso_visibility.log
+*.db
+
 

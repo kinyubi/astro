@@ -659,7 +659,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 </div>
 
 <script>
-async function showDSOInfo(dsoKey) {{
+async function showDSOInfo(dsoKey) {
   const overlay = document.getElementById('dso-modal-overlay');
   const title   = document.getElementById('dso-modal-title');
   const body    = document.getElementById('dso-modal-body');
@@ -667,20 +667,37 @@ async function showDSOInfo(dsoKey) {{
   body.innerHTML = '<div style="color:#8b9dc3;text-align:center;padding:20px;">Fetching data&#x2026;</div>';
   overlay.classList.add('open');
 
-  try {{
+  try {
     const res  = await fetch('/api/dso.php?key=' + encodeURIComponent(dsoKey));
     const json = await res.json();
-    if (!json.success) {{
+    if (!json.success) {
       body.innerHTML = '<div style="color:#f85149;padding:12px;">Error: ' + (json.error || 'Unknown') + '</div>';
       return;
-    }}
+    }
     const d = json.data;
     title.textContent = d.DSOKey + (d.CommonName ? ' \u2013 ' + d.CommonName : '');
 
-    function fv(v) {{ return (v !== null && v !== undefined && v !== '') ? String(v) : '\u2014'; }}
-    function fn(v, dec) {{ return (v !== null && v !== undefined && v !== '') ? parseFloat(v).toFixed(dec ?? 2) : '\u2014'; }}
+    function fv(v) { return (v !== null && v !== undefined && v !== '') ? String(v) : '\u2014'; }
+    function fn(v, dec) { return (v !== null && v !== undefined && v !== '') ? parseFloat(v).toFixed(dec ?? 2) : '\u2014'; }
+
+    // Fetch preview image URL first, then render everything at once
+    let previewUrl = null;
+    try {
+      const pr = await fetch('/api/dso_preview.php?key=' + encodeURIComponent(d.DSOKey));
+      if (pr.ok) {
+        const pj = await pr.json();
+        if (pj && pj.url) previewUrl = pj.url;
+      }
+    } catch (e) {}
 
     let html = '';
+
+    // Preview image
+    if (previewUrl) {
+      html += '<div style="text-align:center;padding:10px 16px 6px;">'
+            + '<img src="' + previewUrl + '" alt="" style="max-width:100%;max-height:220px;object-fit:contain;border-radius:6px;">'
+            + '</div>';
+    }
 
     // Identity
     html += `<div class="modal-section">
@@ -723,36 +740,36 @@ async function showDSOInfo(dsoKey) {{
     </div>`;
 
     // Notes
-    if (d.Notes) {{
+    if (d.Notes) {
       html += `<div class="modal-section">
         <div class="modal-section-header">Notes</div>
         <div class="modal-section-body" style="grid-template-columns:1fr;">
           <div class="modal-field"><span class="modal-field-value" style="white-space:pre-wrap;">${d.Notes}</span></div>
         </div>
       </div>`;
-    }}
+    }
 
     // Social Blurb
-    if (d.SocialBlurb) {{
+    if (d.SocialBlurb) {
       html += `<div class="modal-section">
         <div class="modal-section-header">Social Blurb</div>
         <div class="modal-section-body" style="grid-template-columns:1fr;">
           <div class="modal-blurb">${d.SocialBlurb}</div>
         </div>
       </div>`;
-    }}
+    }
 
     body.innerHTML = html;
-  }} catch (e) {{
+  } catch (e) {
     body.innerHTML = '<div style="color:#f85149;padding:12px;">Network error: ' + e.message + '</div>';
-  }}
-}}
+  }
+}
 
-function closeDSOInfo() {{
+function closeDSOInfo() {
   document.getElementById('dso-modal-overlay').classList.remove('open');
-}}
+}
 
-document.addEventListener('keydown', e => {{ if (e.key === 'Escape') closeDSOInfo(); }});
+document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDSOInfo(); });
 </script>
 
 <!-- Quick Add Modal -->
@@ -773,7 +790,7 @@ document.addEventListener('keydown', e => {{ if (e.key === 'Escape') closeDSOInf
 </div>
 
 <script>
-function openQuickAdd() {{
+function openQuickAdd() {
   const overlay = document.getElementById('qa-overlay');
   overlay.style.display = 'flex';
   const inp = document.getElementById('qa-input');
@@ -781,62 +798,62 @@ function openQuickAdd() {{
   document.getElementById('qa-status').textContent = '';
   document.getElementById('qa-submit').disabled = false;
   setTimeout(() => inp.focus(), 50);
-}}
+}
 
-function closeQuickAdd() {{
+function closeQuickAdd() {
   document.getElementById('qa-overlay').style.display = 'none';
-}}
+}
 
-async function submitQuickAdd() {{
+async function submitQuickAdd() {
   const inp    = document.getElementById('qa-input');
   const status = document.getElementById('qa-status');
   const btn    = document.getElementById('qa-submit');
   const dsoKey = inp.value.trim().toUpperCase();
-  if (!dsoKey) {{ inp.focus(); return; }}
+  if (!dsoKey) { inp.focus(); return; }
 
   btn.disabled = true;
   status.style.color = '#7ec8a3';
   status.textContent = 'Looking up ' + dsoKey + '\u2026';
 
-  try {{
-    const res  = await fetch('/admin/api_quickadd.php', {{
+  try {
+    const res  = await fetch('/admin/api_quickadd.php', {
       method:  'POST',
-      headers: {{ 'Content-Type': 'application/json' }},
-      body:    JSON.stringify({{ dso_key: dsoKey }}),
-    }});
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ dso_key: dsoKey }),
+    });
     const data = await res.json();
 
-    if (data.exists) {{
+    if (data.exists) {
       status.style.color = '#ffd700';
       status.textContent = dsoKey + ' is already in the database.';
       btn.disabled = false;
       return;
-    }}
+    }
 
-    if (data.success && data.created) {{
+    if (data.success && data.created) {
       const name = data.CommonName ? data.CommonName + ' (' + dsoKey + ')' : dsoKey;
       status.textContent = name + ' added! Rebuilding visibility report\u2026';
-      setTimeout(() => {{
+      setTimeout(() => {
         window.location.href = '/vis?date={target_date_str}&profile={profile_name}&rebuild=1';
-      }}, 1200);
+      }, 1200);
       return;
-    }}
+    }
 
     status.style.color = '#f85149';
     status.textContent = 'Error: ' + (data.error || 'Unknown error');
     btn.disabled = false;
 
-  }} catch (e) {{
+  } catch (e) {
     status.style.color = '#f85149';
     status.textContent = 'Network error: ' + e.message;
     btn.disabled = false;
-  }}
-}}
+  }
+}
 
 // Close overlay on background click
-document.getElementById('qa-overlay').addEventListener('click', function(e) {{
+document.getElementById('qa-overlay').addEventListener('click', function(e) {
   if (e.target === this) closeQuickAdd();
-}});
+});
 </script>
 
 </body>
