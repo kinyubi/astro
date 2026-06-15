@@ -867,6 +867,11 @@ $solarJson = json_encode(array_values($solarObjects));
             <h2>Browse Gallery</h2>
             <p>Read about, view close up or download images of any deep sky image in my gallery.</p>
         </div>
+        <div class="option-card" onclick="window.location='/blog-manager/'">
+            <div class="option-icon">📝</div>
+            <h2>Blog</h2>
+            <p>Articles and stories about astrophotography techniques, equipment, and the objects I've captured.</p>
+        </div>
     </div>
 </div>
 <div class="slideshow-container" id="slideshowContainer">

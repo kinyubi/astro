@@ -996,6 +996,16 @@ const PALETTES = [
   { id: 7, name: 'Mono' },
 ];
 
+const PALETTE_SUFFIX_MAP = { sho: 1, hoo: 2, hso: 3, ohs: 4, hos: 5 };
+
+function paletteIdFromBaseName(baseName) {
+  const lower = String(baseName).toLowerCase();
+  for (const [suffix, id] of Object.entries(PALETTE_SUFFIX_MAP)) {
+    if (lower.endsWith('_' + suffix)) return id;
+  }
+  return 0;
+}
+
 function paletteOptions(selectedId) {
   return PALETTES.map(p =>
     `<option value="${p.id}" ${parseInt(selectedId) === p.id ? 'selected' : ''}>${p.name}</option>`
@@ -1046,7 +1056,9 @@ function addGalleryImageCard(img = {}) {
   const card = document.createElement('div');
   const isFeature  = img.IsFeature  ? 1 : 0;
   const isOwn      = img.IsOwn !== undefined ? parseInt(img.IsOwn) : 1;
-  const paletteId  = img.PaletteID !== undefined ? parseInt(img.PaletteID) : 0;
+  const paletteId  = (img.PaletteID !== undefined && parseInt(img.PaletteID) !== 0)
+    ? parseInt(img.PaletteID)
+    : paletteIdFromBaseName(img.BaseName || '');
   const sortOrder  = img.SortOrder !== undefined ? parseInt(img.SortOrder) : list.children.length;
   const isMosaic   = img.IsMosaic  ? 1 : 0;
   const equipment  = img.Equipment  || '';
@@ -1139,6 +1151,9 @@ function addGalleryImageCard(img = {}) {
   card.querySelector('.gi-basename-input').addEventListener('input', function() {
     card.querySelector('.gi-basename').textContent = this.value || 'New Image';
     updateGalleryPreview(card, this.value);
+    const palSel = card.querySelector('.gi-palette');
+    const inferred = paletteIdFromBaseName(this.value);
+    if (inferred !== 0) palSel.value = inferred;
   });
 
   card.querySelector('.gi-isfeature').addEventListener('change', function() {

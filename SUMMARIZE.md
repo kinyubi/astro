@@ -135,3 +135,112 @@ SortOrder   INTEGER DEFAULT 0
 
 #### Remaining step
 - **Step 4**: Public gallery frontend (`public/index.php`) — update to query `GalleryImages` grouped by DSO, show multi-image badge on cards, carousel/prev-next in modal, palette + date caption line, attribution for others' images, DSOLinks below social blurb
+
+---
+
+## Session: 2026-06-13
+
+### Bug Fix: Sync Folder orphan cleanup
+
+**`public/admin/api_sync_folder.php`**
+- Previously, `GalleryImages` rows whose `_fav.jpg` file had been deleted from `public/images/fav/` were only reported as warnings, never removed.
+- Fixed: rows with missing fav files are now **deleted from the DB** during sync. If the deleted row had `IsFeature = 1`, the next surviving row (by `SortOrder`, then `GalleryImageID`) is automatically promoted as featured.
+- Warnings array still reports what was removed so the UI shows the cleanup.
+
+### Feature: DSO preview image in vis info modal
+
+Added a preview image between the title and Identity section of the DSO info modal in the visibility report (`/vis`).
+
+**`public/api/dso_preview.php`** (new)
+- `GET /api/dso_preview.php?key=IC1805` — scans `public/images/thumbs/` then `public/images/visibility/` for any file whose name starts with the DSO key (case-insensitive).
+- Returns JSON `{"url": "/images/thumbs/ic1805_heart_thumb.jpg"}` on match, or `{"url": null}` with 404 on no match.
+
+**`pythonscripts/todays_dsos_web.py`**
+- In `showDSOInfo()`, added an `await fetch('/api/dso_preview.php?key=...')` call **before** building the `html` string. The preview URL is resolved first so the image is injected into `body.innerHTML` in one shot — no post-render DOM insertion, no flash.
+- Root cause of long debugging: the `showDSOInfo` and QuickAdd script blocks live inside `print("""...""")` (a plain string, not an f-string), so `{{` was being output literally as `{{` — invalid JS that broke both functions silently. Fixed by converting all `{{`/`}}` pairs to single `{`/`}` throughout both script blocks.
+
+### Bug Fix: Gallery modal crash on second open
+
+**`public/index.php`**
+- `renderDSOModalSlide()` moves `#modalImageContainer` (and its child `#modalImage`) into a newly created `.dso-carousel` div.
+- The teardown in `openModal()` was calling `document.querySelector('.dso-carousel')?.remove()`, which removed `#modalImage` from the DOM along with the carousel.
+- On the second card click, `getElementById('modalImage')` returned `null`, causing `Uncaught TypeError: Cannot read properties of null (reading 'src')`.
+- Fixed: teardown now rescues `#modalImageContainer` back to its original position before removing the carousel.
+
+### Key learnings
+- Plain Python `print("""...""")` strings output `{{` literally — only f-strings collapse `{{` to `{`. Any JS block with brace-heavy syntax (object literals, arrow functions, try/catch) inside a plain `print("""...""")` needs single braces throughout.
+- When a DOM element is moved into a dynamically created wrapper, teardown must rescue it before removing the wrapper, or `getElementById` will return null on the next open.
+
+---
+
+## Session: 2026-06-15
+
+### Feature: Blog System
+
+Added a complete blog platform to the astro app, consisting of a public blog manager, a Markdown-based post format, and the first converted blog post.
+
+#### Landing page
+
+**`public/index.php`**
+- Added a third **Blog** tile (📝) to the `.options-container` grid, linking to `/blog-manager/`.
+
+#### New directory structure
+
+```
+public/blog-manager/
+    index.php          — blog listing page
+    post.php           — individual post renderer
+    blog-manager.css   — dark-theme styles matching gallery
+    Parsedown.php      — third-party Markdown parser (manually placed by user)
+
+public/blogs/
+    what-color-is-it/
+        index.md       — first blog post, converted from HTML
+```
+
+#### Blog format conventions
+
+- Posts live in `public/blogs/<slug>/index.md`
+- YAML front matter at top: `title`, `date` (YYYY-MM-DD), `tags` (bracket list), `summary`, `thumbnail` (basename from `images/fav/`)
+- Images: standard Markdown `![alt](path "Caption as title attr")` — rendered as `<figure><figcaption>` by `post.php`
+- Side-by-side image pairs: raw HTML `<div class="img-compare">` blocks with two `<figure>` children
+
+#### `public/blog-manager/index.php`
+
+- Scans `public/blogs/*/index.md`, parses YAML front matter
+- Renders blog card grid sorted newest-first
+- Each card shows thumbnail (from `images/fav/`), date, title, summary, tags, "Read more" link
+- Falls back to placeholder icon if no thumbnail set
+
+#### `public/blog-manager/post.php`
+
+- Reads `index.md` for the requested slug, parses front matter, renders Markdown via Parsedown
+- `setMarkupEscaped(false)` and `setBreaksEnabled(false)` set so raw HTML blocks (e.g. `.img-compare` divs) pass through untouched
+- Post-processes rendered HTML: `<img ... title="caption">` → `<figure><img><figcaption></figure>`
+- Displays: date, title, tags, post body, "Back to all posts" footer link
+
+#### `public/blog-manager/blog-manager.css`
+
+- Dark theme consistent with gallery (same color variables: `#4a9eff`, `#1a1f3a`, `#0a0e27`, etc.)
+- Blog listing grid, post card styles, single post typography
+- `.img-compare` class: `display: grid; grid-template-columns: 1fr 1fr` — collapses to single column below 540px
+- `.post-body .img-compare figure img` rule uses higher specificity than `.post-body img` to ensure `width: 100%` wins over `width: auto`
+
+#### First blog post: "Why Nebulae Look the Way They Do"
+
+**`public/blogs/what-color-is-it/index.md`**
+- Converted from original `public/blogs/what-color-is-it.html`
+- Covers SHO, HOO, HSO, HOS palettes with explanation of channel assignments
+- Images: Hubble Pillars of Creation (NASA, hotlinked), plus three side-by-side pairs from Carl's own `annotated_fav` images:
+  - Soul Nebula (IC 1848): broadband vs. SHO
+  - Rosette Nebula (NGC 2244): broadband vs. HSO
+  - Wizard Nebula (NGC 7380): broadband vs. HOS
+- Hubble Rosette detail (ESA, hotlinked) shown as standalone image
+- All local images reference `/images/annotated_fav/` directly
+
+#### Key learnings
+
+- Parsedown requires `setMarkupEscaped(false)` to pass raw HTML blocks through; without it, `<div>` tags in Markdown are escaped or wrapped in `<p>` tags, breaking grid layouts.
+- PHP typed parameters (`string $raw`) and return type hints (`: array`) caused parse errors; removed to ensure compatibility regardless of PHP version misconfiguration.
+- CSS specificity: `.post-body img { width: auto }` overrides `.img-compare figure img { width: 100% }` — must use `.post-body .img-compare figure img` to win the cascade.
+- Always read the current file from disk before making edits — working from memory of a previous version caused incorrect filenames to be written back.
