@@ -999,9 +999,9 @@ const PALETTES = [
 const PALETTE_SUFFIX_MAP = { sho: 1, hoo: 2, hso: 3, ohs: 4, hos: 5 };
 
 function paletteIdFromBaseName(baseName) {
-  const lower = String(baseName).toLowerCase();
-  for (const [suffix, id] of Object.entries(PALETTE_SUFFIX_MAP)) {
-    if (lower.endsWith('_' + suffix)) return id;
+  const segments = String(baseName).toLowerCase().split('_').reverse();
+  for (const seg of segments) {
+    if (PALETTE_SUFFIX_MAP[seg] !== undefined) return PALETTE_SUFFIX_MAP[seg];
   }
   return 0;
 }

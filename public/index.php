@@ -145,6 +145,7 @@ $galleryJson = json_encode($galleryItems);
 // Solar system image scanning
 $solarObjects = [];
 $solarDir = __DIR__ . '/images/solar';
+$solarObjectKeys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
 if (is_dir($solarDir)) {
     // Order matters: longer suffixes must be checked first
     $sizeOrder = ['full_annotated', 'fav_annotated', 'wall_annotated', 'thumb', 'full', 'fav', 'wall'];
@@ -163,7 +164,16 @@ if (is_dir($solarDir)) {
             }
         }
         if (!$sizeFound) continue;
-        $objectKey = explode('_', $baseName)[0]; // e.g. "moon", "sun"
+        // Find the object key by searching parts for a known solar object name
+        $parts = explode('_', $baseName);
+        $objectKey = null;
+        foreach ($parts as $part) {
+            if (in_array(strtolower($part), $solarObjectKeys)) {
+                $objectKey = strtolower($part);
+                break;
+            }
+        }
+        if (!$objectKey) continue;
         if (!isset($solarObjects[$objectKey])) {
             $solarObjects[$objectKey] = ['object' => $objectKey, 'thumb' => null, 'shots' => []];
         }
@@ -194,7 +204,7 @@ $solarJson = json_encode(array_values($solarObjects));
     <title>Astronomy Gallery</title>
     <link rel="icon" type="image/png" href="/images/favicon.png">
 
-    <link rel="stylesheet" href="/css/style.css?ver=2">
+    <link rel="stylesheet" href="/css/style.css?ver=3">
     <link rel="stylesheet" type="text/css" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
     <style>
         /* Download Button & Dropdown Styles */
@@ -1446,7 +1456,14 @@ $solarJson = json_encode(array_values($solarObjects));
         closeDownloadDropdown();
         currentModalItem = null;
         // Tear down per-DSO DOM so renderDSOModalSlide rebuilds cleanly for the next DSO
-        document.querySelector('.dso-carousel')?.remove();
+        const carousel = document.querySelector('.dso-carousel');
+        if (carousel) {
+            const mic = document.getElementById('modalImageContainer');
+            if (mic && carousel.contains(mic)) {
+                carousel.parentNode.insertBefore(mic, carousel);
+            }
+            carousel.remove();
+        }
         document.querySelector('.image-caption-bar')?.remove();
         document.querySelector('.filmstrip')?.remove();
         // Clear scroll hint timer and hide if visible
@@ -1680,42 +1697,36 @@ $solarJson = json_encode(array_values($solarObjects));
         return new Date(year, month, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     }
 
-    function parseSolarCaption(baseName) {
+    function parseSolarCaption(baseName, objectKey) {
         const parts = baseName.split('_');
-        const object = parts[0];
 
-        // Find first segment that looks like a date (8 digits + optional letter)
-        let dateIndex = -1;
-        for (let i = 1; i < parts.length; i++) {
-            if (/^\d{8}[a-z]?$/.test(parts[i])) {
-                dateIndex = i;
+        // Find the object name position
+        const objIndex = parts.findIndex(p => p.toLowerCase() === objectKey.toLowerCase());
+        const objectTitle = titleCase(objectKey);
+
+        // Find 8-digit date segment
+        let dateStr = null;
+        for (const p of parts) {
+            if (/^\d{8}$/.test(p)) {
+                dateStr = formatSolarDate(p);
                 break;
             }
         }
 
-        const objectTitle = titleCase(object);
-        if (dateIndex === -1) return objectTitle;
+        // Descriptor = parts before the object name (if any)
+        const descriptorParts = objIndex > 0 ? parts.slice(0, objIndex) : [];
 
-        const descriptorParts = parts.slice(1, dateIndex);
-        const dateStr = formatSolarDate(parts[dateIndex]);
+        // Filter out purely numeric tokens from descriptor
+        const meaningfulDescriptor = descriptorParts
+            .filter(p => !/^\d+$/.test(p))
+            .map(p => titleCase(p))
+            .join(' ');
 
-        if (descriptorParts.length === 0) {
-            return `${objectTitle} \u00b7 ${dateStr}`;
-        }
+        const label = meaningfulDescriptor
+            ? `${meaningfulDescriptor} ${objectTitle}`
+            : objectTitle;
 
-        // Single-word technical descriptor?
-        const isTechnical = descriptorParts.length === 1 &&
-            TECHNICAL_DESCRIPTORS.includes(descriptorParts[0].toLowerCase());
-
-        if (isTechnical) {
-            const label = descriptorParts[0].toUpperCase()
-                .replace('HA', 'H-Alpha').replace('HB', 'H-Beta')
-                .replace('OIII', 'O-III').replace('SII', 'S-II');
-            return `${objectTitle} (${label}) \u00b7 ${dateStr}`;
-        }
-
-        const descriptor = descriptorParts.map(p => titleCase(p)).join(' ');
-        return `${descriptor} ${objectTitle} \u00b7 ${dateStr}`;
+        return dateStr ? `${label} \u00b7 ${dateStr}` : label;
     }
 
     function solarObjectDisplayName(objectKey) {
@@ -1831,7 +1842,7 @@ $solarJson = json_encode(array_values($solarObjects));
             : (shot.files.full_annotated || shot.files.full || shot.files.fav_annotated || shot.files.fav || shot.files.wall_annotated || shot.files.wall || Object.values(shot.files)[0]);
 
         modalImg.src = src;
-        modalImg.alt = parseSolarCaption(shot.baseName);
+        modalImg.alt = parseSolarCaption(shot.baseName, obj.object);
         caption.textContent = '';
         counter.textContent = total > 1 ? `${currentSolarShotIdx + 1} / ${total}` : '';
         prevBtn.style.display = total > 1 ? '' : 'none';

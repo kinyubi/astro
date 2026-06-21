@@ -28,11 +28,11 @@ Here's my own image of the Soul Nebula (IC 1848) — broadband on the left, SHO 
 
 <div class="img-compare">
   <figure>
-    <img src="/images/annotated_fav/ic1848_soul_mosaic_1108_fav_annotated.jpg">
+    <img src="/images/fav/ic1848_soul_mosaic_1108_fav.jpg">
     <figcaption>IC 1848 — Soul Nebula, broadband (natural color)</figcaption>
   </figure>
   <figure>
-    <img src="/images/annotated_fav/ic1848_soul_mosaic_1108_sho_fav_annotated.jpg">
+    <img src="/images/fav/ic1848_soul_mosaic_1108_sho_fav.jpg">
     <figcaption>IC 1848 — Soul Nebula, SHO palette (Sulfur=red, Hydrogen=green, Oxygen=blue)</figcaption>
   </figure>
 </div>
@@ -45,11 +45,11 @@ Here's the Rosette Nebula (NGC 2244) — broadband on the left, HSO on the right
 
 <div class="img-compare">
   <figure>
-    <img src="/images/annotated_fav/ngc2244_rosette_nebula_fav_annotated.jpg">
+    <img src="/images/fav/ngc2244_rosette_nebula_fav.jpg">
     <figcaption>NGC 2244 — Rosette Nebula, broadband (natural color)</figcaption>
   </figure>
   <figure>
-    <img src="/images/annotated_fav/ngc2244_rosette_nebula_hso_fav_annotated.jpg">
+    <img src="/images/fav/ngc2244_rosette_nebula_hso_fav.jpg">
     <figcaption>NGC 2244 — Rosette Nebula, HSO palette (Hydrogen=red, Sulfur=green, Oxygen=blue)</figcaption>
   </figure>
 </div>
@@ -62,11 +62,11 @@ And the Wizard Nebula (NGC 7380) — broadband vs. HOS:
 
 <div class="img-compare">
   <figure>
-    <img src="/images/annotated_fav/ngc7380_wizard_nebula_S50_fav_annotated.jpg">
+    <img src="/images/fav/ngc7380_wizard_nebula_S50_fav.jpg">
     <figcaption>NGC 7380 — Wizard Nebula, broadband</figcaption>
   </figure>
   <figure>
-    <img src="/images/annotated_fav/ngc7380_wizard_nebula_hos_S50_fav_annotated.jpg">
+    <img src="/images/fav/ngc7380_wizard_nebula_hos_S50_fav.jpg">
     <figcaption>NGC 7380 — Wizard Nebula, HOS palette (Hydrogen=red, Oxygen=green, Sulfur=blue)</figcaption>
   </figure>
 </div>
@@ -77,4 +77,4 @@ The colors are real representations of real data. The gas is really there. The e
 
 When I process one of my nebula images, I'm making decisions at every step — which palette, how much to stretch the data, where to draw out faint detail and where to let the darkness stay dark. For my own images, I try to stick with the colors my telescope's sensor actually captures. Both of my scopes — a ZWO Seestar S30 and Seestar S50 — have a built-in narrowband filter I typically use for nebulae and an IRCUT filter for galaxies. If I've used a special palette, I'll say so in the caption.
 
-The universe doesn't hand you a finished picture. You earn it one decision at a time.
+So in a nutshell–the colors are as real as the data, but the way we choose to represent that data is a creative decision. And that's part of what makes astrophotography so fascinating — it's where science meets art, and every image is a unique interpretation of the cosmos.

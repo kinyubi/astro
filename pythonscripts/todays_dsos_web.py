@@ -58,6 +58,119 @@ def get_viewing_window(specified_date, ts, eph, observer):
     return viewing_start, viewing_end
 
 
+# ── Upcoming visibility forecast helpers ───────────────────────────────────────
+# Used to find the next date a currently non-visible DSO will meet the same
+# visibility criteria. Twilight/viewing-window times depend only on date and
+# location (not on the object), so they're cached by day-offset and shared
+# across every object's search to keep this affordable.
+
+FORECAST_MAX_DAYS = 180
+FORECAST_COARSE_STEP_DAYS = 7
+
+
+def _get_cached_viewing_window(day_offset, base_date, ts, eph, observer, viewing_window_cache):
+    """Returns (viewing_start, viewing_end, time_range) for base_date + day_offset, cached."""
+    if day_offset in viewing_window_cache:
+        return viewing_window_cache[day_offset]
+
+    check_date = base_date + datetime.timedelta(days=day_offset)
+    v_start, v_end = get_viewing_window(check_date, ts, eph, observer)
+
+    if v_start is None or v_end is None:
+        viewing_window_cache[day_offset] = (None, None, None)
+        return viewing_window_cache[day_offset]
+
+    duration_minutes = int((v_end.utc_datetime() - v_start.utc_datetime()).total_seconds() / 60)
+    if duration_minutes < 1:
+        viewing_window_cache[day_offset] = (None, None, None)
+        return viewing_window_cache[day_offset]
+
+    time_range = ts.linspace(v_start, v_end, duration_minutes)
+    viewing_window_cache[day_offset] = (v_start, v_end, time_range)
+    return viewing_window_cache[day_offset]
+
+
+def _is_object_visible_on_offset(star, observer_pos, day_offset, base_date, ts, eph, observer,
+                                  min_alt, az_min, az_max, viewing_window_cache):
+    """Returns True if `star` meets the visibility criteria (duration >= 60 min) on base_date + day_offset."""
+    _, _, time_range = _get_cached_viewing_window(day_offset, base_date, ts, eph, observer, viewing_window_cache)
+    if time_range is None:
+        return False
+
+    astrometric = observer_pos.at(time_range).observe(star)
+    alt, az, _ = astrometric.apparent().altaz()
+
+    is_vis = (alt.degrees >= min_alt) & (az.degrees >= az_min) & (az.degrees <= az_max)
+    visible_indices = np.where(is_vis)[0]
+    if len(visible_indices) == 0:
+        return False
+
+    start_idx = visible_indices[0]
+    end_idx = visible_indices[-1]
+    span_minutes = (time_range[end_idx].utc_datetime() - time_range[start_idx].utc_datetime()).total_seconds() / 60
+    return span_minutes >= 60
+
+
+def find_visibility_window(star, base_date, max_days, ts, eph, observer, observer_pos,
+                            min_alt, az_min, az_max, viewing_window_cache):
+    """
+    Searches forward from base_date (exclusive) up to max_days for the next date
+    the object meets the visibility criteria, then finds the last consecutive date
+    of that visibility run. Uses a coarse step first, then refines day-by-day.
+
+    Returns (first_visible_date, last_visible_date) as datetime.date objects,
+    or (None, None) if nothing is found within max_days.
+    """
+    def visible_on(offset):
+        return _is_object_visible_on_offset(star, observer_pos, offset, base_date, ts, eph, observer,
+                                             min_alt, az_min, az_max, viewing_window_cache)
+
+    # Coarse search for the first visible day offset
+    first_offset = None
+    prev_offset = 0
+    offset = FORECAST_COARSE_STEP_DAYS
+    while offset <= max_days:
+        if visible_on(offset):
+            first_offset = offset
+            break
+        prev_offset = offset
+        offset += FORECAST_COARSE_STEP_DAYS
+
+    if first_offset is None:
+        return None, None
+
+    # Refine backward to find the exact first visible day
+    exact_first = first_offset
+    for d in range(first_offset - 1, prev_offset, -1):
+        if visible_on(d):
+            exact_first = d
+        else:
+            break
+
+    # Coarse search forward from exact_first to find approx end of the visibility run
+    last_known_visible = exact_first
+    offset = exact_first + FORECAST_COARSE_STEP_DAYS
+    while offset <= max_days:
+        if visible_on(offset):
+            last_known_visible = offset
+            offset += FORECAST_COARSE_STEP_DAYS
+        else:
+            break
+
+    # Refine forward to find the exact last visible day
+    exact_last = last_known_visible
+    upper_bound = min(offset, max_days)
+    for d in range(last_known_visible + 1, upper_bound + 1):
+        if visible_on(d):
+            exact_last = d
+        else:
+            break
+
+    first_date = base_date + datetime.timedelta(days=exact_first)
+    last_date = base_date + datetime.timedelta(days=exact_last)
+    return first_date, last_date
+
+
 def calculate_visibility(specified_date=None, profile_name='default'):
     """
     Main function to calculate visibility of objects and output HTML with sorting capability.
@@ -204,6 +317,133 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     except Exception as e:
         print(f"<p>Error reading data: {e}</p>")
         return
+
+    # ── Upcoming visibility forecast for DSOs not visible today ──────────────
+    forecast_objects = []
+    try:
+        visible_names = {o['name'] for o in visible_objects}
+        target_date_iso = specified_date.strftime('%Y-%m-%d')
+
+        forecast_conn = sqlite3.connect(ASTRO_DB)
+        forecast_conn.execute("""
+            CREATE TABLE IF NOT EXISTS VisibilityForecast (
+                ProfileName      TEXT NOT NULL,
+                DSOKey           TEXT NOT NULL,
+                ComputedDate     TEXT NOT NULL,
+                FirstVisibleDate TEXT,
+                LastVisibleDate  TEXT,
+                SearchDays       INTEGER NOT NULL DEFAULT 180,
+                PRIMARY KEY (ProfileName, DSOKey)
+            )
+        """)
+        forecast_conn.row_factory = sqlite3.Row
+        fcur = forecast_conn.cursor()
+
+        viewing_window_cache = {}
+
+        for row in dso_rows:
+            name = row['DSOKey']
+            if name in visible_names:
+                continue
+
+            fcur.execute(
+                "SELECT FirstVisibleDate, LastVisibleDate FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
+                (profile_name, name)
+            )
+            cached = fcur.fetchone()
+
+            first_date = None
+            last_date = None
+            need_compute = True
+
+            if cached and cached['FirstVisibleDate']:
+                cached_first = datetime.datetime.strptime(cached['FirstVisibleDate'], '%Y-%m-%d').date()
+                if specified_date < cached_first:
+                    first_date = cached_first
+                    last_date = datetime.datetime.strptime(cached['LastVisibleDate'], '%Y-%m-%d').date()
+                    need_compute = False
+
+            if need_compute:
+                try:
+                    star = Star(ra=Angle(hours=float(row['RAHours'])),
+                                dec=Angle(degrees=float(row['DecDegrees'])))
+                except Exception:
+                    continue
+
+                first_date, last_date = find_visibility_window(
+                    star, specified_date, FORECAST_MAX_DAYS, ts, eph, observer, observer_pos,
+                    minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees,
+                    viewing_window_cache
+                )
+
+                fcur.execute("""
+                    INSERT INTO VisibilityForecast (ProfileName, DSOKey, ComputedDate, FirstVisibleDate, LastVisibleDate, SearchDays)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(ProfileName, DSOKey) DO UPDATE SET
+                        ComputedDate = excluded.ComputedDate,
+                        FirstVisibleDate = excluded.FirstVisibleDate,
+                        LastVisibleDate = excluded.LastVisibleDate,
+                        SearchDays = excluded.SearchDays
+                """, (
+                    profile_name, name, target_date_iso,
+                    first_date.strftime('%Y-%m-%d') if first_date else None,
+                    last_date.strftime('%Y-%m-%d') if last_date else None,
+                    FORECAST_MAX_DAYS
+                ))
+
+            if first_date is not None:
+                forecast_objects.append({
+                    'do_me': '&#9733;' if row['WantBetter'] else '',
+                    'name': name,
+                    'aka': row['CommonName'] or name,
+                    'first_visible': first_date.strftime('%Y-%m-%d'),
+                    'last_visible': last_date.strftime('%Y-%m-%d') if last_date else '',
+                    'first_visible_sort': first_date.toordinal()
+                })
+
+        forecast_conn.commit()
+        forecast_conn.close()
+    except Exception as e:
+        with open('dso_visibility.log', 'a') as log_file:
+            log_file.write(f"{datetime.datetime.now().isoformat()} - Forecast error: {e}\n")
+        forecast_objects = []
+
+    forecast_objects.sort(key=lambda o: o['first_visible_sort'])
+
+    forecast_rows_html = ""
+    for o in forecast_objects:
+        forecast_rows_html += f"""            <tr>
+                <td class="priority">{o['do_me']}</td>
+                <td><strong>{o['name']}</strong></td>
+                <td>{o['aka']}</td>
+                <td class="time">{o['first_visible']}</td>
+                <td class="time">{o['last_visible']}</td>
+            </tr>
+"""
+
+    if forecast_objects:
+        forecast_table_html = f"""
+    <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Upcoming Visibility</h2>
+    <p style="color:#b8c5d6;">Next date each currently non-visible DSO meets the same visibility criteria, searched up to {FORECAST_MAX_DAYS} days ahead.</p>
+    <table id="forecastTable">
+        <thead>
+            <tr>
+                <th>Priority</th>
+                <th>Name</th>
+                <th>Also Known As</th>
+                <th>Date First Visible</th>
+                <th>Date Last Visible</th>
+            </tr>
+        </thead>
+        <tbody>
+{forecast_rows_html}        </tbody>
+    </table>
+"""
+    else:
+        forecast_table_html = """
+    <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Upcoming Visibility</h2>
+    <p style="color:#b8c5d6;">No upcoming visibility data available.</p>
+"""
 
     def safe_float(value, default=0.0):
         if value is None or value == '':
@@ -572,7 +812,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         <p><strong>Total visible objects:</strong> <span id="totalCount"></span></p>
         <p><strong>&#9733;</strong> = Priority target (not recently observed)</p>
     </div>
-
+""" + forecast_table_html + """
     <script>
         const objectsData = """ + objects_json + """;
 
