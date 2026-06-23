@@ -799,7 +799,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                 <th>End Az</th>
                 <th>Duration</th>
                 <th>Mag</th>
-                <th>Size (arcmin²)</th>
+                <th>Size (arcmin&sup2;)</th>
                 <th>Constellation</th>
                 <th>Type</th>
                 <th></th>
@@ -920,6 +920,28 @@ async function showDSOInfo(dsoKey) {
     function fv(v) { return (v !== null && v !== undefined && v !== '') ? String(v) : '\u2014'; }
     function fn(v, dec) { return (v !== null && v !== undefined && v !== '') ? parseFloat(v).toFixed(dec ?? 2) : '\u2014'; }
 
+    function raToHMS(h) {
+      if (h === null || h === undefined || h === '' || isNaN(h)) return '&mdash;';
+      h = parseFloat(h);
+      const hh = Math.floor(h);
+      const rem = (h - hh) * 60;
+      const mm = Math.floor(rem);
+      const ss = (rem - mm) * 60;
+      return String(hh).padStart(2,'0') + 'h ' + String(mm).padStart(2,'0') + 'm ' + ss.toFixed(1).padStart(4,'0') + 's &nbsp;(J2000)';
+    }
+
+    function decToDMS(d) {
+      if (d === null || d === undefined || d === '' || isNaN(d)) return '&mdash;';
+      d = parseFloat(d);
+      const sign = d < 0 ? '&minus;' : '+';
+      const abs = Math.abs(d);
+      const dd = Math.floor(abs);
+      const rem = (abs - dd) * 60;
+      const mm = Math.floor(rem);
+      const ss = (rem - mm) * 60;
+      return sign + String(dd).padStart(2,'0') + '&deg; ' + String(mm).padStart(2,'0') + '&prime; ' + ss.toFixed(1).padStart(4,'0') + '&Prime; &nbsp;(J2000)';
+    }
+
     // Fetch preview image URL first, then render everything at once
     let previewUrl = null;
     try {
@@ -957,8 +979,8 @@ async function showDSOInfo(dsoKey) {
     html += `<div class="modal-section">
       <div class="modal-section-header">Astrometrics</div>
       <div class="modal-section-body">
-        <div class="modal-field"><span class="modal-field-label">RA (hours)</span><span class="modal-field-value">${fn(d.RAHours, 4)}</span></div>
-        <div class="modal-field"><span class="modal-field-label">Dec (degrees)</span><span class="modal-field-value">${fn(d.DecDegrees, 4)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Right Ascension</span><span class="modal-field-value" style="font-family:monospace;">${raToHMS(d.RAHours)}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Declination</span><span class="modal-field-value" style="font-family:monospace;">${decToDMS(d.DecDegrees)}</span></div>
         <div class="modal-field"><span class="modal-field-label">Magnitude</span><span class="modal-field-value">${fn(d.Magnitude, 1)}</span></div>
         <div class="modal-field"><span class="modal-field-label">Size (arcmin&sup2;)</span><span class="modal-field-value">${d.SqArcMins ? parseFloat(d.SqArcMins).toFixed(0) : '\u2014'}</span></div>
         <div class="modal-field modal-full"><span class="modal-field-label">Object Size</span><span class="modal-field-value">${fv(d.ObjectSize)}</span></div>

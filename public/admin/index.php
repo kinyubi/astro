@@ -313,14 +313,18 @@ header('Pragma: no-cache');
         <div class="section-header">Astrometrics</div>
         <div class="section-body grid-3">
           <div class="field">
-            <label>RA (decimal hours)</label>
-            <input type="number" id="f_RAHours" step="0.0001" min="0" max="24" placeholder="e.g. 5.5912">
-            <div class="note">0.0000 &ndash; 24.0000</div>
+            <label>RA (J2000 &mdash; hh mm ss.s)</label>
+            <input type="text" id="f_RAHours_fmt" placeholder="e.g. 05 35 17.3" autocomplete="off"
+                   oninput="syncRAFromFormatted(this)" onblur="normalizeRADisplay(this)">
+            <input type="hidden" id="f_RAHours">
+            <div class="note" id="f_RAHours_note">0.0000 &ndash; 24.0000 h</div>
           </div>
           <div class="field">
-            <label>Dec (decimal degrees)</label>
-            <input type="number" id="f_DecDegrees" step="0.0001" min="-90" max="90" placeholder="e.g. -5.3897">
-            <div class="note">&minus;90.0000 &ndash; +90.0000</div>
+            <label>Dec (J2000 &mdash; &plusmn;dd mm ss.s)</label>
+            <input type="text" id="f_DecDegrees_fmt" placeholder="e.g. -05 23 28" autocomplete="off"
+                   oninput="syncDecFromFormatted(this)" onblur="normalizeDecDisplay(this)">
+            <input type="hidden" id="f_DecDegrees">
+            <div class="note" id="f_DecDegrees_note">&minus;90 &ndash; +90 &deg;</div>
           </div>
           <div class="field">
             <label>Magnitude</label>
@@ -602,6 +606,9 @@ function loadObject(row) {
     const el = document.getElementById('f_' + f);
     if (el) el.value = row[f] ?? '';
   });
+  // Populate formatted RA/Dec display fields
+  setRADisplay(row.RAHours);
+  setDecDisplay(row.DecDegrees);
   loadObjectTypes(row.ObjectTypeID || '');
 
   renderCatalogTable(row.CatalogIDs || []);
@@ -623,6 +630,9 @@ function newObject() {
     el.value = selectDefaults[f] ?? '';
     el.disabled = false;
   });
+  // Clear formatted RA/Dec display fields
+  setRADisplay(null);
+  setDecDisplay(null);
   document.getElementById('f_DSOKey').disabled = false;
   document.getElementById('btn-delete').disabled = true;
   loadObjectTypes('');
@@ -1236,6 +1246,151 @@ function getDSOLinkRows() {
     URL:       tr.querySelector('.lnk-url').value.trim(),
     SortOrder: parseInt(tr.querySelector('.lnk-order').value) || 0,
   })).filter(r => r.Label && r.URL);
+}
+
+// ──────────────────────────────────────────────
+// RA / Dec  J2000 sexagesimal helpers
+// ──────────────────────────────────────────────
+
+/** Decimal hours  →  "hh mm ss.s" */
+function raDecimalToHMS(h) {
+  if (h === null || h === undefined || h === '' || isNaN(h)) return '';
+  h = parseFloat(h);
+  const hh = Math.floor(h);
+  const rem1 = (h - hh) * 60;
+  const mm = Math.floor(rem1);
+  const ss = (rem1 - mm) * 60;
+  return String(hh).padStart(2,'0') + ' '
+       + String(mm).padStart(2,'0') + ' '
+       + ss.toFixed(1).padStart(4,'0');
+}
+
+/** Decimal degrees  →  "±dd mm ss.s" */
+function decDecimalToDMS(d) {
+  if (d === null || d === undefined || d === '' || isNaN(d)) return '';
+  d = parseFloat(d);
+  const sign = d < 0 ? '-' : '+';
+  const abs = Math.abs(d);
+  const dd = Math.floor(abs);
+  const rem1 = (abs - dd) * 60;
+  const mm = Math.floor(rem1);
+  const ss = (rem1 - mm) * 60;
+  return sign
+       + String(dd).padStart(2,'0') + ' '
+       + String(mm).padStart(2,'0') + ' '
+       + ss.toFixed(1).padStart(4,'0');
+}
+
+/** "hh mm ss.s"  →  decimal hours (null on parse failure) */
+function hmsToDecimal(str) {
+  str = str.trim().replace(/[hH°'"]/g, ' ').replace(/\s+/g,' ').trim();
+  const parts = str.split(' ');
+  if (parts.length < 2) return null;
+  const hh = parseFloat(parts[0]);
+  const mm = parseFloat(parts[1]) || 0;
+  const ss = parseFloat(parts[2]) || 0;
+  if (isNaN(hh) || isNaN(mm) || isNaN(ss)) return null;
+  const val = hh + mm/60 + ss/3600;
+  if (val < 0 || val > 24) return null;
+  return val;
+}
+
+/** "±dd mm ss.s"  →  decimal degrees (null on parse failure) */
+function dmsToDecimal(str) {
+  str = str.trim().replace(/[°'"]/g, ' ').replace(/\s+/g,' ').trim();
+  const sign = str.startsWith('-') ? -1 : 1;
+  str = str.replace(/^[+\-]/, '').trim();
+  const parts = str.split(' ');
+  if (parts.length < 1) return null;
+  const dd = parseFloat(parts[0]);
+  const mm = parseFloat(parts[1]) || 0;
+  const ss = parseFloat(parts[2]) || 0;
+  if (isNaN(dd)) return null;
+  const val = sign * (dd + mm/60 + ss/3600);
+  if (val < -90 || val > 90) return null;
+  return val;
+}
+
+function setRADisplay(decVal) {
+  const fmt  = document.getElementById('f_RAHours_fmt');
+  const hid  = document.getElementById('f_RAHours');
+  const note = document.getElementById('f_RAHours_note');
+  if (decVal === null || decVal === undefined || decVal === '') {
+    fmt.value  = '';
+    hid.value  = '';
+    fmt.style.borderColor = '';
+    note.textContent = '0 – 24 h';
+  } else {
+    const v = parseFloat(decVal);
+    hid.value  = v;
+    fmt.value  = raDecimalToHMS(v);
+    fmt.style.borderColor = '';
+    note.textContent = 'decimal: ' + v.toFixed(6) + ' h';
+  }
+}
+
+function setDecDisplay(decVal) {
+  const fmt  = document.getElementById('f_DecDegrees_fmt');
+  const hid  = document.getElementById('f_DecDegrees');
+  const note = document.getElementById('f_DecDegrees_note');
+  if (decVal === null || decVal === undefined || decVal === '') {
+    fmt.value  = '';
+    hid.value  = '';
+    fmt.style.borderColor = '';
+    note.textContent = '−90 – +90 °';
+  } else {
+    const v = parseFloat(decVal);
+    hid.value  = v;
+    fmt.value  = decDecimalToDMS(v);
+    fmt.style.borderColor = '';
+    note.textContent = 'decimal: ' + v.toFixed(6) + '°';
+  }
+}
+
+function syncRAFromFormatted(input) {
+  const hid  = document.getElementById('f_RAHours');
+  const note = document.getElementById('f_RAHours_note');
+  const dec = hmsToDecimal(input.value);
+  if (dec === null) {
+    hid.value = '';
+    input.style.borderColor = (input.value.trim() === '') ? '' : 'var(--danger)';
+    note.textContent = 'Enter hh mm ss.s (0 – 24 h)';
+  } else {
+    hid.value = dec;
+    input.style.borderColor = 'var(--accent2)';
+    note.textContent = 'decimal: ' + dec.toFixed(6) + ' h';
+  }
+}
+
+function normalizeRADisplay(input) {
+  const dec = hmsToDecimal(input.value);
+  if (dec !== null) {
+    input.value = raDecimalToHMS(dec);
+    input.style.borderColor = '';
+  }
+}
+
+function syncDecFromFormatted(input) {
+  const hid  = document.getElementById('f_DecDegrees');
+  const note = document.getElementById('f_DecDegrees_note');
+  const dec = dmsToDecimal(input.value);
+  if (dec === null) {
+    hid.value = '';
+    input.style.borderColor = (input.value.trim() === '') ? '' : 'var(--danger)';
+    note.textContent = 'Enter ±dd mm ss.s (−90 – +90°)';
+  } else {
+    hid.value = dec;
+    input.style.borderColor = 'var(--accent2)';
+    note.textContent = 'decimal: ' + dec.toFixed(6) + '°';
+  }
+}
+
+function normalizeDecDisplay(input) {
+  const dec = dmsToDecimal(input.value);
+  if (dec !== null) {
+    input.value = decDecimalToDMS(dec);
+    input.style.borderColor = '';
+  }
 }
 
 // ──────────────────────────────────────────────

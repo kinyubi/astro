@@ -55,6 +55,8 @@ try {
                 o.DistanceLY,
                 o.ObjectSize,
                 o.SocialBlurb,
+                o.RAHours,
+                o.DecDegrees,
                 c.CatalogID     AS PrimaryCatalogID
             FROM GalleryImages gi
             JOIN Objects o ON gi.DSOKey = o.DSOKey
@@ -92,6 +94,8 @@ try {
                         'DistanceLY'       => $row['DistanceLY'],
                         'ObjectSize'       => $row['ObjectSize'],
                         'SocialBlurb'      => $row['SocialBlurb'],
+                        'RAHours'          => $row['RAHours'],
+                        'DecDegrees'       => $row['DecDegrees'],
                         'PrimaryCatalogID' => $row['PrimaryCatalogID'],
                     ],
                     'links'       => $allLinks[$key] ?? [],
@@ -1393,9 +1397,27 @@ $solarJson = json_encode(array_values($solarObjects));
                 const paras = i.SocialBlurb.split(/\n\n+/);
                 h += paras.map(p => `<p class="social-blurb-para">${p}</p>`).join('');
             }
-            if (i.ObjectSize) {
+            if (i.ObjectSize || (i.RAHours !== null && i.RAHours !== undefined && i.RAHours !== '')) {
                 const name = i.CommonName || item.dsoKey;
-                h += `<p class="social-blurb-para social-blurb-context">The ${name} is ${i.ObjectSize}</p>`;
+                let coordStr = '';
+                if (i.RAHours !== null && i.RAHours !== undefined && i.RAHours !== '' &&
+                    i.DecDegrees !== null && i.DecDegrees !== undefined && i.DecDegrees !== '') {
+                    const ra  = parseFloat(i.RAHours);
+                    const dec = parseFloat(i.DecDegrees);
+                    function _pad(n, w) { return String(Math.floor(n)).padStart(w, '0'); }
+                    const raH = Math.floor(ra);
+                    const raM = Math.floor((ra - raH) * 60);
+                    const raS = Math.round(((ra - raH) * 60 - raM) * 60);
+                    const sign = dec < 0 ? '\u2212' : '+';
+                    const absD = Math.abs(dec);
+                    const decD = Math.floor(absD);
+                    const decM = Math.floor((absD - decD) * 60);
+                    const decS = Math.round(((absD - decD) * 60 - decM) * 60);
+                    const raStr  = `${_pad(raH,2)}h ${_pad(raM,2)}m ${_pad(raS,2)}s`;
+                    const decStr = `${sign}${_pad(decD,2)}\u00b0 ${_pad(decM,2)}\u2032 ${_pad(decS,2)}\u2033`;
+                    coordStr = ` &nbsp;Coordinates: RA ${raStr} Dec ${decStr} (J2000)`;
+                }
+                h += `<p class="social-blurb-para social-blurb-context">${i.ObjectSize ? `The ${name} is ${i.ObjectSize}` : ''}${coordStr}</p>`;
             }
         } else {
             h += `<p class="no-info">No information available for this object.</p>`;
