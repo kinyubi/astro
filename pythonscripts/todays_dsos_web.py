@@ -318,7 +318,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         print(f"<p>Error reading data: {e}</p>")
         return
 
-    # ── Upcoming visibility forecast for DSOs not visible today ──────────────
+    # ── Visibility Dates table — all DSOs (visible tonight + upcoming) ──────────────
     forecast_objects = []
     try:
         visible_names = {o['name'] for o in visible_objects}
@@ -343,9 +343,32 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
         for row in dso_rows:
             name = row['DSOKey']
+
+            # Objects visible tonight: first = today, compute season end
             if name in visible_names:
+                try:
+                    star = Star(ra=Angle(hours=float(row['RAHours'])),
+                                dec=Angle(degrees=float(row['DecDegrees'])))
+                except Exception:
+                    continue
+                _, last_date = find_visibility_window(
+                    star, specified_date - datetime.timedelta(days=1),
+                    FORECAST_MAX_DAYS, ts, eph, observer, observer_pos,
+                    minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees,
+                    viewing_window_cache
+                )
+                forecast_objects.append({
+                    'do_me': '&#9733;' if row['WantBetter'] else '',
+                    'name': name,
+                    'aka': row['CommonName'] or name,
+                    'first_visible': target_date_iso,
+                    'last_visible': last_date.strftime('%Y-%m-%d') if last_date else target_date_iso,
+                    'first_visible_sort': specified_date.toordinal(),
+                    'visible_tonight': True,
+                })
                 continue
 
+            # Not visible tonight: look up or compute next window
             fcur.execute(
                 "SELECT FirstVisibleDate, LastVisibleDate FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
                 (profile_name, name)
@@ -398,7 +421,8 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                     'aka': row['CommonName'] or name,
                     'first_visible': first_date.strftime('%Y-%m-%d'),
                     'last_visible': last_date.strftime('%Y-%m-%d') if last_date else '',
-                    'first_visible_sort': first_date.toordinal()
+                    'first_visible_sort': first_date.toordinal(),
+                    'visible_tonight': False,
                 })
 
         forecast_conn.commit()
@@ -408,41 +432,40 @@ def calculate_visibility(specified_date=None, profile_name='default'):
             log_file.write(f"{datetime.datetime.now().isoformat()} - Forecast error: {e}\n")
         forecast_objects = []
 
-    forecast_objects.sort(key=lambda o: o['first_visible_sort'])
+    forecast_json = json.dumps([{
+        'do_me': o['do_me'],
+        'name': o['name'],
+        'aka': o['aka'],
+        'first_visible': o['first_visible'],
+        'last_visible': o['last_visible'],
+        'first_visible_sort': o['first_visible_sort'],
+        'visible_tonight': o['visible_tonight'],
+    } for o in forecast_objects])
 
-    forecast_rows_html = ""
-    for o in forecast_objects:
-        forecast_rows_html += f"""            <tr>
-                <td class="priority">{o['do_me']}</td>
-                <td><strong>{o['name']}</strong></td>
-                <td>{o['aka']}</td>
-                <td class="time">{o['first_visible']}</td>
-                <td class="time">{o['last_visible']}</td>
-            </tr>
-"""
-
-    if forecast_objects:
-        forecast_table_html = f"""
-    <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Upcoming Visibility</h2>
-    <p style="color:#b8c5d6;">Next date each currently non-visible DSO meets the same visibility criteria, searched up to {FORECAST_MAX_DAYS} days ahead.</p>
+    forecast_table_html = f"""
+    <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Visibility Dates</h2>
+    <p style="color:#b8c5d6;">All DSOs with known coordinates. Objects visible tonight show today as first date. Others show next window within {FORECAST_MAX_DAYS} days.</p>
+    <div class="controls" style="margin-top:10px;">
+        <label for="forecastSort">Sort by:</label>
+        <select id="forecastSort" onchange="sortForecast()">
+            <option value="first_visible">Date First Visible</option>
+            <option value="name">Name (A-Z)</option>
+            <option value="aka">Friendly Name (A-Z)</option>
+        </select>
+    </div>
     <table id="forecastTable">
         <thead>
             <tr>
                 <th>Priority</th>
+                <th>Tonight</th>
                 <th>Name</th>
                 <th>Also Known As</th>
                 <th>Date First Visible</th>
                 <th>Date Last Visible</th>
             </tr>
         </thead>
-        <tbody>
-{forecast_rows_html}        </tbody>
+        <tbody id="forecastBody"></tbody>
     </table>
-"""
-    else:
-        forecast_table_html = """
-    <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Upcoming Visibility</h2>
-    <p style="color:#b8c5d6;">No upcoming visibility data available.</p>
 """
 
     def safe_float(value, default=0.0):
@@ -888,6 +911,49 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
         // Initial render with default sort (duration)
         sortTable();
+
+        // -- Visibility Dates table ----------------------------------------
+        const forecastData = """ + forecast_json + """;
+
+        function renderForecast(data) {
+            const tbody = document.getElementById('forecastBody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            data.forEach(obj => {
+                const row = tbody.insertRow();
+                const tonightCell = obj.visible_tonight
+                    ? '<span style="color:#7ec8a3; font-weight:600;">&#10003;</span>'
+                    : '';
+                row.innerHTML = `
+                    <td class="priority">${obj.do_me}</td>
+                    <td style="text-align:center;">${tonightCell}</td>
+                    <td><strong>${obj.name}</strong></td>
+                    <td>${obj.aka}</td>
+                    <td class="time">${obj.first_visible}</td>
+                    <td class="time">${obj.last_visible}</td>
+                `;
+            });
+        }
+
+        function sortForecast() {
+            const sortBy = document.getElementById('forecastSort').value;
+            const sorted = [...forecastData];
+            switch (sortBy) {
+                case 'first_visible':
+                    sorted.sort((a, b) => a.first_visible_sort - b.first_visible_sort);
+                    break;
+                case 'name':
+                    sorted.sort((a, b) => a.name.localeCompare(b.name));
+                    break;
+                case 'aka':
+                    sorted.sort((a, b) => a.aka.localeCompare(b.aka));
+                    break;
+            }
+            renderForecast(sorted);
+        }
+
+        // Initial forecast render
+        sortForecast();
     </script>
 <!-- DSO Info Modal -->
 <div id="dso-modal-overlay" onclick="if(event.target===this)closeDSOInfo()">
