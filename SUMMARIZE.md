@@ -231,11 +231,7 @@ public/blogs/
 **`public/blogs/what-color-is-it/index.md`**
 - Converted from original `public/blogs/what-color-is-it.html`
 - Covers SHO, HOO, HSO, HOS palettes with explanation of channel assignments
-- Images: Hubble Pillars of Creation (NASA, hotlinked), plus three side-by-side pairs from Carl's own `annotated_fav` images:
-  - Soul Nebula (IC 1848): broadband vs. SHO
-  - Rosette Nebula (NGC 2244): broadband vs. HSO
-  - Wizard Nebula (NGC 7380): broadband vs. HOS
-- Hubble Rosette detail (ESA, hotlinked) shown as standalone image
+- Images: Hubble Pillars of Creation (NASA, hotlinked), plus three side-by-side pairs from Carl's own `annotated_fav` images
 - All local images reference `/images/annotated_fav/` directly
 
 #### Key learnings
@@ -244,3 +240,51 @@ public/blogs/
 - PHP typed parameters (`string $raw`) and return type hints (`: array`) caused parse errors; removed to ensure compatibility regardless of PHP version misconfiguration.
 - CSS specificity: `.post-body img { width: auto }` overrides `.img-compare figure img { width: 100% }` — must use `.post-body .img-compare figure img` to win the cascade.
 - Always read the current file from disk before making edits — working from memory of a previous version caused incorrect filenames to be written back.
+
+---
+
+## Session: 2026-06-22
+
+### Tool: Gallery Missing Entry Checker (`public/check-missing/`)
+
+Created a new admin-gated utility page at `http://astro.app/check-missing/` to quickly audit the `public/images/fav/` directory against the `GalleryImages` table.
+
+**`public/check-missing/index.php`** (new)
+- Protected by the same `auth.php` session authentication as the admin panel.
+- Scans `public/images/fav/` for all `*_fav.jpg` files and extracts their BaseNames.
+- Queries `GalleryImages` for all registered BaseNames.
+- Computes two diffs:
+  - **Fav files missing from GalleryImages** — files on disk with no DB row (the primary use case, e.g. Bat Nebula not yet synced).
+  - **GalleryImages entries with no fav file** — DB rows whose fav file has been deleted (orphans).
+- For missing-from-DB entries, infers a likely DSOKey from the filename (splits on `_`, stops before a date/session number token) and provides an "Open in Admin →" link pre-loaded on that key.
+- Stats bar shows total fav file count, total DB row count, and per-category missing counts.
+- Shows an "All clear" message when both lists are empty.
+- Diagnosed root cause of Bat Nebula not appearing in gallery: `public/index.php` uses `JOIN Objects o ON gi.DSOKey = o.DSOKey` (INNER JOIN), so DSOs in `Objects` without a `GalleryImages` row are silently excluded. Fix is to run Sync Folder in admin, not change the query.
+
+### Blog: Second Post — Astrophotography Workflow
+
+Reviewed, revised, and published a second blog post at `public/blogs/create-astrophotography-image/index.md`.
+
+#### Content changes to `index.md`
+- **Title** changed from "Creating an Astrophotography Photograph" to "From Photons to Picture: How I Create an Astrophotography Image."
+- **Teaser image** of the finished Bat Nebula moved to the top with a one-paragraph hook before any gear discussion.
+- **"Background Information" section** renamed to "My Setup"; dew shield and power bank split into separate paragraphs each with their own image.
+- **Processing sections** rewritten from dense bullet lists to flowing prose with bold step labels.
+- **Star separation** given a "why" explanation (stars and nebulae respond differently to processing).
+- **Stretching** given a film-negative analogy for non-technical readers; YouTube admission added for human voice.
+- **Closing line** added: "A night outside in the dark, hours at the computer, and one more nebula on the wall."
+- Three typos fixed: `befpre`, `ome`, `a versions`.
+- Post-processing bullet list converted from Markdown `- ` syntax to raw `<ul><li>` HTML to avoid Parsedown indentation issues.
+
+#### Blog CSS fixes (`public/blog-manager/blog-manager.css`)
+- Added `.post-body ul, .post-body ol` rules with `padding-left: 1.8em !important` and `list-style-position: outside` to override the global `* { padding: 0 }` reset in `style.css`.
+- Bumped `figcaption` font sizes from `0.82em` / `0.78em` to `1em` for both `.post-body figcaption` and `.img-compare figure figcaption` to match body text size.
+
+#### `public/blog-manager/post.php` fixes
+- Stylesheet link changed from relative (`blog-manager.css`) to absolute (`/blog-manager/blog-manager.css`) to ensure correct loading regardless of URL routing.
+- CSS version query string added and incremented with each CSS change (`?ver=1.1` → `?ver=1.2`) to bust browser cache automatically.
+
+### Key learnings
+- **Always bump CSS `?ver=` query string** when modifying a stylesheet, or browsers will serve the cached version and changes appear to have no effect — requiring a hard Ctrl+Shift+R refresh.
+- **Global `* { padding: 0 }` reset** in `style.css` strips browser default list indentation; `.post-body ul` rules need `!important` to override it since `*` has higher effective specificity than element selectors in some cascade situations.
+- **INNER JOIN in gallery query** silently excludes DSOs that have an `Objects` row but no `GalleryImages` row — the correct fix is to sync via admin, not change to a LEFT JOIN.

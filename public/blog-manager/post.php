@@ -63,7 +63,7 @@ $html = preg_replace_callback(
     <title><?= htmlspecialchars($title) ?> — Astrophotography Blog</title>
     <link rel="icon" type="image/png" href="/images/favicon.png">
     <link rel="stylesheet" href="/css/style.css?ver=2">
-    <link rel="stylesheet" href="blog-manager.css">
+    <link rel="stylesheet" href="/blog-manager/blog-manager.css?ver=1.2">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/7.0.1/css/all.min.css">
 </head>
 <body>

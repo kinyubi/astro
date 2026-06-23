@@ -28,11 +28,11 @@ Here's my own image of the Soul Nebula (IC 1848) — broadband on the left, SHO 
 
 <div class="img-compare">
   <figure>
-    <img src="/images/fav/ic1848_soul_mosaic_1108_fav.jpg">
+    <img src="/blogs/what-color-is-it/images/ic1848_soul_mosaic_1108_full.jpg">
     <figcaption>IC 1848 — Soul Nebula, broadband (natural color)</figcaption>
   </figure>
   <figure>
-    <img src="/images/fav/ic1848_soul_mosaic_1108_sho_fav.jpg">
+    <img src="/blogs/what-color-is-it/images/hoo.jpg">
     <figcaption>IC 1848 — Soul Nebula, SHO palette (Sulfur=red, Hydrogen=green, Oxygen=blue)</figcaption>
   </figure>
 </div>
@@ -45,11 +45,11 @@ Here's the Rosette Nebula (NGC 2244) — broadband on the left, HSO on the right
 
 <div class="img-compare">
   <figure>
-    <img src="/images/fav/ngc2244_rosette_nebula_fav.jpg">
+    <img src="/blogs/what-color-is-it/images/rosette.jpg">
     <figcaption>NGC 2244 — Rosette Nebula, broadband (natural color)</figcaption>
   </figure>
   <figure>
-    <img src="/images/fav/ngc2244_rosette_nebula_hso_fav.jpg">
+    <img src="/blogs/what-color-is-it/images/rosette_hso.jpg">
     <figcaption>NGC 2244 — Rosette Nebula, HSO palette (Hydrogen=red, Sulfur=green, Oxygen=blue)</figcaption>
   </figure>
 </div>
@@ -62,11 +62,11 @@ And the Wizard Nebula (NGC 7380) — broadband vs. HOS:
 
 <div class="img-compare">
   <figure>
-    <img src="/images/fav/ngc7380_wizard_nebula_S50_fav.jpg">
+    <img src="/blogs/what-color-is-it/images/wizard.jpg">
     <figcaption>NGC 7380 — Wizard Nebula, broadband</figcaption>
   </figure>
   <figure>
-    <img src="/images/fav/ngc7380_wizard_nebula_hos_S50_fav.jpg">
+    <img src="/blogs/what-color-is-it/images/wizard_hos.jpg">
     <figcaption>NGC 7380 — Wizard Nebula, HOS palette (Hydrogen=red, Oxygen=green, Sulfur=blue)</figcaption>
   </figure>
 </div>

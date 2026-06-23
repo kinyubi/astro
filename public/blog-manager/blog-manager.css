@@ -248,6 +248,18 @@
 .post-body strong { color: #e0e0e0; }
 .post-body em     { color: #b8c5d6; }
 
+.post-body ul,
+.post-body ol {
+    padding-left: 1.8em !important;
+    margin: 0 0 1.2em !important;
+    list-style-position: outside;
+}
+
+.post-body ul li,
+.post-body ol li {
+    margin-bottom: 0.4em;
+}
+
 .post-body blockquote {
     border-left: 3px solid #4a9eff;
     margin: 1.5em 0;
@@ -304,7 +316,7 @@
 }
 
 .post-body figcaption {
-    font-size: 0.82em;
+    font-size: 1em;
     color: #6a7a8a;
     margin-top: 8px;
     font-style: italic;
@@ -351,7 +363,7 @@
 }
 
 .img-compare figure figcaption {
-    font-size: 0.78em;
+    font-size: 1em;
     color: #6a7a8a;
     text-align: center;
     font-style: italic;
