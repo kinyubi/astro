@@ -1,7 +1,7 @@
 _gsdata_/
 .idea/
 cache/
-*.jpg
+public/images/*/*.jpg
 *.log
 *.bkp
 secrets.php
