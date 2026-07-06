@@ -7,6 +7,7 @@
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
+require_once __DIR__ . '/db_logger.php';
 
 header('Content-Type: application/json');
 
@@ -29,8 +30,7 @@ $gallery_img_id = isset($body['GalleryImageID']) ? (int)$body['GalleryImageID'] 
 // ── Delete a single GalleryImages row ────────────────────────────────────────
 if ($gallery_img_id) {
     try {
-        $db = new PDO('sqlite:' . DB_PATH);
-        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+        $db = get_db();
         $stmt = $db->prepare('DELETE FROM GalleryImages WHERE GalleryImageID = ?');
         $stmt->execute([$gallery_img_id]);
         if ($stmt->rowCount() === 0) {
@@ -54,9 +54,7 @@ if (!$dso_key) {
 }
 
 try {
-    $db = new PDO('sqlite:' . DB_PATH);
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $db->exec('PRAGMA foreign_keys = ON');
+    $db = get_db();
 
     $db->beginTransaction();
 

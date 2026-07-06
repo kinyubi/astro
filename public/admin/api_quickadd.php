@@ -11,7 +11,7 @@
 // existing ones.
 // ============================================================
 
-require_once __DIR__ . '/config.php';
+require_once __DIR__ . '/db_logger.php';
 
 header('Content-Type: application/json');
 
@@ -31,9 +31,7 @@ if (!$dso_key) {
 }
 
 try {
-    $db = new PDO('sqlite:' . DB_PATH);
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $db->exec('PRAGMA foreign_keys = ON');
+    $db = get_db();
 
     // ------------------------------------------------------------------
     // Check if already exists

@@ -31,6 +31,7 @@
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
+require_once __DIR__ . '/db_logger.php';
 
 header('Content-Type: application/json');
 
@@ -157,9 +158,7 @@ function find_fav_files_in_web(string $dso_key): array {
 
 // ── Main ──────────────────────────────────────────────────────────────────
 try {
-    $db = new PDO('sqlite:' . DB_PATH);
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $db->exec('PRAGMA foreign_keys = ON');
+    $db = get_db();
 
     // Get ProjectFolder for this DSO
     $stmt = $db->prepare("SELECT ProjectFolder FROM Objects WHERE DSOKey = ?");

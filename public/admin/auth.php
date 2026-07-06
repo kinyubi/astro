@@ -6,12 +6,29 @@
 
 require_once __DIR__ . '/config.php';
 
+// Allow unauthenticated access from localhost — matches the bypass already
+// used in auth_api.php. Requests from any other origin still require login.
+$remote = $_SERVER['REMOTE_ADDR'] ?? '';
+$is_local = in_array($remote, ['127.0.0.1', '::1', 'localhost'], true);
+
+if ($is_local) {
+    return;
+}
+
 session_name('dso_admin');
 session_set_cookie_params(['path' => '/', 'httponly' => true, 'samesite' => 'Lax']);
 session_start();
 
-// Already logged in — nothing to do
+// Already logged in — nothing to do (unless session has timed out)
 if (!empty($_SESSION['authenticated'])) {
+    if (!empty($_SESSION['LAST_ACTIVITY']) && (time() - $_SESSION['LAST_ACTIVITY'] > ADMIN_SESSION_TIMEOUT)) {
+        // Session expired — clear and force re-login
+        $_SESSION = [];
+        session_destroy();
+        header('Location: ' . strtok($_SERVER['PHP_SELF'], '?') . '?expired=1');
+        exit;
+    }
+    $_SESSION['LAST_ACTIVITY'] = time();
     return;
 }
 
@@ -21,6 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['username'], $_POST['p
     if ($_POST['username'] === ADMIN_USERNAME && $_POST['password'] === ADMIN_PASSWORD) {
         $_SESSION['authenticated'] = true;
         $_SESSION['username']      = ADMIN_USERNAME;
+        $_SESSION['LAST_ACTIVITY'] = time();
         // Redirect to GET to prevent form resubmission on refresh
         header('Location: ' . $_SERVER['PHP_SELF']);
         exit;

@@ -288,3 +288,101 @@ Reviewed, revised, and published a second blog post at `public/blogs/create-astr
 - **Always bump CSS `?ver=` query string** when modifying a stylesheet, or browsers will serve the cached version and changes appear to have no effect — requiring a hard Ctrl+Shift+R refresh.
 - **Global `* { padding: 0 }` reset** in `style.css` strips browser default list indentation; `.post-body ul` rules need `!important` to override it since `*` has higher effective specificity than element selectors in some cascade situations.
 - **INNER JOIN in gallery query** silently excludes DSOs that have an `Objects` row but no `GalleryImages` row — the correct fix is to sync via admin, not change to a LEFT JOIN.
+
+---
+
+## Session: 2026-07-03
+
+### Feature: Admin Login Inactivity Timeout (2 hours)
+
+Added an explicit 2-hour inactivity timeout to the DSO Admin session. Previously there was no enforced timeout — the login page already had dead code referencing `?expired=1`, but nothing ever set it; session length depended entirely on PHP's default (browser-session cookie / default `gc_maxlifetime`).
+
+**`public/admin/config.php`** (modified)
+- Added shared constant `ADMIN_SESSION_TIMEOUT` = 7200 seconds (2 hours), used by both `auth.php` and `auth_api.php`.
+
+**`public/admin/auth.php`** (modified)
+- On login success, `$_SESSION['LAST_ACTIVITY']` is now set alongside `authenticated`/`username`.
+- On every page load where the session is already authenticated: if `time() - LAST_ACTIVITY > ADMIN_SESSION_TIMEOUT`, the session is destroyed and the user is redirected to the login page with `?expired=1` (which already rendered the "Your session expired" message — previously unreachable code). Otherwise `LAST_ACTIVITY` is refreshed to the current time.
+
+**`public/admin/auth_api.php`** (modified)
+- Same inactivity check applied to API requests from non-local origins, so a stale admin tab can't keep making authenticated calls (search, save, sync, etc.) past the 2-hour window. Returns HTTP 401 with a JSON error body on timeout.
+- Local-origin requests (127.0.0.1 / ::1) remain exempt from auth entirely, unchanged from before.
+
+#### Key learnings
+- The login page (`auth.php`) had a latent `?expired` UI state that was never triggered by any code path — worth checking for this pattern (dead code implying a planned-but-unbuilt feature) elsewhere in the app.
+- Shared constants used by multiple auth-related files belong in `config.php` rather than being redefined locally, to avoid `define()` redeclaration errors.
+
+### Discussion: Third-Party Image Attribution (no code changes)
+
+Walked through how attribution/captioning for others' images works in the gallery browser (this was already implemented, just not documented in this file — the 2026-06-07 entry still listed "Step 4: Public gallery frontend" as remaining, but it has since been completed).
+
+- `public/index.php` PHP query pulls `IsOwn`, `Attribution`, `Copyright` from `GalleryImages` into the `galleryData` JSON blob per image.
+- `renderDSOModalSlide()` (JS) builds the caption bar: own images always show "Photographer: Carl Baker" plus an auto-generated current-year copyright; third-party images show `Attribution`/`Copyright` if set, or fall back to a generic "Image credit: third party" tag if both are empty.
+- No file-path special-casing — third-party images use the same `_thumb`/`_fav`/`_full`/`_wall` convention as Carl's own, per the original Option A design decision.
+- Note: the top-level Slideshow (landing page) only reads from `images/annotated_full`/`images/annotated_wall` on disk and is exclusively Carl's own work — third-party attribution only ever appears in the Gallery Browser modal, not the Slideshow.
+
+---
+
+## Session: 2026-07-04
+
+### Bug Fix: Admin login required even on localhost
+
+Carl reported that `DSO Admin` requested a login when run locally, contrary to the expected "local = no login" behavior.
+
+**`public/admin/auth.php`** (modified)
+- Root cause: the local-origin bypass added 2026-07-03 only went into `auth_api.php` (API-level re-auth), never into `auth.php` (the page-level gate for `admin/index.php`). Page loads always hit the login form regardless of origin.
+- Fixed: `auth.php` now checks `REMOTE_ADDR` against `127.0.0.1` / `::1` / `localhost` (same pattern as `auth_api.php`) and returns immediately, skipping session/login logic entirely, when local. Remote access is unaffected and still requires login.
+- Known side effect: since no `$_SESSION` is started on local access, anything reading `$_SESSION['username']` for a "logged in as..." display will be empty locally. Not yet raised as an issue by Carl.
+
+### Performance Fix: `/vis` Visibility Dates recomputing every run
+
+Carl reported the visibility report taking a long time to run and suspected the per-DSO "visible date range" (added in the `VisibilityForecast` caching feature) was being recalculated every run instead of once per year.
+
+**`pythonscripts/todays_dsos_web.py`** (modified)
+- Root cause confirmed: the cache lookup only trusted `VisibilityForecast` while `specified_date < FirstVisibleDate` (i.e. before the window opens). The instant today's date reached or passed `FirstVisibleDate`, `need_compute` stayed `True` and the full `find_visibility_window()` search reran on every single report run, for every DSO whose season had started — the main cause of the slowdown.
+- Fixed: cache is now considered valid (`need_compute = False`) as long as `specified_date <= LastVisibleDate` — i.e. reused for the DSO's entire visibility season, not just the days before it starts. Recompute now only triggers once `LastVisibleDate` has fully passed, producing the next occurrence's (typically next year's) window. Confirmed with Carl: once a new `FirstVisibleDate`/`LastVisibleDate` pair is computed, it is reused for every run until *that* `LastVisibleDate` also passes.
+- Note for Carl: the 24-hour PHP page cache in `public/vis/index.php` means this fix won't be visible until a `?rebuild=1` forced rebuild.
+
+### Bug Fix: LDN1228 "Observation & Project" section empty in DSO info modal
+
+Carl noticed the Observation & Project section was blank for LDN1228 (Fighting Dragons of Cepheus) despite the values existing in the database.
+
+**Root cause:** `vw_GalleryObjects` (read by `public/api/dso.php`) pulls `ProjectFolder`, `IsMosaic`, and `MostRecentObservation` exclusively via `LEFT JOIN Projects p ON o.DSOKey = p.DSOKey AND p.Status = 'ACTIVE'` (plus an `Observations` subquery keyed on `p.ProjectID`). LDN1228 has no row in `Projects` at all, so all three fields returned NULL — even though `Objects.ProjectFolder`, `Objects.IsMosaic`, and `Objects.MostRecentObservation` (legacy columns, pre-dating the `Projects`/`Observations` schema) are populated. Confirmed via direct DB inspection that **11 DSOs total** have this same legacy-only pattern: IC1396, NGC7380, NGC7635, SH2-129, M87, M66, LDN1228, NGC6995, M94, C2025-R3, and one more.
+
+**`pythonscripts/migrate_view_project_fallback.py`** (new)
+- Drops and recreates `vw_GalleryObjects` with `COALESCE(p.ProjectFolder, o.ProjectFolder)`, `COALESCE(p.IsMosaic, o.IsMosaic)`, and a `COALESCE` around the `MostRecentObservation` subquery, falling back to the legacy `Objects` columns whenever no `Projects` row exists.
+- `TotalLights`/`TotalIntegrationMins` have no legacy equivalent on `Objects` and remain NULL for these 11 DSOs — expected, not a bug, since no per-session data exists for them.
+- Prints the affected DSO list and asks for `y/N` confirmation before altering the view. Safe to re-run (idempotent DROP + CREATE).
+- **Status: script written, not yet confirmed run by Carl.**
+
+### Tabled: Smarter file/folder-based inference for missing Project/Observation data
+
+Carl wants a more comprehensive script that can *derive* the missing `ProjectFolder`/`Observation` data for legacy DSOs from `MyWorks` folder names, session directory naming, and file counts (similar in spirit to the existing `migrate_add_session_dir.py` backfill), rather than just falling back to already-populated legacy columns. Carl is going to write a detailed prompt for this and revisit it in a future session — no design or code work done yet.
+
+### Feature: Remote Change Log for manual DB reconciliation
+
+Discussion started around the risk of the local/remote `astro.db` copies diverging when both are edited before the existing DB sync tool runs. Explored and rejected "always use the remote database" (SQLite isn't safe over a network share; a real fix would mean migrating to a networked engine like MySQL or wrapping the DB behind an API — both large, invasive changes with their own tradeoffs, e.g. local dev always mutating live production data).
+
+Carl proposed a lighter alternative instead: log every remote DB write as raw SQL so it can be manually re-applied to the local DB when a conflict is spotted, rather than running a full (lossy) two-way sync.
+
+**`public/admin/db_logger.php`** (new)
+- Provides `get_db()`: opens the PDO connection to `DB_PATH`, sets `PRAGMA foreign_keys = ON`, and installs a `LoggingPDOStatement` (extends `PDOStatement`) via `PDO::ATTR_STATEMENT_CLASS`.
+- `LoggingPDOStatement::execute()` detects `INSERT`/`UPDATE`/`DELETE` statements (regex on `queryString`), substitutes bound parameter values into the SQL text (both named `:param` and positional `?` styles supported, properly quoted via `PDO::quote()`), and appends the resulting standalone, executable statement to `C:\laragon7\www\astro\remote.log` with a timestamp comment — but only when `db_is_local()` is false (i.e. `REMOTE_ADDR` is not `127.0.0.1`/`::1`/`localhost`). `SELECT` statements are never logged; local runs never write to the log at all.
+- Carl confirmed he'll manage `remote.log` growth/rotation manually — no trimming logic included.
+
+**Updated to use `get_db()` instead of inline `new PDO(...)` + manual `setAttribute`/`PRAGMA`** (no other logic changed in any of these — logging is transparent):
+- `api_save.php`
+- `api_delete.php` (both the single-GalleryImage and whole-DSO delete paths)
+- `api_constellation_add.php`
+- `api_quickadd.php` (public, no-auth endpoint — `db_logger.php` determines local/remote independently rather than relying on `auth_api.php`'s `$is_local`)
+- `api_sync_folder.php`
+
+**Verified complete write surface before implementing:** searched all admin API files and the four Carl-specified page files (`public/index.php`, `public/vis/index.php`, `public/profiles/index.php`, `public/admin/index.php`) for raw SQL writes outside these five files — none found (`api_constellations.php`, `api_object_types.php`, `api_search.php`, `api_debug.php`, and `api_populate.php` are all read-only or don't touch the DB).
+
+- **Status: not yet tested live** — logging only activates on non-local requests, so nothing will appear in `remote.log` until this is deployed to the remote host and an edit is made there.
+
+### Key learnings
+- **Local-origin auth bypass must be added at every layer that gates access** — `auth_api.php` and `auth.php` are separate gates (API vs. page load) and each needed its own explicit local-origin check; adding it to one does not implicitly cover the other.
+- **Time-window cache validity should be checked against the *end* of the cached range, not the start** — checking `specified_date < start_date` causes the cache to be treated as stale the moment the window opens, defeating the purpose of caching for anything with an ongoing/current validity period.
+- **Schema migrations that introduce a new "source of truth" table (e.g. `Projects`) can leave orphaned legacy data on the old table (`Objects`) that queries built against the new table will silently miss** — worth an explicit audit (`LEFT JOIN ... WHERE new_table.id IS NULL`) after any such migration to catch rows that were never carried over.
+- **PDO's `PDO::ATTR_STATEMENT_CLASS`** can be used to transparently intercept every `execute()` call across a connection (e.g. for logging) without touching call sites — the custom `PDOStatement` subclass needs a `protected` (not `private`) constructor so PDO's internal instantiation can reach it.

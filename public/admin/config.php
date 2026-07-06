@@ -22,3 +22,6 @@ define('WORKS_ROOT', 'C:\\Astronomy\\MyWorks');
 // Anthropic model to use for AI field population
 // Haiku is ~10x cheaper than Sonnet and much faster for straightforward lookup tasks
 define('ANTHROPIC_MODEL', 'claude-haiku-4-5-20251001');
+
+// Admin session inactivity timeout (seconds) — shared by auth.php and auth_api.php
+define('ADMIN_SESSION_TIMEOUT', 7200); // 2 hours

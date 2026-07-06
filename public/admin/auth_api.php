@@ -23,4 +23,15 @@ if (!$is_local) {
         echo json_encode(['error' => 'Not authenticated']);
         exit;
     }
+
+    // 2-hour inactivity timeout (shared constant, see config.php)
+    if (!empty($_SESSION['LAST_ACTIVITY']) && (time() - $_SESSION['LAST_ACTIVITY'] > ADMIN_SESSION_TIMEOUT)) {
+        $_SESSION = [];
+        session_destroy();
+        http_response_code(401);
+        header('Content-Type: application/json');
+        echo json_encode(['error' => 'Session expired']);
+        exit;
+    }
+    $_SESSION['LAST_ACTIVITY'] = time();
 }

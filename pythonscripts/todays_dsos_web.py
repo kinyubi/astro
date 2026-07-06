@@ -381,9 +381,15 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
             if cached and cached['FirstVisibleDate']:
                 cached_first = datetime.datetime.strptime(cached['FirstVisibleDate'], '%Y-%m-%d').date()
-                if specified_date < cached_first:
+                cached_last = (datetime.datetime.strptime(cached['LastVisibleDate'], '%Y-%m-%d').date()
+                               if cached['LastVisibleDate'] else None)
+                # Reuse the cached window as long as we haven't passed the end of it.
+                # Only recompute once the window has fully elapsed (i.e. next year's
+                # window is needed) -- so each DSO's range is calculated once per
+                # season instead of on every report run.
+                if cached_last is not None and specified_date <= cached_last:
                     first_date = cached_first
-                    last_date = datetime.datetime.strptime(cached['LastVisibleDate'], '%Y-%m-%d').date()
+                    last_date = cached_last
                     need_compute = False
 
             if need_compute:
