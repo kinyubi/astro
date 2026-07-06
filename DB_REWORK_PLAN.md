@@ -118,3 +118,17 @@ GalleryImageID=2,  DSOKey=IC1805,  BaseName=ic1805_heart,               SessionD
 GalleryImageID=45, DSOKey=IC1805,  BaseName=ic1805_heart_nebula_mosaic, SessionDir=20251102_207x60s_mosaic_S30, IsMosaic=1
 GalleryImageID=29, DSOKey=NGC1499, BaseName=ngc1499_california,         SessionDir=20251114_60s_mosaic_S30,     IsMosaic=1
 ```
+
+---
+
+## Appendix B: Custom (multi-DSO / non-catalog) Objects convention
+
+Some projects legitimately combine multiple real DSOs (e.g. a wide framing of the Heart & Soul Nebulae together) or, in principle, no cataloged DSO at all (aurora, star trails, etc.). Rather than adding a many-to-many Project↔Object relationship, the convention is to create a synthetic `Objects` row with a custom `DSOKey` (e.g. `CUST1`, `CUST2`, ...) and a normal `CommonName` (e.g. "Heart & Soul Nebulae"), then reference it from a `Projects` row the same as any real DSO (`ProjectFolder = 'cust1_heart_and_soul_nebulae'`, following the standard lowercase/underscore convention).
+
+No DDL changes are needed for this — confirmed the only `NOT NULL` constraint on `Objects` is `WantBetter` (defaults to 0). This is fully consistent with §1's "Project is the hierarchy root, Object is just a characteristic of it" model: a synthetic DSO is just another `Objects` row a `Project` happens to reference.
+
+**Give combined-target custom Objects real RA/Dec** — for a combo like Heart & Soul, use the framing centroid so the `/vis` visibility calculation still works normally and the project shows up in the nightly report like any real target.
+
+**A true "no DSO at all" project (aurora, star trails, full Moon, etc.) is a different, harder case** and is deliberately *not* solved by this convention — there's no meaningful sky position to assign, so forcing a fake coordinate would make the visibility report track a target that isn't really one. To be addressed separately if/when such a project actually comes up, including whether `todays_dsos_web.py` degrades gracefully on a null-coordinate `Objects` row.
+
+`PrimaryCatalogID` will correctly come back `NULL` for custom entries via the existing `LEFT JOIN CatalogIDs` — accurate, not a bug, no special-casing required.

@@ -160,17 +160,42 @@ function find_fav_files_in_web(string $dso_key): array {
 try {
     $db = get_db();
 
-    // Get ProjectFolder for this DSO
-    $stmt = $db->prepare("SELECT ProjectFolder FROM Objects WHERE DSOKey = ?");
+    // Get this DSO's Project(s). ProjectFolder now lives on Projects, not
+    // Objects, since a DSO can have more than one Project (e.g. a standard
+    // framing and a separate mosaic framing). If there's exactly one, use
+    // it. If there's more than one, the caller must specify which via
+    // {"ProjectID": n} in the POST body -- a proper per-project sync picker
+    // in the admin UI is planned for Phase 2 of DB_REWORK_PLAN.md.
+    $stmt = $db->prepare("SELECT ProjectID, ProjectFolder FROM Projects WHERE DSOKey = ?");
     $stmt->execute([$dso_key]);
-    $obj = $stmt->fetch(PDO::FETCH_ASSOC);
+    $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    if (!$obj) {
+    if (!$projects) {
         http_response_code(400);
-        echo json_encode(['error' => "DSO $dso_key not found"]);
+        echo json_encode(['error' => "No Project exists yet for DSO $dso_key -- add one before syncing."]);
         exit;
     }
-    $project_folder = $obj['ProjectFolder'] ?? '';
+
+    if (count($projects) === 1) {
+        $project_id     = (int)$projects[0]['ProjectID'];
+        $project_folder = $projects[0]['ProjectFolder'];
+    } else {
+        $requested_id = isset($body['ProjectID']) ? (int)$body['ProjectID'] : null;
+        $match = null;
+        foreach ($projects as $p) {
+            if ((int)$p['ProjectID'] === $requested_id) { $match = $p; break; }
+        }
+        if (!$match) {
+            http_response_code(400);
+            echo json_encode([
+                'error'    => "DSO $dso_key has multiple Projects -- specify which via ProjectID.",
+                'projects' => $projects,
+            ]);
+            exit;
+        }
+        $project_id     = (int)$match['ProjectID'];
+        $project_folder = $match['ProjectFolder'];
+    }
 
     // ── Determine mode and build session map ──────────────────────────────
     $works_root_available = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
@@ -192,7 +217,7 @@ try {
     // ── Load existing GalleryImages rows for this DSO ─────────────────────
     $stmt = $db->prepare("
         SELECT GalleryImageID, BaseName, DateCaptured, Equipment,
-               IsMosaic, PaletteID, SessionDir, IsFeature
+               PaletteID, SessionDir, IsFeature
         FROM GalleryImages
         WHERE DSOKey = ?
         ORDER BY SortOrder, GalleryImageID
@@ -255,10 +280,10 @@ try {
                 $stmt = $db->prepare("
                     INSERT INTO GalleryImages
                         (DSOKey, BaseName, PaletteID, DateCaptured,
-                         Equipment, IsMosaic, SessionDir, IsOwn, SortOrder, IsFeature)
-                    VALUES (?, ?, ?, NULL, NULL, 0, NULL, 1, ?, ?)
+                         Equipment, ProjectID, SessionDir, IsOwn, SortOrder, IsFeature)
+                    VALUES (?, ?, ?, NULL, NULL, ?, NULL, 1, ?, ?)
                 ");
-                $stmt->execute([$dso_key, $bn, $f['palette_id'], $sort, $is_feature]);
+                $stmt->execute([$dso_key, $bn, $f['palette_id'], $project_id, $sort, $is_feature]);
                 $new_id = (int)$db->lastInsertId();
                 $inserted[] = [
                     'GalleryImageID' => $new_id,
@@ -287,14 +312,14 @@ try {
                 UPDATE GalleryImages
                 SET DateCaptured = ?,
                     Equipment    = ?,
-                    IsMosaic     = ?,
                     PaletteID    = ?,
-                    SessionDir   = ?
+                    SessionDir   = ?,
+                    ProjectID    = ?
                 WHERE BaseName = ? AND DSOKey = ?
             ");
             $stmt->execute([
-                $date_captured, $equipment, $is_mosaic,
-                $palette_id, $session_dir, $bn, $dso_key
+                $date_captured, $equipment,
+                $palette_id, $session_dir, $project_id, $bn, $dso_key
             ]);
 
             $updated[] = [
@@ -315,12 +340,12 @@ try {
             $stmt = $db->prepare("
                 INSERT INTO GalleryImages
                     (DSOKey, BaseName, PaletteID, DateCaptured,
-                     Equipment, IsMosaic, SessionDir, IsOwn, SortOrder, IsFeature)
+                     Equipment, ProjectID, SessionDir, IsOwn, SortOrder, IsFeature)
                 VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
             ");
             $stmt->execute([
                 $dso_key, $bn, $palette_id, $date_captured,
-                $equipment, $is_mosaic, $session_dir, $sort, $is_feature
+                $equipment, $project_id, $session_dir, $sort, $is_feature
             ]);
             $new_id = (int)$db->lastInsertId();
 

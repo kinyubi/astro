@@ -34,10 +34,8 @@ try {
                 o.SqArcMins,
                 o.DistanceLY,
                 o.SocialBlurb,
-                o.ProjectFolder,
                 o.WantBetter,
                 o.Notes,
-                o.MostRecentObservation,
                 o.LastUpdated,
                 c.CatalogID AS PrimaryCatalogID
             FROM Objects o
@@ -67,10 +65,8 @@ try {
                 o.SqArcMins,
                 o.DistanceLY,
                 o.SocialBlurb,
-                o.ProjectFolder,
                 o.WantBetter,
                 o.Notes,
-                o.MostRecentObservation,
                 o.LastUpdated,
                 c.CatalogID AS PrimaryCatalogID
             FROM Objects o
@@ -117,12 +113,15 @@ try {
                 gi.IsOwn,
                 gi.Attribution,
                 gi.Equipment,
-                gi.IsMosaic,
+                gi.ProjectID,
+                p.ProjectFolder,
+                p.IsMosaic,
                 gi.SessionDir,
                 gi.SortOrder,
                 gi.IsFeature
             FROM GalleryImages gi
             LEFT JOIN PaletteTreatments pt ON gi.PaletteID = pt.PaletteID
+            LEFT JOIN Projects p ON gi.ProjectID = p.ProjectID
             WHERE gi.DSOKey IN ($placeholders)
             ORDER BY gi.DSOKey, gi.SortOrder, gi.GalleryImageID
         ");
@@ -149,12 +148,28 @@ try {
             $links_by_key[$lnk['DSOKey']][] = $lnk;
         }
 
+        // ── Projects (informational; full Project-editing UI is Phase 2) ──────
+        $proj_stmt = $db->prepare("
+            SELECT ProjectID, DSOKey, ProjectFolder, IsMosaic, Notes
+            FROM Projects
+            WHERE DSOKey IN ($placeholders)
+            ORDER BY DSOKey, ProjectID
+        ");
+        $proj_stmt->execute($keys);
+        $all_projects = $proj_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $projects_by_key = [];
+        foreach ($all_projects as $proj) {
+            $projects_by_key[$proj['DSOKey']][] = $proj;
+        }
+
         // ── Merge into rows ───────────────────────────────────────────────────
         foreach ($rows as &$row) {
             $k = $row['DSOKey'];
-            $row['CatalogIDs']    = $cats_by_key[$k]  ?? [];
-            $row['GalleryImages'] = $gi_by_key[$k]    ?? [];
-            $row['DSOLinks']      = $links_by_key[$k] ?? [];
+            $row['CatalogIDs']    = $cats_by_key[$k]     ?? [];
+            $row['GalleryImages'] = $gi_by_key[$k]       ?? [];
+            $row['DSOLinks']      = $links_by_key[$k]    ?? [];
+            $row['Projects']      = $projects_by_key[$k] ?? [];
         }
     }
 

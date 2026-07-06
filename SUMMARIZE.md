@@ -386,3 +386,64 @@ Carl proposed a lighter alternative instead: log every remote DB write as raw SQ
 - **Time-window cache validity should be checked against the *end* of the cached range, not the start** — checking `specified_date < start_date` causes the cache to be treated as stale the moment the window opens, defeating the purpose of caching for anything with an ongoing/current validity period.
 - **Schema migrations that introduce a new "source of truth" table (e.g. `Projects`) can leave orphaned legacy data on the old table (`Objects`) that queries built against the new table will silently miss** — worth an explicit audit (`LEFT JOIN ... WHERE new_table.id IS NULL`) after any such migration to catch rows that were never carried over.
 - **PDO's `PDO::ATTR_STATEMENT_CLASS`** can be used to transparently intercept every `execute()` call across a connection (e.g. for logging) without touching call sites — the custom `PDOStatement` subclass needs a `protected` (not `private`) constructor so PDO's internal instantiation can reach it.
+
+---
+
+## Session: 2026-07-06
+
+### Design: DB Rework — "Project is the top of the hierarchy"
+
+Carl brought a draft spec (`CLAUDE_PROMPT_2026_0704.md`) for a larger DB rework. Extensive back-and-forth resolved every open question; the final design lives in **`DB_REWORK_PLAN.md`** (new, at project root) rather than the original draft, which it supersedes.
+
+**Core model change:** Project is the top of the hierarchy, not Object. An Object (DSO) is a characteristic of a Project, the same way an Equipment row is a characteristic of an Observation — one Object can legitimately be referenced by multiple Projects (e.g. IC1805 has a standard-framing project and a separate mosaic project), and that is not a data problem to fix, it's the correct model. This reframing reversed an earlier suggestion of mine (a `ROW_NUMBER()` tiebreak to pick "the" project per DSO) — Carl correctly pointed out that was solving the wrong problem.
+
+**Key decisions reached (full detail and rationale in `DB_REWORK_PLAN.md`):**
+- `Objects` keeps `WantBetter`/`SocialBlurb`/`Notes` (DSO-level, used for not-yet-imaged targets) despite the "Objects = DSO-only fields" principle; only `ProjectFolder`/`MostRecentObservation`/`IsMosaic` move off it.
+- `Projects.Notes` kept as a genuine duplicate of `Objects.Notes` (not a move) — many tables already have independent `Notes` fields, so this isn't inconsistent.
+- `Projects.IsMosaic` becomes a **SQLite generated column** (`LOWER(ProjectFolder) LIKE '%mosaic%'`) so it can never drift from the folder name — same bug class as the `Status='ACTIVE'` issue below.
+- `GalleryImages` gains `ProjectID` (FK → Projects) and loses its own `IsMosaic` (now derived via the Projects join). **Gallery grouping changes from one-card-per-DSO to one-card-per-Project** — an Object can now legitimately produce more than one gallery card.
+- New convention for multi-DSO or non-catalog projects (e.g. a combined Heart & Soul Nebulae framing): create a synthetic `Objects` row with a custom `DSOKey` (`CUST1`, `CUST2`, ...) — no DDL needed, confirmed the only `NOT NULL` constraint on `Objects` is `WantBetter`. Documented as **Appendix B** in `DB_REWORK_PLAN.md`, including the caveat that a true "no DSO at all" project (aurora, star trails) is a harder, deliberately-unsolved case since there's no real sky position to assign.
+- Open-Meteo's free, no-key historical weather API (`/v1/archive`) will supply Temperature/Humidity auto-populate for the future Observation Management feature, once built.
+- FIT filename exposure-time regex widened from `(\d{2})\.0s` to `(\d+)\.0s` to support 3+ digit exposure times.
+
+**Bug found during this analysis (informed the `Projects.Status` removal and the migration below):** `IC1805` and `NGC1499` both had two `Projects` rows, and *both rows were `Status='ACTIVE'`* — so `vw_GalleryObjects`'s `AND p.Status = 'ACTIVE'` filter was already non-deterministically matching both rows for these two DSOs before any of this session's work; `dso.php`'s single-row `fetch()` had no `ORDER BY` to break the tie. Not a new regression — a pre-existing latent bug this rework surfaces and (partially) resolves.
+
+### Implementation: Phase 1 schema + data migration
+
+**`pythonscripts/migrate_db_rework_phase1.py`** (new) — **supersedes `migrate_view_project_fallback.py`** (do not run that script; this one creates real `Projects` rows for the 11 legacy DSOs instead of a view-level `COALESCE` fallback, which is the actual fix for the LDN1228-class bug from the previous session).
+
+In one transaction (rolls back cleanly on any error):
+- Creates a real `Projects` row for all 11 legacy DSOs that had `Objects.ProjectFolder` but no `Projects` row (LDN1228, IC1396, NGC7380, NGC7635, SH2-129, M87, M66, NGC6995, M94, C2025-R3, and one more).
+- Rebuilds `Objects` (drops `ProjectFolder`, `IsMosaic`, `MostRecentObservation`).
+- Rebuilds `Projects` (drops `MosaicConfig`/`Status`/`TotalGoodLights`/`TotalIntegrationMins`/`CreatedDate`; `IsMosaic` becomes generated); copies `Objects.Notes` into `Projects.Notes` for the 6 DSOs that have both a Notes value and a Projects row.
+- Adds `GalleryImages.ProjectID`, backfills it (single-project DSOs match directly; IC1805/NGC1499 match by comparing each image's existing `IsMosaic` flag against each candidate project's computed `IsMosaic`), verifies zero unmatched rows before proceeding, then drops `GalleryImages.IsMosaic`.
+- Adds `Observations.ObservationFolder`, drops `RejectedLights`/`BortleScale` (confirmed zero non-null/non-zero data in both, no data loss).
+- Drops and recreates all four views that reference these tables (`vw_GalleryObjects`, `vw_ObservationSummary`, `vw_NeedsMoreData`, `vw_ProcessingStatus`) — SQLite validates dependent views against underlying tables mid-rebuild even when the view itself isn't changing, so all four had to be dropped up front and recreated at the end. `vw_GalleryObjects` loses its `Status` dependency and its now-unnecessary `COALESCE`-to-legacy-`Objects` fallback; `vw_ObservationSummary` loses `RejectedLights`/`RejectionPct` (column gone); the other two are unchanged.
+- **Tested against a sandbox copy of the live DB before being finalized** — caught the view-dependency issue this way (first run failed with `no such table: main.Objects` when views weren't dropped first), then re-verified schema shape, generated-column behavior, LDN1228 getting a real Projects row, and GalleryImages.ProjectID backfill correctness for both multi-project DSOs after the fix.
+- **Status: script written and validated in sandbox, not yet run against the live DB by Carl.**
+
+### Immediate consumer fixes (so the app doesn't break the moment the migration runs)
+
+Since dropping columns without fixing every reader/writer would break basic Save functionality immediately, these four files were updated in the same pass as the migration script (not deferred to a later "Phase 2"):
+
+**`public/admin/api_save.php`**
+- `$allowed_cols` for `Objects` no longer includes `ProjectFolder`/`MostRecentObservation`.
+- `GalleryImages` upsert/insert no longer writes `IsMosaic`; writes `ProjectID` instead. Resolution: explicit `ProjectID` from the payload if given, otherwise the DSO's only `Project` if there's exactly one. DSOs with multiple Projects (IC1805, NGC1499) need an explicit `ProjectID` in the payload — no picker UI for this yet (planned for Phase 2).
+
+**`public/admin/api_search.php`**
+- `Objects` SELECT no longer includes `ProjectFolder`/`MostRecentObservation`.
+- `GalleryImages` sub-query no longer selects `gi.IsMosaic`; now `LEFT JOIN Projects` to expose `gi.ProjectID`, `p.ProjectFolder`, `p.IsMosaic` per image.
+- Added a new batch-fetched `Projects` array per DSOKey (informational — full Project-editing UI is Phase 2).
+
+**`public/admin/api_sync_folder.php`**
+- Now resolves `ProjectFolder` from `Projects` instead of `Objects`. If a DSO has exactly one Project, uses it automatically; if more than one (IC1805, NGC1499), requires the caller to pass `{"ProjectID": n}` in the POST body or returns a 400 listing the candidate Projects to disambiguate.
+- `GalleryImages` INSERT/UPDATE statements write `ProjectID` (resolved above) instead of `IsMosaic`. The `IsMosaic` value is still computed locally (`infer_is_mosaic()`) for the JSON response payload only — informational, not written to the DB.
+
+**`api_quickadd.php`** — checked, already clean; never referenced any of the dropped columns.
+
+**Not yet done (deferred to Phase 2, per `DB_REWORK_PLAN.md` §7):** the admin UI's `IsMosaic` checkbox on each Gallery Image card is now a dead control (PHP silently ignores it since the column reading it is gone) — needs removing. `dso.php`/`vw_GalleryObjects`'s single-row-per-DSO shape, the `/vis` modal's single "Observation & Project" block, and the public gallery's grouping key all still need the "list of projects per DSO" rework described in `DB_REWORK_PLAN.md` §6 before IC1805/NGC1499 display correctly as two separate cards/entries.
+
+### Key learnings
+- **A reframing of the data model ("Project is the hierarchy root") can turn what looked like a bug (two Projects rows for one DSO) into the correct, intended shape** — worth checking whether a perceived anomaly is actually a modeling assumption before proposing a fix for it.
+- **SQLite views are validated against their referenced tables during `DROP TABLE`/`ALTER TABLE ... RENAME` in the same transaction, even for views that aren't being changed** — before rebuilding any table, `SELECT name FROM sqlite_master WHERE type='view'` and check all of them for references, not just the ones you already know about; drop all dependent views up front and recreate them all at the end.
+- **Always test a nontrivial migration script against a sandbox copy of the real DB before handing it off** — this one failed on first run over an unanticipated view dependency; sandbox testing (copy → run → verify) caught it before Carl ever ran it against the live database.

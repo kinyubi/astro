@@ -43,7 +43,7 @@ try {
         'CommonName', 'ObjectTypeID', 'ConstellationID',
         'RAHours', 'DecDegrees', 'Magnitude',
         'ObjectSize', 'SqArcMins', 'DistanceLY', 'SocialBlurb', 'WantBetter',
-        'ProjectFolder', 'MostRecentObservation', 'Notes',
+        'Notes',
     ];
 
     $updates = [];
@@ -125,11 +125,11 @@ try {
             INSERT INTO GalleryImages
                 (GalleryImageID, DSOKey, BaseName, Caption, PaletteID,
                  DateCaptured, Copyright, IsOwn, Attribution,
-                 Equipment, IsMosaic, SessionDir, SortOrder, IsFeature)
+                 Equipment, ProjectID, SessionDir, SortOrder, IsFeature)
             VALUES
                 (:id, :dso, :base, :caption, :palette,
                  :date, :copyright, :isown, :attribution,
-                 :equipment, :ismosaic, :sessiondir, :sort, :feature)
+                 :equipment, :projectid, :sessiondir, :sort, :feature)
             ON CONFLICT(GalleryImageID) DO UPDATE SET
                 BaseName     = excluded.BaseName,
                 Caption      = excluded.Caption,
@@ -139,7 +139,7 @@ try {
                 IsOwn        = excluded.IsOwn,
                 Attribution  = excluded.Attribution,
                 Equipment    = excluded.Equipment,
-                IsMosaic     = excluded.IsMosaic,
+                ProjectID    = excluded.ProjectID,
                 SessionDir   = excluded.SessionDir,
                 SortOrder    = excluded.SortOrder,
                 IsFeature    = excluded.IsFeature
@@ -149,12 +149,23 @@ try {
             INSERT INTO GalleryImages
                 (DSOKey, BaseName, Caption, PaletteID,
                  DateCaptured, Copyright, IsOwn, Attribution,
-                 Equipment, IsMosaic, SessionDir, SortOrder, IsFeature)
+                 Equipment, ProjectID, SessionDir, SortOrder, IsFeature)
             VALUES
                 (:dso, :base, :caption, :palette,
                  :date, :copyright, :isown, :attribution,
-                 :equipment, :ismosaic, :sessiondir, :sort, :feature)
+                 :equipment, :projectid, :sessiondir, :sort, :feature)
         ");
+
+        // Resolve ProjectID for GalleryImages rows: use an explicit ProjectID
+        // from the payload if given, otherwise fall back to this DSO's only
+        // Project when there's exactly one. A proper Project-picker UI for
+        // Gallery Images is planned (see DB_REWORK_PLAN.md Phase 2) -- until
+        // then, DSOs with multiple Projects (currently IC1805, NGC1499) must
+        // specify ProjectID explicitly or the image's project link is left NULL.
+        $proj_stmt = $db->prepare("SELECT ProjectID FROM Projects WHERE DSOKey = ?");
+        $proj_stmt->execute([$dso_key]);
+        $dso_project_ids = $proj_stmt->fetchAll(PDO::FETCH_COLUMN);
+        $default_project_id = count($dso_project_ids) === 1 ? $dso_project_ids[0] : null;
 
         foreach ($incoming as $img) {
             $base = trim($img['BaseName'] ?? '');
@@ -170,7 +181,7 @@ try {
                 ':isown'       => isset($img['IsOwn'])      ? (int)$img['IsOwn']      : 1,
                 ':attribution' => $img['Attribution']  ?? null,
                 ':equipment'   => $img['Equipment']    ?? null,
-                ':ismosaic'    => isset($img['IsMosaic'])   ? (int)$img['IsMosaic']   : 0,
+                ':projectid'   => !empty($img['ProjectID']) ? (int)$img['ProjectID'] : $default_project_id,
                 ':sessiondir'  => $img['SessionDir']   ?? null,
                 ':sort'        => isset($img['SortOrder'])  ? (int)$img['SortOrder']  : 0,
                 ':feature'     => isset($img['IsFeature'])  ? (int)$img['IsFeature']  : 0,
