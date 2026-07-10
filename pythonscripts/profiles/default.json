@@ -5,6 +5,6 @@
   "longitude": -116.49,
   "timezone": "America/Boise",
   "min_altitude": 25.0,
-  "az_min": 10.0,
-  "az_max": 165.0
+  "az_min": 0.0,
+  "az_max": 170.0
 }

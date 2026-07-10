@@ -233,7 +233,12 @@ header('Pragma: no-cache');
 <header>
   <h1>&#11088; DSO Admin</h1>
   <span class="subtitle">Deep Sky Object Database Maintenance</span>
-  <a href="logout.php" style="margin-left:auto; font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Sign out</a>
+  <nav style="margin-left:auto; display:flex; gap:16px; align-items:center;">
+    <a href="/todo/" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">To Do List</a>
+    <a href="/vis/" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">DSO Visibility</a>
+    <a href="/" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Picture Gallery</a>
+    <a href="logout.php" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Sign out</a>
+  </nav>
 </header>
 
 <div class="app">
@@ -268,6 +273,7 @@ header('Pragma: no-cache');
         </div>
         <div class="form-actions">
           <button class="btn warn" id="btn-ai" onclick="aiPopulate()">&#129302; AI Populate</button>
+          <span id="solar-guard-note" style="display:none; color:var(--muted); font-size:11px; align-self:center; margin-right:8px;">Solar object &mdash; AI Populate &amp; Sync Folder use the dedicated solar pipeline instead</span>
           <button class="btn success" onclick="saveObject()">&#128190; Save</button>
           <button class="btn danger" id="btn-delete" onclick="deleteObject()" disabled>&#128465;&#65039; Delete Object</button>
         </div>
@@ -279,12 +285,12 @@ header('Pragma: no-cache');
         <div class="section-body grid-3">
           <div class="field">
             <label>DSO Key <em style="color:var(--danger)">*</em></label>
-            <input type="text" id="f_DSOKey" placeholder="e.g. NGC1976" style="text-transform:uppercase">
+            <input type="text" id="f_DSOKey" placeholder="e.g. NGC1976" style="text-transform:uppercase" autocomplete="off">
             <div class="note">Canonical primary key &mdash; usually the primary catalog ID</div>
           </div>
           <div class="field">
             <label>Common Name</label>
-            <input type="text" id="f_CommonName" placeholder="e.g. Orion Nebula">
+            <input type="text" id="f_CommonName" placeholder="e.g. Orion Nebula" autocomplete="off">
           </div>
           <div class="field">
             <label>Object Type</label>
@@ -300,7 +306,7 @@ header('Pragma: no-cache');
           </div>
           <div class="field">
             <label>Distance</label>
-            <input type="text" id="f_DistanceLY" placeholder="e.g. ~1,350 light-years">
+            <input type="text" id="f_DistanceLY" placeholder="e.g. ~1,350 light-years" autocomplete="off">
           </div>
           <div class="field">
             <!-- spacer -->
@@ -328,16 +334,16 @@ header('Pragma: no-cache');
           </div>
           <div class="field">
             <label>Magnitude</label>
-            <input type="number" id="f_Magnitude" step="0.1" placeholder="e.g. 4.0">
+            <input type="number" id="f_Magnitude" step="0.1" placeholder="e.g. 4.0" autocomplete="off">
           </div>
           <div class="field span-2">
             <label>Object Size</label>
-            <input type="text" id="f_ObjectSize" placeholder="e.g. 70 light-years across with an apparent diameter of 45-50 arcminutes, about 1.5&#215; the full moon">
+            <input type="text" id="f_ObjectSize" placeholder="e.g. 70 light-years across with an apparent diameter of 45-50 arcminutes, about 1.5&#215; the full moon" autocomplete="off">
             <div class="note">Physical size, angular size, and moon comparison in one plain-English sentence.</div>
           </div>
           <div class="field">
             <label>Sq Arc Mins</label>
-            <input type="number" id="f_SqArcMins" step="0.01" min="0" placeholder="e.g. 1600">
+            <input type="number" id="f_SqArcMins" step="0.01" min="0" placeholder="e.g. 1600" autocomplete="off">
             <div class="note">Apparent area (arcmin&#178;). Single dim: d&#178;. Two dims: d1 &#215; d2.</div>
           </div>
           <div class="field">
@@ -354,19 +360,12 @@ header('Pragma: no-cache');
       <!-- Observation & Project -->
       <div class="section">
         <div class="section-header">Observation &amp; Project</div>
-        <div class="section-body grid-3">
-          <div class="field">
-            <label>Project Folder</label>
-            <input type="text" id="f_ProjectFolder" placeholder="e.g. NGC1976_OrionNebula">
-            <div class="note">Folder name under C:\Astronomy\myWorks</div>
-          </div>
-          <div class="field">
-            <label>Most Recent Observation</label>
-            <input type="date" id="f_MostRecentObservation">
-          </div>
-          <div class="field span-3">
+        <div class="section-body">
+          <div id="projects-list" style="display:grid; gap:10px;"></div>
+          <div class="note" style="margin-top:4px;">Read-only for now &mdash; a Project management UI is planned. A DSO can have more than one Project (e.g. a standard framing and a separate mosaic framing).</div>
+          <div class="field" style="margin-top:12px;">
             <label>Notes</label>
-            <textarea id="f_Notes" placeholder="Personal notes about this object, imaging sessions, equipment used, etc."></textarea>
+            <textarea id="f_Notes" placeholder="Personal notes about this object, imaging sessions, equipment used, etc." autocomplete="off"></textarea>
           </div>
         </div>
       </div>
@@ -379,7 +378,7 @@ header('Pragma: no-cache');
         </div>
         <div class="section-body">
           <div class="field">
-            <textarea id="f_SocialBlurb" placeholder="Two paragraphs of engaging prose describing the object &mdash; what it is, its physical nature, distance, and what makes it special to image. This is the basis for social media captions."></textarea>
+            <textarea id="f_SocialBlurb" placeholder="Two paragraphs of engaging prose describing the object &mdash; what it is, its physical nature, distance, and what makes it special to image. This is the basis for social media captions." autocomplete="off"></textarea>
             <div class="note">Used as the basis for social media posts. Paragraph break = blank line.</div>
           </div>
         </div>
@@ -408,7 +407,7 @@ header('Pragma: no-cache');
       <div class="section">
         <div class="section-header">
           Gallery Images
-          <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="syncFolder()">&#x21bb; Sync Folder</button>
+          <button class="btn" id="btn-sync-folder" style="font-size:11px; padding:3px 10px;" onclick="syncFolder()">&#x21bb; Sync Folder</button>
           <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="addGalleryImageCard()">+ Add Image</button>
         </div>
         <div class="section-body">
@@ -474,7 +473,7 @@ function blurbFieldsChanged() {
 
 const fields = ['DSOKey','CommonName','ObjectTypeID','ConstellationID',
                 'RAHours','DecDegrees','Magnitude','ObjectSize','SqArcMins','DistanceLY',
-                'SocialBlurb','ProjectFolder','MostRecentObservation','WantBetter','Notes'];
+                'SocialBlurb','WantBetter','Notes'];
 
 // ──────────────────────────────────────────────
 // Fetch wrapper
@@ -579,6 +578,28 @@ async function loadObjectTypes(selectedValue = '') {
   }
 }
 
+function isSolarObjectType(typeId) {
+  return typeId === 'SOLAR_SYSTEM';
+}
+
+function updateSolarGuard() {
+  const typeId = document.getElementById('f_ObjectTypeID').value;
+  const solar  = isSolarObjectType(typeId);
+
+  const aiBtn = document.getElementById('btn-ai');
+  aiBtn.disabled = solar;
+  aiBtn.title = solar ? 'Not available for Sun/Moon \u2014 handled by the solar pipeline.' : '';
+
+  const syncBtn = document.getElementById('btn-sync-folder');
+  syncBtn.disabled = solar;
+  syncBtn.title = solar ? 'Not available for Sun/Moon \u2014 handled by the solar pipeline.' : '';
+
+  const note = document.getElementById('solar-guard-note');
+  if (note) note.style.display = solar ? '' : 'none';
+}
+
+document.getElementById('f_ObjectTypeID').addEventListener('change', updateSolarGuard);
+
 fetchList('');
 loadObjectTypes();
 loadConstellations();
@@ -609,11 +630,12 @@ function loadObject(row) {
   // Populate formatted RA/Dec display fields
   setRADisplay(row.RAHours);
   setDecDisplay(row.DecDegrees);
-  loadObjectTypes(row.ObjectTypeID || '');
+  loadObjectTypes(row.ObjectTypeID || '').then(updateSolarGuard);
 
   renderCatalogTable(row.CatalogIDs || []);
   renderGalleryImages(row.GalleryImages || []);
   renderDSOLinks(row.DSOLinks || []);
+  renderProjects(row.Projects || []);
   snapshotBlurbFields();
 }
 
@@ -635,11 +657,12 @@ function newObject() {
   setDecDisplay(null);
   document.getElementById('f_DSOKey').disabled = false;
   document.getElementById('btn-delete').disabled = true;
-  loadObjectTypes('');
+  loadObjectTypes('').then(updateSolarGuard);
   loadConstellations('');
   renderCatalogTable([]);
   renderGalleryImages([]);
   renderDSOLinks([]);
+  renderProjects([]);
   snapshotBlurbFields();
 }
 
@@ -648,6 +671,83 @@ function showEditor() {
   document.getElementById('editor').style.display       = 'flex';
   document.getElementById('editor').style.flexDirection = 'column';
   document.getElementById('editor').style.gap           = '20px';
+}
+
+// ──────────────────────────────────────────────
+// Projects (read-only display for now)
+// ──────────────────────────────────────────────
+function renderObservationsTable(obs) {
+  if (!obs || obs.length === 0) {
+    return '<div style="color:var(--muted); font-size:11px; padding:6px 0 2px;">No observations logged yet.</div>';
+  }
+  const rows = obs.map(o => {
+    const exp    = o.ExposureTimeSecs ? escHtml(String(o.ExposureTimeSecs)) + 's' : '&mdash;';
+    const integ  = o.IntegrationMins ? parseFloat(o.IntegrationMins).toFixed(0) + 'm' : '&mdash;';
+    const start  = o.StartTime ? escHtml(o.StartTime) : '&mdash;';
+    const end    = o.EndTime ? escHtml(o.EndTime) : '&mdash;';
+    const notesFull = o.Notes || '';
+    const notesShort = notesFull.length > 24 ? notesFull.slice(0, 24) + '\u2026' : notesFull;
+    return `
+      <tr style="border-bottom:1px solid var(--border);">
+        <td style="padding:3px 6px; white-space:nowrap;">${o.ObservationDate ? escHtml(o.ObservationDate) : '&mdash;'}</td>
+        <td style="padding:3px 6px; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(o.ObservationFolder || '')}">${o.ObservationFolder ? escHtml(o.ObservationFolder) : '&mdash;'}</td>
+        <td style="padding:3px 6px; white-space:nowrap;">${start}</td>
+        <td style="padding:3px 6px; white-space:nowrap;">${end}</td>
+        <td style="padding:3px 6px; white-space:nowrap; text-align:right;">${exp}</td>
+        <td style="padding:3px 6px; white-space:nowrap;">${o.Filter ? escHtml(o.Filter) : '&mdash;'}</td>
+        <td style="padding:3px 6px; white-space:nowrap; text-align:right;">${o.TotalExposures ?? '&mdash;'}</td>
+        <td style="padding:3px 6px; white-space:nowrap; text-align:right;">${o.GoodLights ?? '&mdash;'}</td>
+        <td style="padding:3px 6px; white-space:nowrap; text-align:right;">${integ}</td>
+        <td style="padding:3px 6px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(notesFull)}">${notesShort ? escHtml(notesShort) : '&mdash;'}</td>
+      </tr>`;
+  }).join('');
+  return `
+    <div style="overflow-x:auto; margin-top:8px; border-top:1px solid var(--border); padding-top:6px;">
+      <table style="width:100%; border-collapse:collapse; font-size:11px;">
+        <thead>
+          <tr style="color:var(--muted); text-align:left; border-bottom:1px solid var(--border);">
+            <th style="padding:3px 6px; font-weight:600;" title="Observation Date">Date</th>
+            <th style="padding:3px 6px; font-weight:600;" title="Observation Folder">Folder</th>
+            <th style="padding:3px 6px; font-weight:600;" title="Start Time">Start</th>
+            <th style="padding:3px 6px; font-weight:600;" title="End Time">End</th>
+            <th style="padding:3px 6px; font-weight:600; text-align:right;" title="Exposure Time (seconds)">Exp</th>
+            <th style="padding:3px 6px; font-weight:600;" title="Filter">Filt</th>
+            <th style="padding:3px 6px; font-weight:600; text-align:right;" title="Total Exposures">#Exp</th>
+            <th style="padding:3px 6px; font-weight:600; text-align:right;" title="Good Lights">Good</th>
+            <th style="padding:3px 6px; font-weight:600; text-align:right;" title="Integration Time (minutes)">Integ</th>
+            <th style="padding:3px 6px; font-weight:600;" title="Notes">Notes</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+}
+
+function renderProjects(projects) {
+  const list = document.getElementById('projects-list');
+  if (!projects || projects.length === 0) {
+    list.innerHTML = '<div style="color:var(--muted); font-size:12px;">No project yet for this DSO.</div>';
+    return;
+  }
+  list.innerHTML = projects.map((p, idx) => {
+    const integStr = p.TotalIntegrationMins ? (parseFloat(p.TotalIntegrationMins) / 60).toFixed(1) + ' hrs' : '&mdash;';
+    const heading = projects.length > 1
+      ? `Project ${idx + 1} of ${projects.length}${p.IsMosaic ? ' &mdash; Mosaic' : ''}`
+      : (p.IsMosaic ? 'Project &mdash; Mosaic' : 'Project');
+    return `
+      <div style="background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px;">
+        <div style="font-weight:600; font-size:12px; color:var(--muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">${heading}</div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; font-size:13px;">
+          <div><span style="color:var(--muted); font-size:11px; display:block;">Project Folder</span>${p.ProjectFolder ? escHtml(p.ProjectFolder) : '&mdash;'}</div>
+          <div><span style="color:var(--muted); font-size:11px; display:block;">Last Observed</span>${p.MostRecentObservation ? escHtml(p.MostRecentObservation) : '&mdash;'}</div>
+          <div><span style="color:var(--muted); font-size:11px; display:block;">Total Lights</span>${p.TotalLights ?? '&mdash;'}</div>
+          <div><span style="color:var(--muted); font-size:11px; display:block;">Integration Time</span>${integStr}</div>
+        </div>
+        ${renderObservationsTable(p.Observations)}
+      </div>
+    `;
+  }).join('');
 }
 
 // ──────────────────────────────────────────────
@@ -663,7 +763,7 @@ function addCatRow(cat = {}) {
   const tbody = document.getElementById('cat-tbody');
   const tr = document.createElement('tr');
   tr.innerHTML = `
-    <td><input type="text" placeholder="e.g. M42" value="${cat.CatalogID || ''}" class="cat-id" style="text-transform:uppercase"></td>
+    <td><input type="text" placeholder="e.g. M42" value="${cat.CatalogID || ''}" class="cat-id" style="text-transform:uppercase" autocomplete="off"></td>
     <td style="text-align:center"><input type="checkbox" class="cat-primary" ${cat.IsPrimary ? 'checked' : ''}></td>
     <td><button class="btn-icon" onclick="this.closest('tr').remove()" title="Remove">&#x2715;</button></td>
   `;
@@ -746,6 +846,10 @@ async function deleteObject() {
 async function aiPopulate() {
   const dsoId = document.getElementById('f_DSOKey').value.trim().toUpperCase();
   if (!dsoId) { toast('Enter a DSO Key first', 'err'); return; }
+  if (isSolarObjectType(document.getElementById('f_ObjectTypeID').value)) {
+    toast('AI Populate is disabled for Sun/Moon \u2014 use the solar pipeline.', 'err');
+    return;
+  }
 
   const btn = document.getElementById('btn-ai');
   btn.disabled = true;
@@ -759,6 +863,7 @@ async function aiPopulate() {
   const context = {
     dso_id:             dsoId,
     primary_catalog_id: primaryCatalogID,
+    object_type_id:     document.getElementById('f_ObjectTypeID').value,
     common_name:        document.getElementById('f_CommonName').value.trim(),
     constellation:      document.getElementById('f_ConstellationID').value.trim(),
     object_size:        document.getElementById('f_ObjectSize').value.trim(),
@@ -780,7 +885,6 @@ async function aiPopulate() {
     const fieldMap = {
       CommonName:      'f_CommonName',
       ObjectTypeID:    'f_ObjectTypeID',
-      ConstellationID: 'f_ConstellationID',
       RAHours:         'f_RAHours',
       DecDegrees:      'f_DecDegrees',
       Magnitude:       'f_Magnitude',
@@ -797,6 +901,41 @@ async function aiPopulate() {
         populated++;
       }
     });
+
+    // Constellation needs special handling: the AI-returned code might not
+    // exist yet as a dropdown option if this constellation has never been
+    // used before. In that case, auto-add it (same lookup as "+ Add new
+    // constellation") instead of silently failing to populate.
+    if (f.ConstellationID && document.getElementById('f_ConstellationID').value.trim() === '') {
+      const sel = document.getElementById('f_ConstellationID');
+      sel.value = f.ConstellationID;
+      if (sel.value === f.ConstellationID) {
+        populated++;
+      } else {
+        try {
+          const cRes  = await apiFetch('api_constellation_add.php', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name: f.ConstellationID }),
+          });
+          const cData = await cRes.json();
+          if (cData.success) {
+            await loadConstellations(cData.ConstellationID);
+            populated++;
+          } else {
+            console.warn('Could not auto-add constellation:', cData.error);
+          }
+        } catch (e) {
+          console.warn('Constellation auto-add failed:', e);
+        }
+      }
+    }
+
+    // Refresh the formatted RA/Dec display boxes -- AI Populate only fills
+    // the underlying hidden decimal inputs, so without this the formatted
+    // text stays blank until the object is reselected.
+    setRADisplay(document.getElementById('f_RAHours').value || null);
+    setDecDisplay(document.getElementById('f_DecDegrees').value || null);
+
     if (f.SocialBlurb) {
       document.getElementById('f_SocialBlurb').value = f.SocialBlurb;
       populated++;
@@ -864,6 +1003,10 @@ async function aiGenerateBlurb() {
 async function syncFolder(extraHints = {}) {
   const dsoKey = document.getElementById('f_DSOKey').value.trim();
   if (!dsoKey) { toast('Save the DSO first before syncing.', 'err'); return; }
+  if (isSolarObjectType(document.getElementById('f_ObjectTypeID').value)) {
+    toast('Sync Folder is disabled for Sun/Moon \u2014 use the solar pipeline.', 'err');
+    return;
+  }
 
   const resultPanel = document.getElementById('gi-sync-result');
   resultPanel.style.display = '';
@@ -1095,7 +1238,7 @@ function addGalleryImageCard(img = {}) {
       <div class="field">
         <label>Base Name <em style="color:var(--danger)">*</em></label>
         <input type="text" class="gi-basename-input" placeholder="e.g. m42_orion_a1228"
-               value="${escHtml(baseName)}">
+               value="${escHtml(baseName)}" autocomplete="off">
       </div>
       <div class="field">
         <label>Palette</label>
@@ -1103,27 +1246,27 @@ function addGalleryImageCard(img = {}) {
       </div>
       <div class="field">
         <label>Date Captured</label>
-        <input type="date" class="gi-date" value="${escHtml(img.DateCaptured || '')}">
+        <input type="date" class="gi-date" value="${escHtml(img.DateCaptured || '')}" autocomplete="off">
       </div>
       <div class="field">
         <label>Caption</label>
         <input type="text" class="gi-caption" placeholder="Optional display caption"
-               value="${escHtml(img.Caption || '')}">
+               value="${escHtml(img.Caption || '')}" autocomplete="off">
       </div>
       <div class="field">
         <label>Copyright</label>
         <input type="text" class="gi-copyright" placeholder="e.g. Carl Smith"
-               value="${escHtml(img.Copyright || '')}">
+               value="${escHtml(img.Copyright || '')}" autocomplete="off">
       </div>
       <div class="field">
         <label>Equipment</label>
         <input type="text" class="gi-equipment" placeholder="e.g. S30"
-               value="${escHtml(equipment)}">
+               value="${escHtml(equipment)}" autocomplete="off">
       </div>
       <div class="field">
         <label>Session Directory</label>
         <input type="text" class="gi-sessiondir" placeholder="e.g. 20251108_165x60s_S30"
-               value="${escHtml(sessionDir)}">
+               value="${escHtml(sessionDir)}" autocomplete="off">
       </div>
       <div class="field">
         <label>Photographer</label>
@@ -1135,7 +1278,7 @@ function addGalleryImageCard(img = {}) {
       <div class="field gi-attribution-row ${isOwn === 0 ? 'visible' : ''}">
         <label>Attribution</label>
         <input type="text" class="gi-attribution" placeholder="Credit line for display"
-               value="${escHtml(img.Attribution || '')}">
+               value="${escHtml(img.Attribution || '')}" autocomplete="off">
       </div>
     </div>
     <div class="gi-card-actions">
@@ -1151,7 +1294,7 @@ function addGalleryImageCard(img = {}) {
       <div style="flex:1"></div>
       <label style="font-size:12px; color:var(--muted);">Order</label>
       <input type="number" class="gi-order-input" value="${sortOrder}" min="0" step="1"
-             style="width:60px; font-size:12px; padding:3px 6px;"
+             style="width:60px; font-size:12px; padding:3px 6px;" autocomplete="off"
              onchange="this.closest('.gi-card').querySelector('.gi-sortorder').value = this.value">
       <button class="btn" style="font-size:11px; padding:3px 10px; border-color:var(--danger); color:var(--danger);"
               onclick="removeGalleryImageCard(this)">Remove</button>
@@ -1229,11 +1372,11 @@ function addLinkRow(lnk = {}) {
   tr.dataset.linkId = lnk.LinkID || '';
   tr.innerHTML = `
     <td><input type="text" class="lnk-label" placeholder="e.g. Wikipedia"
-               value="${escHtml(lnk.Label || '')}"></td>
+               value="${escHtml(lnk.Label || '')}" autocomplete="off"></td>
     <td><input type="url"  class="lnk-url"   placeholder="https://"
-               value="${escHtml(lnk.URL || '')}"></td>
+               value="${escHtml(lnk.URL || '')}" autocomplete="off"></td>
     <td><input type="number" class="lnk-order" value="${lnk.SortOrder || 0}"
-               min="0" step="1" style="width:54px;"></td>
+               min="0" step="1" style="width:54px;" autocomplete="off"></td>
     <td><button class="btn-icon" onclick="this.closest('tr').remove()" title="Remove">&#x2715;</button></td>
   `;
   tbody.appendChild(tr);

@@ -36,7 +36,7 @@ I need precise astronomical data for the constellation "{$name}".
 
 Return ONLY a JSON object with these exact keys — no explanation, no markdown:
 {
-  "ConstellationID": "3-letter IAU abbreviation, uppercase, e.g. SCO",
+  "ConstellationID": "3-letter IAU abbreviation, PLAIN ASCII letters A-Z only (no accents, diacritics, or special characters), uppercase, e.g. SCO",
   "Name": "Official English name, e.g. Scorpius",
   "GenitiveName": "Latin genitive, e.g. Scorpii",
   "RightAscensionHours": <decimal hours of the approximate center, e.g. 16.9>,
@@ -86,7 +86,20 @@ PROMPT;
         throw new Exception('AI returned unparseable data: ' . $json_text);
     }
 
-    $cid  = strtoupper(trim($fields['ConstellationID']));
+    $cid_raw   = trim($fields['ConstellationID'] ?? '');
+    // Transliterate any accented/diacritic characters to plain ASCII (e.g.
+    // Boötes' "ö" -> "o") before uppercasing -- PHP's strtoupper() is not
+    // multibyte-safe and will silently leave characters like "ö" untouched,
+    // producing an invalid ConstellationID that can't match any dropdown
+    // option or IAU-standard code.
+    $cid_ascii = @iconv('UTF-8', 'ASCII//TRANSLIT', $cid_raw);
+    if ($cid_ascii === false) $cid_ascii = $cid_raw;
+    $cid = strtoupper(preg_replace('/[^A-Za-z]/', '', $cid_ascii));
+
+    if (strlen($cid) !== 3) {
+        throw new Exception('AI returned an invalid constellation abbreviation: "' . $cid_raw . '" (expected a 3-letter IAU code)');
+    }
+
     $cname = trim($fields['Name'] ?? $name);
     $gen  = trim($fields['GenitiveName'] ?? null);
     $ra   = isset($fields['RightAscensionHours'])  ? (float)$fields['RightAscensionHours']  : null;

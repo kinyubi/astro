@@ -150,13 +150,54 @@ try {
 
         // ── Projects (informational; full Project-editing UI is Phase 2) ──────
         $proj_stmt = $db->prepare("
-            SELECT ProjectID, DSOKey, ProjectFolder, IsMosaic, Notes
-            FROM Projects
-            WHERE DSOKey IN ($placeholders)
-            ORDER BY DSOKey, ProjectID
+            SELECT
+                p.ProjectID,
+                p.DSOKey,
+                p.ProjectFolder,
+                p.IsMosaic,
+                p.Notes,
+                (SELECT MAX(ObservationDate) FROM Observations WHERE ProjectID = p.ProjectID) AS MostRecentObservation,
+                (SELECT SUM(GoodLights) FROM Observations WHERE ProjectID = p.ProjectID) AS TotalLights,
+                (SELECT SUM(IntegrationMins)
+                    FROM Observations WHERE ProjectID = p.ProjectID) AS TotalIntegrationMins
+            FROM Projects p
+            WHERE p.DSOKey IN ($placeholders)
+            ORDER BY p.DSOKey, p.ProjectID
         ");
         $proj_stmt->execute($keys);
         $all_projects = $proj_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        // ── Observations (nested read-only list under each Project) ───────────
+        $obs_stmt = $db->prepare("
+            SELECT
+                o.ObservationID,
+                o.ProjectID,
+                o.ObservationDate,
+                o.ObservationFolder,
+                o.StartTime,
+                o.EndTime,
+                o.ExposureTimeSecs,
+                o.Filter,
+                o.TotalExposures,
+                o.GoodLights,
+                o.IntegrationMins,
+                o.Notes
+            FROM Observations o
+            JOIN Projects p ON o.ProjectID = p.ProjectID
+            WHERE p.DSOKey IN ($placeholders)
+            ORDER BY o.ProjectID, o.ObservationDate DESC
+        ");
+        $obs_stmt->execute($keys);
+        $all_obs = $obs_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+        $obs_by_project = [];
+        foreach ($all_obs as $obs) {
+            $obs_by_project[$obs['ProjectID']][] = $obs;
+        }
+        foreach ($all_projects as &$proj) {
+            $proj['Observations'] = $obs_by_project[$proj['ProjectID']] ?? [];
+        }
+        unset($proj);
 
         $projects_by_key = [];
         foreach ($all_projects as $proj) {

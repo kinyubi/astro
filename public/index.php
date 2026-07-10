@@ -32,11 +32,17 @@ try {
         $db = new PDO('sqlite:' . $dbPath);
         $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 
-        // One row per GalleryImages entry, joined to object metadata
+        // One row per GalleryImages entry, joined to its Project and object metadata.
+        // Grouping key is now ProjectID, not DSOKey -- a DSO can have more than one
+        // Project (e.g. a standard framing and a separate mosaic framing), and each
+        // now gets its own gallery card. See DB_REWORK_PLAN.md.
         $stmt = $db->query("
             SELECT
                 gi.GalleryImageID,
                 gi.DSOKey,
+                gi.ProjectID,
+                p.ProjectFolder,
+                p.IsMosaic,
                 gi.BaseName,
                 gi.Caption,
                 gi.PaletteID,
@@ -46,7 +52,6 @@ try {
                 gi.IsOwn,
                 gi.Attribution,
                 gi.Equipment,
-                gi.IsMosaic,
                 gi.SortOrder,
                 gi.IsFeature,
                 o.CommonName,
@@ -60,10 +65,11 @@ try {
                 c.CatalogID     AS PrimaryCatalogID
             FROM GalleryImages gi
             JOIN Objects o ON gi.DSOKey = o.DSOKey
+            LEFT JOIN Projects p            ON gi.ProjectID      = p.ProjectID
             LEFT JOIN PaletteTreatments pt  ON gi.PaletteID      = pt.PaletteID
             LEFT JOIN CatalogIDs c          ON o.DSOKey          = c.DSOKey AND c.IsPrimary = 1
             LEFT JOIN Constellations con     ON o.ConstellationID = con.ConstellationID
-            ORDER BY o.CommonName, o.DSOKey, gi.SortOrder, gi.GalleryImageID
+            ORDER BY o.CommonName, o.DSOKey, p.IsMosaic, gi.SortOrder, gi.GalleryImageID
         ");
         $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -78,15 +84,21 @@ try {
             $allLinks[$lnk['DSOKey']][] = ['label' => $lnk['Label'], 'url' => $lnk['URL']];
         }
 
-        // Group by DSOKey — one gallery card per DSO
-        $byDso = [];
+        // Group by ProjectID -- one gallery card per Project, not per DSO.
+        // Rows with no ProjectID (shouldn't normally happen post-migration, but
+        // guards against a newly-added image not yet assigned one) fall back to
+        // grouping by DSOKey so they still show up rather than being dropped.
+        $byProject = [];
         foreach ($rows as $row) {
-            $key = $row['DSOKey'];
-            if (!isset($byDso[$key])) {
-                $displayName = ($row['CommonName'] ?? $key) . ' (' . $key . ')';
-                $byDso[$key] = [
-                    'dsoKey'      => $key,
+            $groupKey = $row['ProjectID'] !== null ? ('p' . $row['ProjectID']) : ('dso_' . $row['DSOKey']);
+            if (!isset($byProject[$groupKey])) {
+                $displayName = ($row['CommonName'] ?? $row['DSOKey']) . ' (' . $row['DSOKey'] . ')';
+                $byProject[$groupKey] = [
+                    'groupKey'    => $groupKey,
+                    'projectId'   => $row['ProjectID'] !== null ? (int)$row['ProjectID'] : null,
+                    'dsoKey'      => $row['DSOKey'],
                     'displayName' => $displayName,
+                    'isMosaic'    => (int)($row['IsMosaic'] ?? 0),
                     'info'        => [
                         'CommonName'       => $row['CommonName'],
                         'ConstellationID'  => $row['ConstellationID'],
@@ -98,14 +110,14 @@ try {
                         'DecDegrees'       => $row['DecDegrees'],
                         'PrimaryCatalogID' => $row['PrimaryCatalogID'],
                     ],
-                    'links'       => $allLinks[$key] ?? [],
+                    'links'       => $allLinks[$row['DSOKey']] ?? [],
                     'images'      => [],
                 ];
             }
             $bn = $row['BaseName'];
             $wall4kPath          = 'images/wall4k/'          . $bn . '_4k.jpg';
             $wall4kAnnotatedPath = 'images/annotated_wall4k/' . $bn . '_4k_annotated.jpg';
-            $byDso[$key]['images'][] = [
+            $byProject[$groupKey]['images'][] = [
                 'galleryImageID' => (int)$row['GalleryImageID'],
                 'baseName'       => $bn,
                 'caption'        => $row['Caption'],
@@ -116,7 +128,6 @@ try {
                 'isOwn'          => (int)$row['IsOwn'],
                 'attribution'    => $row['Attribution'],
                 'equipment'      => $row['Equipment'],
-                'isMosaic'       => (int)$row['IsMosaic'],
                 'isFeature'      => (int)$row['IsFeature'],
                 'thumbPath'      => 'images/thumbs/' . $bn . '_thumb.jpg',
                 'favPath'        => 'images/fav/'    . $bn . '_fav.jpg',
@@ -127,16 +138,20 @@ try {
             ];
         }
 
-        // Sort DSOs by display name; ensure featured image is first within each DSO
-        uasort($byDso, fn($a, $b) => strcmp($a['displayName'], $b['displayName']));
-        foreach ($byDso as &$dso) {
+        // Sort by display name, then non-mosaic before mosaic for the same DSO;
+        // ensure featured image is first within each card.
+        uasort($byProject, function ($a, $b) {
+            $cmp = strcmp($a['displayName'], $b['displayName']);
+            return $cmp !== 0 ? $cmp : ($a['isMosaic'] - $b['isMosaic']);
+        });
+        foreach ($byProject as &$dso) {
             usort($dso['images'], fn($a, $b) =>
                 $b['isFeature'] - $a['isFeature'] ?: $a['galleryImageID'] - $b['galleryImageID']
             );
         }
         unset($dso);
 
-        $galleryItems = array_values($byDso);
+        $galleryItems = array_values($byProject);
     }
 } catch (Exception $e) {
     // Fall back to empty gallery
@@ -628,6 +643,21 @@ $solarJson = json_encode(array_values($solarObjects));
             border: 1px solid rgba(74,158,255,0.4);
             border-radius: 10px;
             font-size: 0.72em;
+            padding: 2px 8px;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* Mosaic badge on gallery card (project-level) */
+        .gallery-mosaic-badge {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            background: rgba(240,160,48,0.85);
+            color: #1a1200;
+            border-radius: 10px;
+            font-size: 0.68em;
+            font-weight: 600;
             padding: 2px 8px;
             pointer-events: none;
             z-index: 2;
@@ -1145,6 +1175,14 @@ $solarJson = json_encode(array_values($solarObjects));
                 wrapper.appendChild(badge);
             }
 
+            // Mosaic badge (project-level)
+            if (item.isMosaic) {
+                const mosaicBadge = document.createElement('div');
+                mosaicBadge.className = 'gallery-mosaic-badge';
+                mosaicBadge.textContent = 'Mosaic';
+                wrapper.appendChild(mosaicBadge);
+            }
+
             const info = document.createElement('div');
             info.className = 'gallery-item-info';
             const title = document.createElement('h3');
@@ -1312,8 +1350,8 @@ $solarJson = json_encode(array_values($solarObjects));
             captionParts.push(`<span class="caption-date"><span class="caption-label">Date Taken:</span> ${d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>`);
         }
 
-        // Mosaic tag
-        if (img.isMosaic) captionParts.push(`<span class="caption-mosaic">Mosaic</span>`);
+        // Mosaic tag (project-level now, not per-image)
+        if (item.isMosaic) captionParts.push(`<span class="caption-mosaic">Mosaic</span>`);
 
         // Photographer & copyright
         const currentYear = new Date().getFullYear();
@@ -1587,7 +1625,7 @@ $solarJson = json_encode(array_values($solarObjects));
             return;
         }
         searchDropdown.innerHTML = results.map((item, idx) => {
-            const galleryIdx = galleryData.findIndex(g => g.dsoKey === item.dsoKey);
+            const galleryIdx = galleryData.findIndex(g => g.groupKey === item.groupKey);
             const featImg    = item.images[0];
             const thumbSrc   = featImg ? (featImg.thumbPath || featImg.favPath) : '';
             return `
@@ -1656,7 +1694,7 @@ $solarJson = json_encode(array_values($solarObjects));
             case 'Enter':
                 e.preventDefault();
                 if (highlightedIndex >= 0) {
-                    const galleryIdx = galleryData.findIndex(g => g.dsoKey === searchResults[highlightedIndex].dsoKey);
+                    const galleryIdx = galleryData.findIndex(g => g.groupKey === searchResults[highlightedIndex].groupKey);
                     openModal(galleryIdx);
                     closeSearchDropdown();
                 }

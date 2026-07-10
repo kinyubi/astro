@@ -176,6 +176,21 @@ try {
         exit;
     }
 
+    // ── Solar guard ─────────────────────────────────────────────────────
+    // Sun/Moon images are routed to public/images/solar/ by the solar
+    // pipeline (copy_solar_to_web()), not public/images/fav/, so the fav-dir
+    // scan below can never find anything for them. Rather than silently
+    // returning zero results, tell the caller explicitly.
+    $stmt = $db->prepare("SELECT ObjectTypeID FROM Objects WHERE DSOKey = ?");
+    $stmt->execute([$dso_key]);
+    $object_type_id = $stmt->fetchColumn();
+
+    if ($object_type_id === 'SOLAR_SYSTEM') {
+        http_response_code(400);
+        echo json_encode(['error' => "Sync Folder is not available for solar objects (Sun/Moon) -- solar images are handled by the solar pipeline, not the standard fav/ scan."]);
+        exit;
+    }
+
     if (count($projects) === 1) {
         $project_id     = (int)$projects[0]['ProjectID'];
         $project_folder = $projects[0]['ProjectFolder'];

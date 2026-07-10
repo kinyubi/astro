@@ -243,9 +243,25 @@ def calculate_visibility(specified_date=None, profile_name='default'):
             LEFT JOIN Constellations con ON o.ConstellationID = con.ConstellationID
             WHERE o.RAHours IS NOT NULL
               AND o.DecDegrees IS NOT NULL
-              AND o.ObjectTypeID NOT IN ('SOLAR_SYSTEM', 'SINGLE_STAR')
+              AND o.ObjectTypeID NOT IN ('SOLAR_SYSTEM', 'SINGLE_STAR', 'DOUBLE_STAR', 'VARIABLE_STAR')
         """)
         dso_rows = cur.fetchall()
+
+        cur.execute("""
+            SELECT
+                o.DSOKey,
+                o.CommonName,
+                con.Name     AS Constellation,
+                o.Magnitude,
+                o.RAHours,
+                o.DecDegrees
+            FROM Objects o
+            LEFT JOIN Constellations con ON o.ConstellationID = con.ConstellationID
+            WHERE o.RAHours IS NOT NULL
+              AND o.DecDegrees IS NOT NULL
+              AND o.ObjectTypeID IN ('SINGLE_STAR', 'DOUBLE_STAR', 'VARIABLE_STAR')
+        """)
+        star_rows = cur.fetchall()
         conn.close()
 
         for row in dso_rows:
@@ -310,6 +326,66 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                         'end_az': end_az,
                         'sq_arcmins': row['SqArcMins']
                     })
+        # ── Alignment Stars — same viewing-window logic, separate list ──────
+        visible_stars = []
+        for row in star_rows:
+            name          = row['DSOKey']
+            aka           = row['CommonName'] or name
+            constellation = row['Constellation'] or ''
+            magnitude     = row['Magnitude'] or 0.0
+
+            try:
+                star = Star(ra=Angle(hours=float(row['RAHours'])),
+                            dec=Angle(degrees=float(row['DecDegrees'])))
+            except Exception as e:
+                log.append(f"Error building star for {name}: {e}")
+                continue
+
+            astrometric = observer_pos.at(time_range).observe(star)
+            alt, az, _ = astrometric.apparent().altaz()
+
+            is_visible = (alt.degrees >= minimum_altitude) & \
+                         (az.degrees >= azimuth_minimum_degrees) & \
+                         (az.degrees <= azimuth_maximum_degrees)
+
+            visible_indices = np.where(is_visible)[0]
+
+            if len(visible_indices) > 0:
+                start_idx = visible_indices[0]
+                end_idx   = visible_indices[-1]
+
+                obj_start = time_range[start_idx].astimezone(tz)
+                obj_end   = time_range[end_idx].astimezone(tz)
+                time_span = (obj_end - obj_start).total_seconds() / 60
+                start_minutes = obj_start.hour * 60 + obj_start.minute
+                if obj_start.hour < 12:
+                    start_minutes += 24 * 60
+                end_minutes = obj_end.hour * 60 + obj_end.minute
+                if obj_end.hour < 12:
+                    end_minutes += 24 * 60
+
+                start_alt = alt.degrees[start_idx]
+                start_az  = az.degrees[start_idx]
+                end_alt   = alt.degrees[end_idx]
+                end_az    = az.degrees[end_idx]
+
+                if time_span >= 60:
+                    visible_stars.append({
+                        'name': name,
+                        'aka': aka,
+                        'start': obj_start,
+                        'start_minutes': start_minutes,
+                        'end': obj_end,
+                        'end_minutes': end_minutes,
+                        'duration': time_span,
+                        'magnitude': magnitude,
+                        'constellation': constellation,
+                        'start_alt': start_alt,
+                        'start_az': start_az,
+                        'end_alt': end_alt,
+                        'end_az': end_az,
+                    })
+
         if log:
             with open('dso_visibility.log', 'a') as log_file:
                 for entry in log:
@@ -474,6 +550,51 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     </table>
 """
 
+    if not visible_stars:
+        alignment_table_html = """
+    <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Alignment Stars</h2>
+    <p style="color:#b8c5d6;">No alignment stars meet the visibility criteria for this date.</p>
+"""
+    else:
+        alignment_table_html = """
+    <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Alignment Stars</h2>
+    <p style="color:#b8c5d6;">Bright stars visible tonight within your viewing window &mdash; useful for scope alignment (e.g. Celestron SkyAlign).</p>
+    <div class="controls" style="margin-top:10px;">
+        <label for="starSortOrder">Sort by:</label>
+        <select id="starSortOrder" onchange="sortStarTable()">
+            <option value="duration">Duration (longest first)</option>
+            <option value="start">Start Time (earliest first)</option>
+            <option value="end">End Time (earliest first)</option>
+            <option value="start_az">Starting Azimuth (lowest first)</option>
+            <option value="start_alt">Starting Altitude (highest first)</option>
+            <option value="magnitude">Magnitude (brightest first)</option>
+            <option value="name">Name (A-Z)</option>
+        </select>
+    </div>
+    <table id="starTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Also Known As</th>
+                <th>Start</th>
+                <th>Start Alt</th>
+                <th>Start Az</th>
+                <th>End</th>
+                <th>End Alt</th>
+                <th>End Az</th>
+                <th>Duration</th>
+                <th>Mag</th>
+                <th>Constellation</th>
+            </tr>
+        </thead>
+        <tbody id="starTableBody">
+        </tbody>
+    </table>
+    <div class="info" style="margin-top: 20px;">
+        <p><strong>Total alignment stars visible:</strong> <span id="starTotalCount"></span></p>
+    </div>
+"""
+
     def safe_float(value, default=0.0):
         if value is None or value == '':
             return default
@@ -521,6 +642,22 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         'end_az': safe_float(obj.get('end_az')),
         'sq_arcmins': safe_float(obj.get('sq_arcmins'))
     } for obj in visible_objects])
+
+    stars_json = json.dumps([{
+        'name': safe_str(obj.get('name', '')),
+        'aka': safe_str(obj.get('aka', '')),
+        'start': safe_time_str(obj.get('start')),
+        'start_minutes': int(obj.get('start_minutes') or 0),
+        'end': safe_time_str(obj.get('end')),
+        'end_minutes': int(obj.get('end_minutes') or 0),
+        'duration': safe_float(obj.get('duration')),
+        'magnitude': safe_float(obj.get('magnitude')),
+        'constellation': safe_str(obj.get('constellation')),
+        'start_alt': safe_float(obj.get('start_alt')),
+        'start_az': safe_float(obj.get('start_az')),
+        'end_alt': safe_float(obj.get('end_alt')),
+        'end_az': safe_float(obj.get('end_az')),
+    } for obj in visible_stars])
 
 
     # Output HTML
@@ -841,7 +978,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         <p><strong>Total visible objects:</strong> <span id="totalCount"></span></p>
         <p><strong>&#9733;</strong> = Priority target (not recently observed)</p>
     </div>
-""" + forecast_table_html + """
+""" + alignment_table_html + forecast_table_html + """
     <script>
         const objectsData = """ + objects_json + """;
 
@@ -918,6 +1055,71 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         // Initial render with default sort (duration)
         sortTable();
 
+        // -- Alignment Stars table -------------------------------------------
+        const starsData = """ + stars_json + """;
+
+        function renderStarTable(data) {
+            const tbody = document.getElementById('starTableBody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            data.forEach(obj => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td><strong>${obj.name}</strong></td>
+                    <td>${obj.aka}</td>
+                    <td class="time">${obj.start}</td>
+                    <td>${obj.start_alt.toFixed(0)}&deg;</td>
+                    <td>${obj.start_az.toFixed(0)}&deg;</td>
+                    <td class="time">${obj.end}</td>
+                    <td>${obj.end_alt.toFixed(0)}&deg;</td>
+                    <td>${obj.end_az.toFixed(0)}&deg;</td>
+                    <td class="duration">${formatDuration(obj.duration)}</td>
+                    <td>${obj.magnitude.toFixed(1)}</td>
+                    <td>${obj.constellation}</td>
+                `;
+            });
+
+            const totalEl = document.getElementById('starTotalCount');
+            if (totalEl) totalEl.textContent = data.length;
+        }
+
+        function sortStarTable() {
+            const sortSelect = document.getElementById('starSortOrder');
+            if (!sortSelect) return;
+            const sortBy = sortSelect.value;
+            const sortedData = [...starsData];
+
+            switch(sortBy) {
+                case 'duration':
+                    sortedData.sort((a, b) => b.duration - a.duration);
+                    break;
+                case 'start':
+                    sortedData.sort((a, b) => a.start_minutes - b.start_minutes);
+                    break;
+                case 'end':
+                    sortedData.sort((a, b) => a.end_minutes - b.end_minutes);
+                    break;
+                case 'start_az':
+                    sortedData.sort((a, b) => a.start_az - b.start_az);
+                    break;
+                case 'start_alt':
+                    sortedData.sort((a, b) => b.start_alt - a.start_alt);
+                    break;
+                case 'magnitude':
+                    sortedData.sort((a, b) => a.magnitude - b.magnitude);
+                    break;
+                case 'name':
+                    sortedData.sort((a, b) => a.name.localeCompare(b.name));
+                    break;
+            }
+
+            renderStarTable(sortedData);
+        }
+
+        // Initial render with default sort (duration)
+        sortStarTable();
+
         // -- Visibility Dates table ----------------------------------------
         const forecastData = """ + forecast_json + """;
 
@@ -987,13 +1189,13 @@ async function showDSOInfo(dsoKey) {
       return;
     }
     const d = json.data;
-    title.textContent = d.DSOKey + (d.CommonName ? ' \u2013 ' + d.CommonName : '');
+    title.textContent = d.DSOKey + (d.CommonName ? ' - ' + d.CommonName : '');
 
-    function fv(v) { return (v !== null && v !== undefined && v !== '') ? String(v) : '\u2014'; }
-    function fn(v, dec) { return (v !== null && v !== undefined && v !== '') ? parseFloat(v).toFixed(dec ?? 2) : '\u2014'; }
+    function fv(v) { return (v !== null && v !== undefined && v !== '') ? String(v) : '-'; }
+    function fn(v, dec) { return (v !== null && v !== undefined && v !== '') ? parseFloat(v).toFixed(dec ?? 2) : '-'; }
 
     function raToHMS(h) {
-      if (h === null || h === undefined || h === '' || isNaN(h)) return '&mdash;';
+      if (h === null || h === undefined || h === '' || isNaN(h)) return '-';
       h = parseFloat(h);
       const hh = Math.floor(h);
       const rem = (h - hh) * 60;
@@ -1003,7 +1205,7 @@ async function showDSOInfo(dsoKey) {
     }
 
     function decToDMS(d) {
-      if (d === null || d === undefined || d === '' || isNaN(d)) return '&mdash;';
+      if (d === null || d === undefined || d === '' || isNaN(d)) return '-';
       d = parseFloat(d);
       const sign = d < 0 ? '&minus;' : '+';
       const abs = Math.abs(d);
@@ -1054,24 +1256,42 @@ async function showDSOInfo(dsoKey) {
         <div class="modal-field"><span class="modal-field-label">Right Ascension</span><span class="modal-field-value" style="font-family:monospace;">${raToHMS(d.RAHours)}</span></div>
         <div class="modal-field"><span class="modal-field-label">Declination</span><span class="modal-field-value" style="font-family:monospace;">${decToDMS(d.DecDegrees)}</span></div>
         <div class="modal-field"><span class="modal-field-label">Magnitude</span><span class="modal-field-value">${fn(d.Magnitude, 1)}</span></div>
-        <div class="modal-field"><span class="modal-field-label">Size (arcmin&sup2;)</span><span class="modal-field-value">${d.SqArcMins ? parseFloat(d.SqArcMins).toFixed(0) : '\u2014'}</span></div>
+        <div class="modal-field"><span class="modal-field-label">Size (arcmin&sup2;)</span><span class="modal-field-value">${d.SqArcMins ? parseFloat(d.SqArcMins).toFixed(0) : '-'}</span></div>
         <div class="modal-field modal-full"><span class="modal-field-label">Object Size</span><span class="modal-field-value">${fv(d.ObjectSize)}</span></div>
         ${wantBetterHtml}
       </div>
     </div>`;
 
-    // Observation & Project
-    const integStr = d.TotalIntegrationMins ? (parseFloat(d.TotalIntegrationMins)/60).toFixed(1) + ' hrs' : '\u2014';
-    html += `<div class="modal-section">
-      <div class="modal-section-header">Observation &amp; Project</div>
-      <div class="modal-section-body">
-        <div class="modal-field"><span class="modal-field-label">Project Folder</span><span class="modal-field-value">${fv(d.ProjectFolder)}</span></div>
-        <div class="modal-field"><span class="modal-field-label">Mosaic?</span><span class="modal-field-value">${d.IsMosaic ? 'Yes' : 'No'}</span></div>
-        <div class="modal-field"><span class="modal-field-label">Last Observed</span><span class="modal-field-value">${fv(d.MostRecentObservation)}</span></div>
-        <div class="modal-field"><span class="modal-field-label">Total Lights</span><span class="modal-field-value">${fv(d.TotalLights)}</span></div>
-        <div class="modal-field"><span class="modal-field-label">Integration Time</span><span class="modal-field-value">${integStr}</span></div>
-      </div>
-    </div>`;
+    // Observation & Project -- a DSO can have more than one Project (e.g. a
+    // standard framing and a separate mosaic framing), so render one block
+    // per project rather than assuming exactly one.
+    const projects = d.Projects || [];
+    if (projects.length === 0) {
+      html += `<div class="modal-section">
+        <div class="modal-section-header">Observation &amp; Project</div>
+        <div class="modal-section-body" style="grid-template-columns:1fr;">
+          <div class="modal-field"><span class="modal-field-value" style="color:#8b9dc3;">No project yet for this DSO.</span></div>
+        </div>
+      </div>`;
+    } else {
+      projects.forEach((p, idx) => {
+        const integStr = p.TotalIntegrationMins ? (parseFloat(p.TotalIntegrationMins)/60).toFixed(1) + ' hrs' : '-';
+        const mosaicSuffix = p.IsMosaic ? ' - Mosaic' : '';
+        const header = projects.length > 1
+          ? ('Project ' + (idx + 1) + ' of ' + projects.length + mosaicSuffix)
+          : ('Observation &amp; Project' + mosaicSuffix);
+        html += `<div class="modal-section">
+          <div class="modal-section-header">${header}</div>
+          <div class="modal-section-body">
+            <div class="modal-field"><span class="modal-field-label">Project Folder</span><span class="modal-field-value">${fv(p.ProjectFolder)}</span></div>
+            <div class="modal-field"><span class="modal-field-label">Mosaic?</span><span class="modal-field-value">${p.IsMosaic ? 'Yes' : 'No'}</span></div>
+            <div class="modal-field"><span class="modal-field-label">Last Observed</span><span class="modal-field-value">${fv(p.MostRecentObservation)}</span></div>
+            <div class="modal-field"><span class="modal-field-label">Total Lights</span><span class="modal-field-value">${fv(p.TotalLights)}</span></div>
+            <div class="modal-field"><span class="modal-field-label">Integration Time</span><span class="modal-field-value">${integStr}</span></div>
+          </div>
+        </div>`;
+      });
+    }
 
     // Notes
     if (d.Notes) {
@@ -1147,7 +1367,7 @@ async function submitQuickAdd() {
 
   btn.disabled = true;
   status.style.color = '#7ec8a3';
-  status.textContent = 'Looking up ' + dsoKey + '\u2026';
+  status.textContent = 'Looking up ' + dsoKey + '...';
 
   try {
     const res  = await fetch('/admin/api_quickadd.php', {
@@ -1166,7 +1386,7 @@ async function submitQuickAdd() {
 
     if (data.success && data.created) {
       const name = data.CommonName ? data.CommonName + ' (' + dsoKey + ')' : dsoKey;
-      status.textContent = name + ' added! Rebuilding visibility report\u2026';
+      status.textContent = name + ' added! Rebuilding visibility report...';
       setTimeout(() => {
         window.location.href = '/vis?date={target_date_str}&profile={profile_name}&rebuild=1';
       }, 1200);

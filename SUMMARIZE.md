@@ -349,101 +349,131 @@ Carl noticed the Observation & Project section was blank for LDN1228 (Fighting D
 
 **Root cause:** `vw_GalleryObjects` (read by `public/api/dso.php`) pulls `ProjectFolder`, `IsMosaic`, and `MostRecentObservation` exclusively via `LEFT JOIN Projects p ON o.DSOKey = p.DSOKey AND p.Status = 'ACTIVE'` (plus an `Observations` subquery keyed on `p.ProjectID`). LDN1228 has no row in `Projects` at all, so all three fields returned NULL — even though `Objects.ProjectFolder`, `Objects.IsMosaic`, and `Objects.MostRecentObservation` (legacy columns, pre-dating the `Projects`/`Observations` schema) are populated. Confirmed via direct DB inspection that **11 DSOs total** have this same legacy-only pattern: IC1396, NGC7380, NGC7635, SH2-129, M87, M66, LDN1228, NGC6995, M94, C2025-R3, and one more.
 
-**`pythonscripts/migrate_view_project_fallback.py`** (new)
+**`pythonscripts/migrate_view_project_fallback.py`** (new, later superseded — see 2026-07-06)
 - Drops and recreates `vw_GalleryObjects` with `COALESCE(p.ProjectFolder, o.ProjectFolder)`, `COALESCE(p.IsMosaic, o.IsMosaic)`, and a `COALESCE` around the `MostRecentObservation` subquery, falling back to the legacy `Objects` columns whenever no `Projects` row exists.
-- `TotalLights`/`TotalIntegrationMins` have no legacy equivalent on `Objects` and remain NULL for these 11 DSOs — expected, not a bug, since no per-session data exists for them.
-- Prints the affected DSO list and asks for `y/N` confirmation before altering the view. Safe to re-run (idempotent DROP + CREATE).
-- **Status: script written, not yet confirmed run by Carl.**
 
 ### Tabled: Smarter file/folder-based inference for missing Project/Observation data
 
-Carl wants a more comprehensive script that can *derive* the missing `ProjectFolder`/`Observation` data for legacy DSOs from `MyWorks` folder names, session directory naming, and file counts (similar in spirit to the existing `migrate_add_session_dir.py` backfill), rather than just falling back to already-populated legacy columns. Carl is going to write a detailed prompt for this and revisit it in a future session — no design or code work done yet.
+Carl wants a more comprehensive script that can *derive* the missing `ProjectFolder`/`Observation` data for legacy DSOs from `MyWorks` folder names, session directory naming, and file counts. Carl was going to write a detailed prompt for this and revisit it in a future session — **this became the `audit_observations.py` work in the 2026-07-06/07 session below.**
 
 ### Feature: Remote Change Log for manual DB reconciliation
 
-Discussion started around the risk of the local/remote `astro.db` copies diverging when both are edited before the existing DB sync tool runs. Explored and rejected "always use the remote database" (SQLite isn't safe over a network share; a real fix would mean migrating to a networked engine like MySQL or wrapping the DB behind an API — both large, invasive changes with their own tradeoffs, e.g. local dev always mutating live production data).
+Discussion started around the risk of the local/remote `astro.db` copies diverging when both are edited before the existing DB sync tool runs. Explored and rejected "always use the remote database" (SQLite isn't safe over a network share; a real fix would mean migrating to a networked engine like MySQL or wrapping the DB behind an API).
 
 Carl proposed a lighter alternative instead: log every remote DB write as raw SQL so it can be manually re-applied to the local DB when a conflict is spotted, rather than running a full (lossy) two-way sync.
 
 **`public/admin/db_logger.php`** (new)
 - Provides `get_db()`: opens the PDO connection to `DB_PATH`, sets `PRAGMA foreign_keys = ON`, and installs a `LoggingPDOStatement` (extends `PDOStatement`) via `PDO::ATTR_STATEMENT_CLASS`.
-- `LoggingPDOStatement::execute()` detects `INSERT`/`UPDATE`/`DELETE` statements (regex on `queryString`), substitutes bound parameter values into the SQL text (both named `:param` and positional `?` styles supported, properly quoted via `PDO::quote()`), and appends the resulting standalone, executable statement to `C:\laragon7\www\astro\remote.log` with a timestamp comment — but only when `db_is_local()` is false (i.e. `REMOTE_ADDR` is not `127.0.0.1`/`::1`/`localhost`). `SELECT` statements are never logged; local runs never write to the log at all.
-- Carl confirmed he'll manage `remote.log` growth/rotation manually — no trimming logic included.
+- `LoggingPDOStatement::execute()` detects `INSERT`/`UPDATE`/`DELETE` statements, substitutes bound parameter values into the SQL text, and appends the resulting standalone, executable statement to `C:\laragon7\www\astro\remote.log` with a timestamp comment — but only when `db_is_local()` is false. `SELECT` statements are never logged; local runs never write to the log at all.
+- Carl confirmed he'll manage `remote.log` growth/rotation manually.
 
-**Updated to use `get_db()` instead of inline `new PDO(...)` + manual `setAttribute`/`PRAGMA`** (no other logic changed in any of these — logging is transparent):
-- `api_save.php`
-- `api_delete.php` (both the single-GalleryImage and whole-DSO delete paths)
-- `api_constellation_add.php`
-- `api_quickadd.php` (public, no-auth endpoint — `db_logger.php` determines local/remote independently rather than relying on `auth_api.php`'s `$is_local`)
-- `api_sync_folder.php`
+**Updated to use `get_db()` instead of inline `new PDO(...)`**: `api_save.php`, `api_delete.php`, `api_constellation_add.php`, `api_quickadd.php`, `api_sync_folder.php`.
 
-**Verified complete write surface before implementing:** searched all admin API files and the four Carl-specified page files (`public/index.php`, `public/vis/index.php`, `public/profiles/index.php`, `public/admin/index.php`) for raw SQL writes outside these five files — none found (`api_constellations.php`, `api_object_types.php`, `api_search.php`, `api_debug.php`, and `api_populate.php` are all read-only or don't touch the DB).
-
-- **Status: not yet tested live** — logging only activates on non-local requests, so nothing will appear in `remote.log` until this is deployed to the remote host and an edit is made there.
+- **Status: not yet tested live** — logging only activates on non-local requests.
 
 ### Key learnings
-- **Local-origin auth bypass must be added at every layer that gates access** — `auth_api.php` and `auth.php` are separate gates (API vs. page load) and each needed its own explicit local-origin check; adding it to one does not implicitly cover the other.
-- **Time-window cache validity should be checked against the *end* of the cached range, not the start** — checking `specified_date < start_date` causes the cache to be treated as stale the moment the window opens, defeating the purpose of caching for anything with an ongoing/current validity period.
-- **Schema migrations that introduce a new "source of truth" table (e.g. `Projects`) can leave orphaned legacy data on the old table (`Objects`) that queries built against the new table will silently miss** — worth an explicit audit (`LEFT JOIN ... WHERE new_table.id IS NULL`) after any such migration to catch rows that were never carried over.
-- **PDO's `PDO::ATTR_STATEMENT_CLASS`** can be used to transparently intercept every `execute()` call across a connection (e.g. for logging) without touching call sites — the custom `PDOStatement` subclass needs a `protected` (not `private`) constructor so PDO's internal instantiation can reach it.
+- **Local-origin auth bypass must be added at every layer that gates access** — `auth_api.php` and `auth.php` are separate gates.
+- **Time-window cache validity should be checked against the *end* of the cached range, not the start.**
+- **Schema migrations that introduce a new "source of truth" table can leave orphaned legacy data on the old table** — worth an explicit audit after any such migration.
+- **PDO's `PDO::ATTR_STATEMENT_CLASS`** can transparently intercept every `execute()` call across a connection — the custom `PDOStatement` subclass needs a `protected` (not `private`) constructor.
 
 ---
 
-## Session: 2026-07-06
+## Session: 2026-07-06/07 (DB Rework + Observation Audit tooling)
 
 ### Design: DB Rework — "Project is the top of the hierarchy"
 
-Carl brought a draft spec (`CLAUDE_PROMPT_2026_0704.md`) for a larger DB rework. Extensive back-and-forth resolved every open question; the final design lives in **`DB_REWORK_PLAN.md`** (new, at project root) rather than the original draft, which it supersedes.
+Carl brought a draft spec (`CLAUDE_PROMPT_2026_0704.md`) for a larger DB rework. Extensive back-and-forth resolved every open question; the final design lives in **`DB_REWORK_PLAN.md`** (project root), which supersedes the original draft.
 
-**Core model change:** Project is the top of the hierarchy, not Object. An Object (DSO) is a characteristic of a Project, the same way an Equipment row is a characteristic of an Observation — one Object can legitimately be referenced by multiple Projects (e.g. IC1805 has a standard-framing project and a separate mosaic project), and that is not a data problem to fix, it's the correct model. This reframing reversed an earlier suggestion of mine (a `ROW_NUMBER()` tiebreak to pick "the" project per DSO) — Carl correctly pointed out that was solving the wrong problem.
+**Core model change:** Project is the top of the hierarchy, not Object. One Object can legitimately be referenced by multiple Projects (e.g. IC1805 has a standard-framing project and a separate mosaic project) — not a data problem, the correct model.
 
-**Key decisions reached (full detail and rationale in `DB_REWORK_PLAN.md`):**
-- `Objects` keeps `WantBetter`/`SocialBlurb`/`Notes` (DSO-level, used for not-yet-imaged targets) despite the "Objects = DSO-only fields" principle; only `ProjectFolder`/`MostRecentObservation`/`IsMosaic` move off it.
-- `Projects.Notes` kept as a genuine duplicate of `Objects.Notes` (not a move) — many tables already have independent `Notes` fields, so this isn't inconsistent.
-- `Projects.IsMosaic` becomes a **SQLite generated column** (`LOWER(ProjectFolder) LIKE '%mosaic%'`) so it can never drift from the folder name — same bug class as the `Status='ACTIVE'` issue below.
-- `GalleryImages` gains `ProjectID` (FK → Projects) and loses its own `IsMosaic` (now derived via the Projects join). **Gallery grouping changes from one-card-per-DSO to one-card-per-Project** — an Object can now legitimately produce more than one gallery card.
-- New convention for multi-DSO or non-catalog projects (e.g. a combined Heart & Soul Nebulae framing): create a synthetic `Objects` row with a custom `DSOKey` (`CUST1`, `CUST2`, ...) — no DDL needed, confirmed the only `NOT NULL` constraint on `Objects` is `WantBetter`. Documented as **Appendix B** in `DB_REWORK_PLAN.md`, including the caveat that a true "no DSO at all" project (aurora, star trails) is a harder, deliberately-unsolved case since there's no real sky position to assign.
-- Open-Meteo's free, no-key historical weather API (`/v1/archive`) will supply Temperature/Humidity auto-populate for the future Observation Management feature, once built.
-- FIT filename exposure-time regex widened from `(\d{2})\.0s` to `(\d+)\.0s` to support 3+ digit exposure times.
+**Key decisions (full detail in `DB_REWORK_PLAN.md`):**
+- `Objects` keeps `WantBetter`/`SocialBlurb`/`Notes`; only `ProjectFolder`/`MostRecentObservation`/`IsMosaic` move off it.
+- `Projects.Notes` kept as a genuine duplicate of `Objects.Notes`.
+- `Projects.IsMosaic` becomes a **SQLite generated column** (`LOWER(ProjectFolder) LIKE '%mosaic%'`) so it can never drift from the folder name.
+- `GalleryImages` gains `ProjectID` (FK → Projects), loses its own `IsMosaic`. **Gallery grouping changes from one-card-per-DSO to one-card-per-Project.**
+- Custom `DSOKey`s (`CUST1`, `CUST2`, ...) for multi-DSO or non-catalog projects — documented as Appendix B.
+- Open-Meteo's free historical weather API will supply Temperature/Humidity for the future Observation Management feature.
+- FIT filename exposure-time regex widened from `(\d{2})\.0s` to `(\d+)\.0s`.
 
-**Bug found during this analysis (informed the `Projects.Status` removal and the migration below):** `IC1805` and `NGC1499` both had two `Projects` rows, and *both rows were `Status='ACTIVE'`* — so `vw_GalleryObjects`'s `AND p.Status = 'ACTIVE'` filter was already non-deterministically matching both rows for these two DSOs before any of this session's work; `dso.php`'s single-row `fetch()` had no `ORDER BY` to break the tie. Not a new regression — a pre-existing latent bug this rework surfaces and (partially) resolves.
+**Bug found:** `IC1805`/`NGC1499` both had two `Projects` rows, both `Status='ACTIVE'` — `vw_GalleryObjects`'s filter was already non-deterministically matching both, `dso.php`'s single-row `fetch()` had no tiebreak. Pre-existing latent bug, resolved by the rework.
 
 ### Implementation: Phase 1 schema + data migration
 
-**`pythonscripts/migrate_db_rework_phase1.py`** (new) — **supersedes `migrate_view_project_fallback.py`** (do not run that script; this one creates real `Projects` rows for the 11 legacy DSOs instead of a view-level `COALESCE` fallback, which is the actual fix for the LDN1228-class bug from the previous session).
+**`pythonscripts/migrate_db_rework_phase1.py`** (new) — **supersedes `migrate_view_project_fallback.py`**. In one transaction:
+- Creates a real `Projects` row for all 11 legacy DSOs (LDN1228, IC1396, NGC7380, NGC7635, SH2-129, M87, M66, NGC6995, M94, C2025-R3, and one more).
+- Rebuilds `Objects` (drops `ProjectFolder`/`IsMosaic`/`MostRecentObservation`).
+- Rebuilds `Projects` (drops `MosaicConfig`/`Status`/`TotalGoodLights`/`TotalIntegrationMins`/`CreatedDate`; `IsMosaic` → generated); copies `Objects.Notes` into `Projects.Notes` for the 6 DSOs with both.
+- Adds `GalleryImages.ProjectID`, backfills, drops `GalleryImages.IsMosaic`.
+- Adds `Observations.ObservationFolder`, drops `RejectedLights`/`BortleScale`.
+- Drops/recreates all four dependent views.
+- Tested against a sandbox copy first (caught a view-dependency issue this way).
 
-In one transaction (rolls back cleanly on any error):
-- Creates a real `Projects` row for all 11 legacy DSOs that had `Objects.ProjectFolder` but no `Projects` row (LDN1228, IC1396, NGC7380, NGC7635, SH2-129, M87, M66, NGC6995, M94, C2025-R3, and one more).
-- Rebuilds `Objects` (drops `ProjectFolder`, `IsMosaic`, `MostRecentObservation`).
-- Rebuilds `Projects` (drops `MosaicConfig`/`Status`/`TotalGoodLights`/`TotalIntegrationMins`/`CreatedDate`; `IsMosaic` becomes generated); copies `Objects.Notes` into `Projects.Notes` for the 6 DSOs that have both a Notes value and a Projects row.
-- Adds `GalleryImages.ProjectID`, backfills it (single-project DSOs match directly; IC1805/NGC1499 match by comparing each image's existing `IsMosaic` flag against each candidate project's computed `IsMosaic`), verifies zero unmatched rows before proceeding, then drops `GalleryImages.IsMosaic`.
-- Adds `Observations.ObservationFolder`, drops `RejectedLights`/`BortleScale` (confirmed zero non-null/non-zero data in both, no data loss).
-- Drops and recreates all four views that reference these tables (`vw_GalleryObjects`, `vw_ObservationSummary`, `vw_NeedsMoreData`, `vw_ProcessingStatus`) — SQLite validates dependent views against underlying tables mid-rebuild even when the view itself isn't changing, so all four had to be dropped up front and recreated at the end. `vw_GalleryObjects` loses its `Status` dependency and its now-unnecessary `COALESCE`-to-legacy-`Objects` fallback; `vw_ObservationSummary` loses `RejectedLights`/`RejectionPct` (column gone); the other two are unchanged.
-- **Tested against a sandbox copy of the live DB before being finalized** — caught the view-dependency issue this way (first run failed with `no such table: main.Objects` when views weren't dropped first), then re-verified schema shape, generated-column behavior, LDN1228 getting a real Projects row, and GalleryImages.ProjectID backfill correctness for both multi-project DSOs after the fix.
-- **Status: script written and validated in sandbox, not yet run against the live DB by Carl.**
+### Immediate consumer fixes
+`api_save.php`, `api_search.php`, `api_sync_folder.php` all updated to stop referencing dropped columns and start using `Projects`/`ProjectID`. `api_quickadd.php` was already clean.
 
-### Immediate consumer fixes (so the app doesn't break the moment the migration runs)
+### Implementation: Phase 2 — list-of-projects display + gallery grouping
 
-Since dropping columns without fixing every reader/writer would break basic Save functionality immediately, these four files were updated in the same pass as the migration script (not deferred to a later "Phase 2"):
+**`public/api/dso.php`** (rewritten) — no longer selects from `vw_GalleryObjects`; returns DSO-level fields plus a `Projects` array (one entry per `Projects` row, zero/one/many).
 
-**`public/admin/api_save.php`**
-- `$allowed_cols` for `Objects` no longer includes `ProjectFolder`/`MostRecentObservation`.
-- `GalleryImages` upsert/insert no longer writes `IsMosaic`; writes `ProjectID` instead. Resolution: explicit `ProjectID` from the payload if given, otherwise the DSO's only `Project` if there's exactly one. DSOs with multiple Projects (IC1805, NGC1499) need an explicit `ProjectID` in the payload — no picker UI for this yet (planned for Phase 2).
+**`pythonscripts/todays_dsos_web.py`** — `/vis` modal's "Observation & Project" section now iterates `d.Projects`, one block per project.
 
-**`public/admin/api_search.php`**
-- `Objects` SELECT no longer includes `ProjectFolder`/`MostRecentObservation`.
-- `GalleryImages` sub-query no longer selects `gi.IsMosaic`; now `LEFT JOIN Projects` to expose `gi.ProjectID`, `p.ProjectFolder`, `p.IsMosaic` per image.
-- Added a new batch-fetched `Projects` array per DSOKey (informational — full Project-editing UI is Phase 2).
+**`public/index.php`** (public gallery) — grouping key changed from `DSOKey` to `ProjectID`; confirmed with Carl: one gallery card per Project, distinguished by a small amber "Mosaic" badge (not a title change). Added a `groupKey` field and fixed two JS lookups (search dropdown click, Enter-key handler) that previously matched cards by `dsoKey`, which would have opened the wrong card for a multi-project DSO.
 
-**`public/admin/api_sync_folder.php`**
-- Now resolves `ProjectFolder` from `Projects` instead of `Objects`. If a DSO has exactly one Project, uses it automatically; if more than one (IC1805, NGC1499), requires the caller to pass `{"ProjectID": n}` in the POST body or returns a 400 listing the candidate Projects to disambiguate.
-- `GalleryImages` INSERT/UPDATE statements write `ProjectID` (resolved above) instead of `IsMosaic`. The `IsMosaic` value is still computed locally (`infer_is_mosaic()`) for the JSON response payload only — informational, not written to the DB.
+**Bug Fix — admin "Observation & Project" blank (IC1396):** `public/admin/index.php`'s form still had `#f_ProjectFolder`/`#f_MostRecentObservation` inputs bound to columns dropped in Phase 1. Replaced with a read-only `#projects-list` + `renderProjects()` rendering one card per project. (Accidentally deleted the `Notes` textarea in the same edit; caught and restored immediately.)
 
-**`api_quickadd.php`** — checked, already clean; never referenced any of the dropped columns.
+**Bug Fix — garbled `�` characters in `/vis` modal:** raw Unicode escapes (`\u2014`/`\u2013`/`\u2026`) inside `todays_dsos_web.py`'s plain `print("""...""")` block get mangled on Windows cp1252. All missing-value placeholders switched to plain ASCII `-`; separators switched to plain `' - '`; ellipses to `'...'`. Key learning: `textContent` never decodes HTML entities, so entity-based fixes don't work in `textContent` contexts — only plain ASCII is safe everywhere.
 
-**Not yet done (deferred to Phase 2, per `DB_REWORK_PLAN.md` §7):** the admin UI's `IsMosaic` checkbox on each Gallery Image card is now a dead control (PHP silently ignores it since the column reading it is gone) — needs removing. `dso.php`/`vw_GalleryObjects`'s single-row-per-DSO shape, the `/vis` modal's single "Observation & Project" block, and the public gallery's grouping key all still need the "list of projects per DSO" rework described in `DB_REWORK_PLAN.md` §6 before IC1805/NGC1499 display correctly as two separate cards/entries.
+**Not yet done:** dead `IsMosaic` checkbox in admin Gallery Image card; no Project-picker UI for multi-project DSOs (`GalleryImages.ProjectID` assignment, `api_sync_folder.php` disambiguation currently requires passing `ProjectID` by hand).
 
-### Key learnings
-- **A reframing of the data model ("Project is the hierarchy root") can turn what looked like a bug (two Projects rows for one DSO) into the correct, intended shape** — worth checking whether a perceived anomaly is actually a modeling assumption before proposing a fix for it.
-- **SQLite views are validated against their referenced tables during `DROP TABLE`/`ALTER TABLE ... RENAME` in the same transaction, even for views that aren't being changed** — before rebuilding any table, `SELECT name FROM sqlite_master WHERE type='view'` and check all of them for references, not just the ones you already know about; drop all dependent views up front and recreate them all at the end.
-- **Always test a nontrivial migration script against a sandbox copy of the real DB before handing it off** — this one failed on first run over an unanticipated view dependency; sandbox testing (copy → run → verify) caught it before Carl ever ran it against the live database.
+### Feature: `Observations.IntegrationMins` — real stored field, and `audit_observations.py`
+
+**Design iteration:** first built as `ManualIntegrationMins` (a separate override column combined with `COALESCE` at read time, in `migrate_add_manual_integration_override.py`) — before that script was ever run, Carl asked for a simpler design: **one real field, `IntegrationMins`**, calculated and stored if blank, left alone if not, with the calculation done as a distinct bulk "post update" step rather than inline. Replaced with **`pythonscripts/migrate_add_integration_mins.py`** (supersedes and replaces the override version, which Carl deleted manually since it was never run):
+- Adds `Observations.IntegrationMins` (nullable `REAL`).
+- One-time bulk backfill of every existing row with `GoodLights`+`ExposureTimeSecs` but blank `IntegrationMins`.
+- Recreates `vw_GalleryObjects`/`vw_ObservationSummary`/`vw_NeedsMoreData` to read `IntegrationMins` directly (no more inline calc/`COALESCE`).
+- Shows per-row minutes and a per-project "Projected Total Integration Time" (current → projected) summary in its preview report.
+
+**`public/api/dso.php`** and **`public/admin/api_search.php`** — `TotalIntegrationMins` simplified to plain `SUM(IntegrationMins)`. (Along the way, found and fixed a real bug: `api_search.php`'s `Projects` query had never computed `MostRecentObservation`/`TotalLights`/`TotalIntegrationMins` at all — admin's `renderProjects()` had been showing blank for all three since it was built.)
+
+**`pythonscripts/audit_observations.py`** (new) — the ongoing, repeatable tool Carl actually wanted from the 2026-07-04 "tabled" request. Walks `C:\Astronomy\MyWorks`; top-level folders match `Projects.ProjectFolder` (unmatched → "unregistered project folder", reported and skipped). For each project, scans observation-folder subfolders (the two patterns from `DB_REWORK_PLAN.md` §3), extracts `ExposureTimeSeconds`/`TotalExposures` from the folder name or, if absent, from the shared `lights_<EQUIPMENT>` folder's FIT files filtered to the correct date/time range; computes `GoodLights` from actual FIT files found. Creates new `Observations` rows or fills gaps in existing ones; reports orphans; never deletes. Same preview-then-confirm-then-transaction UX as prior migration scripts. As its last step, bulk-fills `IntegrationMins` for anything still blank.
+
+**Iterative fixes made to `audit_observations.py` (and mirrored into `migrate_add_integration_mins.py` where applicable) over several rounds of Carl's real-world testing/feedback:**
+
+1. **Report readability** — replaced `ProjectID`/`ObservationID` in all printed report lines with `ProjectFolder`/`ObservationFolder` (or `ObservationDate` as a last resort for rows with no folder). `ObservationID` still used internally for the actual `UPDATE ... WHERE ObservationID = ?` SQL.
+
+2. **Matching bug: no-folder rows never linked to a real disk folder.** Root cause: the matching pool only included existing rows that already had `ObservationFolder` set; no-folder rows were pulled out and permanently marked unlinkable *before* the disk scan ran, even when a matching disk folder existed this run. Fixed — the matching pool now includes every row, keyed by `ObservationFolder[:8]` if present or by `ObservationDate` (reformatted) if not; no-folder rows are full matching participants and get linked via the same disk-name-supersedes logic used for count corrections. This was a real correctness bug, not just cosmetic (a matching disk folder could otherwise have been inserted as a duplicate row).
+
+3. **Matching correction (Carl's explicit instruction):** match by the **first 8 characters (date)** of `ObservationFolder`, not the full string — historical count corrections mean the disk name and stored value can legitimately differ. **The name on disk always supersedes**: when matched, `ObservationFolder` and the name-derived `TotalExposures`/`ExposureTimeSecs` are unconditionally updated to the disk value; everything else (`GoodLights`, `StartTime`, `EndTime`) is still fill-only-if-blank. If more than one existing row shares a date, disambiguate by `EquipmentID`; if still ambiguous, skip and report rather than guess.
+
+4. **FIT filename regex bug (real data):** Carl's actual comet-project filenames (`Light_C-2025 R3_20.0s_IRCUT_20260405-060757.fit`) contain a hyphen and space in the target-name segment, which the original `[A-Z0-9_]+` character class didn't allow — caused `exposures`/`exp_secs`/`good_lights` to come back `None` entirely for the `C2025-R3` comet project despite real FIT files being present. Widened `FIT_FILENAME` to match free-text segments permissively. **Follow-on regression**, caught by re-testing old fixtures rather than just the new comet case: the first widened version accidentally required a literal underscore immediately before the date/time segment, which isn't actually guaranteed (older filename conventions have letters running straight into digits with no separator). Fixed by dropping the forced separator; re-verified against both conventions.
+
+5. **Integration-time reporting:** every previewed row (create or update) now shows its own `integration_mins`; new "Projected Total Integration Time by project" section in both scripts shows current → projected totals, counting only rows whose `IntegrationMins` will actually be newly filled.
+
+6. **Zero/missing `GoodLights` fallback:** when the FIT date-boundary matching finds nothing for a specific night (`GoodLights` comes back `0`) even though a shot count was recorded (from the folder name or an earlier fill), both scripts now fall back to `TotalExposures * ExposureTimeSecs / 60` instead of silently reporting/writing zero. Fixed in both the Python preview calculation and the actual SQL `UPDATE ... CASE WHEN GoodLights > 0 THEN ... ELSE TotalExposures * ExposureTimeSecs ... END` write path — verified in sandbox that the Python and SQL logic agree exactly.
+
+All of the above were **tested against synthetic sandbox data** (including a scenario built to exactly mirror Carl's real comet-project structure) at each step — **none have yet been re-run by Carl against the live DB/real `MyWorks` folder with the final, fully-corrected versions.**
+
+### Tooling incident: `edit_file` corruption bug
+
+Hit a reproducible bug in the `edit_file` tool: patches to files containing regex-metacharacter-heavy content (particularly involving `$`) duplicated large sections of file content instead of applying a clean patch. Happened twice on `audit_observations.py` (recovered via full `write_file` rewrites both times) and once on this `SUMMARIZE.md` file itself (much more severe — duplicated the entire ~270KB file). For `SUMMARIZE.md`, several append attempts silently failed (returned "too large for context" without actually saving, confirmed via unchanged file-modified timestamp) before the corrupting one hit. **Carl rolled back `SUMMARIZE.md` via `git checkout` to recover** — the file you're reading now is that restored state plus this consolidated entry. No application code was affected, only this documentation file.
+
+**Going forward: avoid `edit_file` for large append-only files or any content with heavy regex/backslash characters — prefer reading full current content and using `write_file` to write it back plus the addition, as was done for this very entry.**
+
+### Key learnings (this block)
+- **A reframing of the data model can turn what looked like a bug into the correct, intended shape** — worth checking whether a perceived anomaly is actually a modeling assumption before proposing a fix.
+- **SQLite views are validated against their referenced tables during `DROP TABLE`/`ALTER TABLE ... RENAME` in the same transaction** — drop all dependent views up front, recreate at the end.
+- **Always test a nontrivial migration script against a sandbox copy of the real DB before handing it off.**
+- **Any JS/PHP code that looks up an item by a key assumed unique needs re-auditing the moment the underlying grouping changes to allow duplicates.**
+- **When a field moves off a table in a migration, every UI form bound to that field needs updating in the same pass, not just the API layer** — API-level fixes can correctly stop *sending* a dropped field while a UI form silently keeps *reading* it, failing quietly (empty value) rather than loudly.
+- **`textContent` assignments never decode HTML entities** — only plain characters are safe in that context; HTML entities only work in `innerHTML`-consumed strings.
+- **When a person asks to move a calculation "out of the update SQL" and do it "post update," that's a request for a separate, explicit bulk step** — not just a different SQL expression in the same place.
+- **When matching a derived/generated identifier against a stored value, match on the stable portion (e.g. the date) rather than the whole string** — avoids false "new record" detection when a volatile portion (e.g. a count) has legitimately changed since the DB was last updated.
+- **When excluding rows from a matching process based on an incomplete field, check whether that exclusion also blocks the row from ever becoming complete** — a structural correctness bug can hide behind what looks like a cosmetic display issue.
+- **Regression-test old fixtures after a "pure widening" regex change, not just the new case that motivated it** — a change that looks strictly more permissive on paper can still silently narrow coverage elsewhere if it adds an implicit new requirement.
+- **This `edit_file` tool has a reproducible corruption bug on patches with regex-metacharacter-heavy content, especially involving `$`** — prefer full `write_file` rewrites for such files, and always re-verify after any `edit_file` patch to such content before trusting it.
+
+### Status at end of session
+- **Next session should start by running, in order, against the real live DB/`MyWorks` folder:** `migrate_add_integration_mins.py`, then `audit_observations.py`. Review each preview report carefully before confirming — especially the FIT-file-derived values for the comet project, given how many rounds of fixes that took.
+- Confirm `pythonscripts/migrate_add_manual_integration_override.py` has been deleted (Carl confirmed he would do this manually).
+- Still open from Phase 2: dead `IsMosaic` checkbox in admin Gallery Image card; no Project-picker UI for multi-project DSOs; the tabled deeper "smarter file/folder-based inference" idea has effectively been superseded by `audit_observations.py` itself.

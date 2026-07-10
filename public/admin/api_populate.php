@@ -8,6 +8,7 @@
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
+require_once __DIR__ . '/db_logger.php';
 
 header('Content-Type: application/json');
 
@@ -28,6 +29,24 @@ $distance          = trim($body['distance']            ?? '');
 if (!$dso_id) {
     http_response_code(400);
     echo json_encode(['error' => 'dso_id is required']);
+    exit;
+}
+
+// ------------------------------------------------------------------
+// Solar guard — Sun/Moon are not standard catalog DSOs and AI lookup
+// against training-data astronomy knowledge doesn't apply to them.
+// ------------------------------------------------------------------
+$object_type_id = trim($body['object_type_id'] ?? '');
+if (!$object_type_id) {
+    // Fall back to whatever's already saved for this DSOKey
+    $db = get_db();
+    $stmt = $db->prepare("SELECT ObjectTypeID FROM Objects WHERE DSOKey = ?");
+    $stmt->execute([$dso_id]);
+    $object_type_id = $stmt->fetchColumn() ?: '';
+}
+if ($object_type_id === 'SOLAR_SYSTEM') {
+    http_response_code(400);
+    echo json_encode(['error' => 'AI Populate is not available for solar objects (Sun/Moon). Use the solar pipeline instead.']);
     exit;
 }
 
