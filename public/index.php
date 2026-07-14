@@ -37,31 +37,31 @@ try {
     // now gets its own gallery card. See DB_REWORK_PLAN.md.
     $stmt = $db->query("
         SELECT
-            gi.GalleryImageID,
-            gi.DSOKey,
-            gi.ProjectID,
-            p.ProjectFolder,
-            p.IsMosaic,
-            gi.BaseName,
-            gi.Caption,
-            gi.PaletteID,
-            pt.PaletteName,
-            gi.DateCaptured,
-            gi.Copyright,
-            gi.IsOwn,
-            gi.Attribution,
-            gi.Equipment,
-            gi.SortOrder,
-            gi.IsFeature,
-            o.CommonName,
-            o.ConstellationID,
-            con.Name        AS ConstellationName,
-            o.DistanceLY,
-            o.ObjectSize,
-            o.SocialBlurb,
-            o.RAHours,
-            o.DecDegrees,
-            c.CatalogID     AS PrimaryCatalogID
+            gi.GalleryImageID AS \"GalleryImageID\",
+            gi.DSOKey         AS \"DSOKey\",
+            gi.ProjectID      AS \"ProjectID\",
+            p.ProjectFolder   AS \"ProjectFolder\",
+            p.IsMosaic        AS \"IsMosaic\",
+            gi.BaseName       AS \"BaseName\",
+            gi.Caption        AS \"Caption\",
+            gi.PaletteID      AS \"PaletteID\",
+            pt.PaletteName    AS \"PaletteName\",
+            gi.DateCaptured   AS \"DateCaptured\",
+            gi.Copyright      AS \"Copyright\",
+            gi.IsOwn          AS \"IsOwn\",
+            gi.Attribution    AS \"Attribution\",
+            gi.Equipment      AS \"Equipment\",
+            gi.SortOrder      AS \"SortOrder\",
+            gi.IsFeature      AS \"IsFeature\",
+            o.CommonName      AS \"CommonName\",
+            o.ConstellationID AS \"ConstellationID\",
+            con.Name          AS \"ConstellationName\",
+            o.DistanceLY      AS \"DistanceLY\",
+            o.ObjectSize      AS \"ObjectSize\",
+            o.SocialBlurb     AS \"SocialBlurb\",
+            o.RAHours         AS \"RAHours\",
+            o.DecDegrees      AS \"DecDegrees\",
+            c.CatalogID       AS \"PrimaryCatalogID\"
         FROM GalleryImages gi
         JOIN Objects o ON gi.DSOKey = o.DSOKey
         LEFT JOIN Projects p            ON gi.ProjectID      = p.ProjectID
@@ -74,7 +74,10 @@ try {
 
     // Fetch DSOLinks keyed by DSOKey
     $linkStmt = $db->query("
-        SELECT DSOKey, Label, URL, SortOrder
+        SELECT DSOKey    AS \"DSOKey\",
+               Label      AS \"Label\",
+               URL        AS \"URL\",
+               SortOrder  AS \"SortOrder\"
         FROM DSOLinks
         ORDER BY DSOKey, SortOrder, LinkID
     ");

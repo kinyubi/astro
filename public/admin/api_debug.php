@@ -9,7 +9,7 @@ try {
         $counts[$t] = $db->query("SELECT COUNT(*) FROM $t")->fetchColumn();
     }
     // Sample first 3 objects if any
-    $sample = $db->query("SELECT DSOKey, CommonName FROM Objects LIMIT 3")->fetchAll(PDO::FETCH_ASSOC);
+    $sample = $db->query("SELECT DSOKey AS \"DSOKey\", CommonName AS \"CommonName\" FROM Objects LIMIT 3")->fetchAll(PDO::FETCH_ASSOC);
     echo json_encode(['driver' => db_driver(), 'counts' => $counts, 'sample' => $sample]);
 } catch (Exception $e) {
     echo json_encode(['error' => $e->getMessage()]);

@@ -1,0 +1,9 @@
+{
+  "driver": "pgsql",
+  "sqlite_path": "C:\\laragon7\\www\\astro\\dsodb\\astro.db",
+  "pg_host": "10.8.0.1",
+  "pg_port": 5432,
+  "pg_dbname": "astro",
+  "pg_user": "astro_app",
+  "pg_password": "+3DT2ujE*4?335Sp"
+}

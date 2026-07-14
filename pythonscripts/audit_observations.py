@@ -83,9 +83,9 @@ Usage:
 import re
 import sys
 import os
-import sqlite3
 import datetime
 from pathlib import Path
+from db_connect import get_connection
 
 WORKS_ROOT = Path(r"C:\Astronomy\MyWorks")
 DB_PATH = Path(__file__).parent.parent / 'dsodb' / 'astro.db'
@@ -228,15 +228,21 @@ def main():
     if not WORKS_ROOT.is_dir():
         print(f"ERROR: WORKS_ROOT not found: {WORKS_ROOT}")
         sys.exit(1)
-    if not DB_PATH.exists():
+    from db_connect import get_driver
+    if get_driver() == 'sqlite' and not DB_PATH.exists():
         print(f"ERROR: Database not found: {DB_PATH}")
         sys.exit(1)
 
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = get_connection()
     cur = conn.cursor()
 
-    cur.execute("SELECT ProjectID, DSOKey, ProjectFolder FROM Projects")
+    cur.execute("""
+        SELECT
+            ProjectID     AS "ProjectID",
+            DSOKey        AS "DSOKey",
+            ProjectFolder AS "ProjectFolder"
+        FROM Projects
+    """)
     projects_by_folder = {row['ProjectFolder']: dict(row) for row in cur.fetchall()}
 
     unregistered_folders = []
@@ -262,7 +268,28 @@ def main():
         dso_key = project['DSOKey']
         lights_fit_cache = {}
 
-        cur.execute("SELECT * FROM Observations WHERE ProjectID = ?", (project_id,))
+        cur.execute("""
+            SELECT
+                ObservationID      AS "ObservationID",
+                ProjectID          AS "ProjectID",
+                EquipmentID        AS "EquipmentID",
+                ObservationDate    AS "ObservationDate",
+                ObservationFolder  AS "ObservationFolder",
+                StartTime          AS "StartTime",
+                EndTime            AS "EndTime",
+                ExposureTimeSecs   AS "ExposureTimeSecs",
+                Filter             AS "Filter",
+                TotalExposures     AS "TotalExposures",
+                GoodLights         AS "GoodLights",
+                MosaicPanel        AS "MosaicPanel",
+                SeeingConditions   AS "SeeingConditions",
+                Temperature        AS "Temperature",
+                Humidity           AS "Humidity",
+                NinaWorkflowName   AS "NinaWorkflowName",
+                Notes              AS "Notes",
+                IntegrationMins    AS "IntegrationMins"
+            FROM Observations WHERE ProjectID = ?
+        """, (project_id,))
         all_existing = [dict(r) for r in cur.fetchall()]
 
         # Current total integration time for this project, straight from the

@@ -27,8 +27,21 @@ try {
             // is a SQLite built-in collation name that doesn't exist in
             // Postgres; LOWER() gives the same case-insensitive ordering
             // on both engines without branching per driver.
+            //
+            // AS "MixedCase" aliases: Postgres' live schema is lowercase
+            // (see migrate_lowercase_postgres_identifiers.py); the todo
+            // frontend JS expects these exact mixed-case JSON keys, and
+            // unquoted columns would otherwise come back all-lowercase.
             $stmt = $db->query("
-                SELECT TodoID, Category, ItemText, IsDone, Priority, SortOrder, CreatedDate, CompletedDate
+                SELECT
+                    TodoID        AS \"TodoID\",
+                    Category      AS \"Category\",
+                    ItemText      AS \"ItemText\",
+                    IsDone        AS \"IsDone\",
+                    Priority      AS \"Priority\",
+                    SortOrder     AS \"SortOrder\",
+                    CreatedDate   AS \"CreatedDate\",
+                    CompletedDate AS \"CompletedDate\"
                 FROM Todos
                 ORDER BY
                     IsDone ASC,
@@ -39,7 +52,7 @@ try {
             ");
             $todos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $cat_stmt = $db->query("SELECT DISTINCT Category FROM Todos ORDER BY LOWER(Category) ASC");
+            $cat_stmt = $db->query("SELECT DISTINCT Category AS \"Category\" FROM Todos ORDER BY LOWER(Category) ASC");
             $categories = array_column($cat_stmt->fetchAll(PDO::FETCH_ASSOC), 'Category');
 
             echo json_encode(['todos' => $todos, 'categories' => $categories]);

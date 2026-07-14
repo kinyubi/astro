@@ -11,7 +11,7 @@ header('Content-Type: application/json');
 try {
     $db = get_db();
 
-    $stmt = $db->query('SELECT ConstellationID, Name, GenitiveName FROM Constellations ORDER BY Name');
+    $stmt = $db->query('SELECT ConstellationID AS "ConstellationID", Name AS "Name", GenitiveName AS "GenitiveName" FROM Constellations ORDER BY Name');
     echo json_encode($stmt->fetchAll(PDO::FETCH_ASSOC));
 
 } catch (Exception $e) {

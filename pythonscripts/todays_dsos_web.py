@@ -13,6 +13,7 @@ import json
 import argparse
 from profile_manager import load_profile
 from pathlib import Path
+from db_connect import get_connection
 
 # Derive DB path relative to this script: pythonscripts/ -> astro/ -> dsodb/astro.db
 ASTRO_DB = Path(__file__).parent.parent / 'dsodb' / 'astro.db'
@@ -224,20 +225,19 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
     try:
         log = []
-        conn = sqlite3.connect(ASTRO_DB)
-        conn.row_factory = sqlite3.Row
+        conn = get_connection()
         cur = conn.cursor()
         cur.execute("""
             SELECT
-                o.DSOKey,
-                o.CommonName,
-                ot.TypeName  AS TypeDesc,
-                con.Name     AS Constellation,
-                o.Magnitude,
-                o.RAHours,
-                o.DecDegrees,
-                o.WantBetter,
-                o.SqArcMins
+                o.DSOKey       AS "DSOKey",
+                o.CommonName   AS "CommonName",
+                ot.TypeName    AS "TypeDesc",
+                con.Name       AS "Constellation",
+                o.Magnitude    AS "Magnitude",
+                o.RAHours      AS "RAHours",
+                o.DecDegrees   AS "DecDegrees",
+                o.WantBetter   AS "WantBetter",
+                o.SqArcMins    AS "SqArcMins"
             FROM Objects o
             LEFT JOIN ObjectTypes  ot  ON o.ObjectTypeID  = ot.ObjectTypeID
             LEFT JOIN Constellations con ON o.ConstellationID = con.ConstellationID
@@ -249,12 +249,12 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
         cur.execute("""
             SELECT
-                o.DSOKey,
-                o.CommonName,
-                con.Name     AS Constellation,
-                o.Magnitude,
-                o.RAHours,
-                o.DecDegrees
+                o.DSOKey       AS "DSOKey",
+                o.CommonName   AS "CommonName",
+                con.Name       AS "Constellation",
+                o.Magnitude    AS "Magnitude",
+                o.RAHours      AS "RAHours",
+                o.DecDegrees   AS "DecDegrees"
             FROM Objects o
             LEFT JOIN Constellations con ON o.ConstellationID = con.ConstellationID
             WHERE o.RAHours IS NOT NULL
@@ -400,7 +400,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         visible_names = {o['name'] for o in visible_objects}
         target_date_iso = specified_date.strftime('%Y-%m-%d')
 
-        forecast_conn = sqlite3.connect(ASTRO_DB)
+        forecast_conn = get_connection()
         forecast_conn.execute("""
             CREATE TABLE IF NOT EXISTS VisibilityForecast (
                 ProfileName      TEXT NOT NULL,
@@ -412,7 +412,6 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                 PRIMARY KEY (ProfileName, DSOKey)
             )
         """)
-        forecast_conn.row_factory = sqlite3.Row
         fcur = forecast_conn.cursor()
 
         viewing_window_cache = {}
@@ -446,7 +445,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
             # Not visible tonight: look up or compute next window
             fcur.execute(
-                "SELECT FirstVisibleDate, LastVisibleDate FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
+                "SELECT FirstVisibleDate AS \"FirstVisibleDate\", LastVisibleDate AS \"LastVisibleDate\" FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
                 (profile_name, name)
             )
             cached = fcur.fetchone()

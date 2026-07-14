@@ -25,7 +25,7 @@ if (!is_dir($favDir)) {
 // ── 2. Query GalleryImages ────────────────────────────────────────────────────
 try {
     $db = get_db();
-    $stmt = $db->query("SELECT gi.BaseName, gi.DSOKey, o.CommonName
+    $stmt = $db->query("SELECT gi.BaseName AS \"BaseName\", gi.DSOKey AS \"DSOKey\", o.CommonName AS \"CommonName\"
                         FROM GalleryImages gi
                         LEFT JOIN Objects o ON gi.DSOKey = o.DSOKey
                         ORDER BY gi.DSOKey, gi.BaseName");

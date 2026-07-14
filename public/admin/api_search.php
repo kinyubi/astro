@@ -20,27 +20,36 @@ try {
 
     $like = '%' . $q . '%';
 
+    // NOTE on the AS "MixedCase" aliases throughout this file: the live
+    // Postgres schema stores table/column names in lowercase (see
+    // migrate_lowercase_postgres_identifiers.py), so an unquoted column
+    // reference resolves correctly but Postgres *also* labels the output
+    // column in lowercase. SQLite preserves whatever case you write. Since
+    // all the PHP below (and the admin JS consuming this JSON) expects
+    // exact mixed-case keys, every SELECT column needs an explicit quoted
+    // alias so both engines return the same casing.
+
     if ($searching) {
         // LOWER() on both sides keeps this case-insensitive on both SQLite
         // (whose LIKE is case-insensitive by default for ASCII) and Postgres
         // (whose LIKE is case-sensitive) without branching per driver.
         $stmt = $db->prepare("
             SELECT
-                o.DSOKey,
-                o.CommonName,
-                o.ObjectTypeID,
-                o.ConstellationID,
-                o.RAHours,
-                o.DecDegrees,
-                o.Magnitude,
-                o.ObjectSize,
-                o.SqArcMins,
-                o.DistanceLY,
-                o.SocialBlurb,
-                o.WantBetter,
-                o.Notes,
-                o.LastUpdated,
-                c.CatalogID AS PrimaryCatalogID
+                o.DSOKey          AS \"DSOKey\",
+                o.CommonName      AS \"CommonName\",
+                o.ObjectTypeID    AS \"ObjectTypeID\",
+                o.ConstellationID AS \"ConstellationID\",
+                o.RAHours         AS \"RAHours\",
+                o.DecDegrees      AS \"DecDegrees\",
+                o.Magnitude       AS \"Magnitude\",
+                o.ObjectSize      AS \"ObjectSize\",
+                o.SqArcMins       AS \"SqArcMins\",
+                o.DistanceLY      AS \"DistanceLY\",
+                o.SocialBlurb     AS \"SocialBlurb\",
+                o.WantBetter      AS \"WantBetter\",
+                o.Notes           AS \"Notes\",
+                o.LastUpdated     AS \"LastUpdated\",
+                c.CatalogID       AS \"PrimaryCatalogID\"
             FROM Objects o
             LEFT JOIN CatalogIDs c ON o.DSOKey = c.DSOKey AND c.IsPrimary = 1
             WHERE
@@ -57,21 +66,21 @@ try {
     } else {
         $stmt = $db->prepare("
             SELECT
-                o.DSOKey,
-                o.CommonName,
-                o.ObjectTypeID,
-                o.ConstellationID,
-                o.RAHours,
-                o.DecDegrees,
-                o.Magnitude,
-                o.ObjectSize,
-                o.SqArcMins,
-                o.DistanceLY,
-                o.SocialBlurb,
-                o.WantBetter,
-                o.Notes,
-                o.LastUpdated,
-                c.CatalogID AS PrimaryCatalogID
+                o.DSOKey          AS \"DSOKey\",
+                o.CommonName      AS \"CommonName\",
+                o.ObjectTypeID    AS \"ObjectTypeID\",
+                o.ConstellationID AS \"ConstellationID\",
+                o.RAHours         AS \"RAHours\",
+                o.DecDegrees      AS \"DecDegrees\",
+                o.Magnitude       AS \"Magnitude\",
+                o.ObjectSize      AS \"ObjectSize\",
+                o.SqArcMins       AS \"SqArcMins\",
+                o.DistanceLY      AS \"DistanceLY\",
+                o.SocialBlurb     AS \"SocialBlurb\",
+                o.WantBetter      AS \"WantBetter\",
+                o.Notes           AS \"Notes\",
+                o.LastUpdated     AS \"LastUpdated\",
+                c.CatalogID       AS \"PrimaryCatalogID\"
             FROM Objects o
             LEFT JOIN CatalogIDs c ON o.DSOKey = c.DSOKey AND c.IsPrimary = 1
             ORDER BY o.DSOKey
@@ -89,7 +98,10 @@ try {
 
         // ── CatalogIDs ────────────────────────────────────────────────────────
         $cat_stmt = $db->prepare("
-            SELECT CatalogID, DSOKey, IsPrimary
+            SELECT
+                CatalogID AS \"CatalogID\",
+                DSOKey    AS \"DSOKey\",
+                IsPrimary AS \"IsPrimary\"
             FROM CatalogIDs
             WHERE DSOKey IN ($placeholders)
             ORDER BY IsPrimary DESC, CatalogID
@@ -105,23 +117,23 @@ try {
         // ── GalleryImages ─────────────────────────────────────────────────────
         $gi_stmt = $db->prepare("
             SELECT
-                gi.GalleryImageID,
-                gi.DSOKey,
-                gi.BaseName,
-                gi.Caption,
-                gi.PaletteID,
-                pt.PaletteName,
-                gi.DateCaptured,
-                gi.Copyright,
-                gi.IsOwn,
-                gi.Attribution,
-                gi.Equipment,
-                gi.ProjectID,
-                p.ProjectFolder,
-                p.IsMosaic,
-                gi.SessionDir,
-                gi.SortOrder,
-                gi.IsFeature
+                gi.GalleryImageID AS \"GalleryImageID\",
+                gi.DSOKey         AS \"DSOKey\",
+                gi.BaseName       AS \"BaseName\",
+                gi.Caption        AS \"Caption\",
+                gi.PaletteID      AS \"PaletteID\",
+                pt.PaletteName    AS \"PaletteName\",
+                gi.DateCaptured   AS \"DateCaptured\",
+                gi.Copyright      AS \"Copyright\",
+                gi.IsOwn          AS \"IsOwn\",
+                gi.Attribution    AS \"Attribution\",
+                gi.Equipment      AS \"Equipment\",
+                gi.ProjectID      AS \"ProjectID\",
+                p.ProjectFolder   AS \"ProjectFolder\",
+                p.IsMosaic        AS \"IsMosaic\",
+                gi.SessionDir     AS \"SessionDir\",
+                gi.SortOrder      AS \"SortOrder\",
+                gi.IsFeature      AS \"IsFeature\"
             FROM GalleryImages gi
             LEFT JOIN PaletteTreatments pt ON gi.PaletteID = pt.PaletteID
             LEFT JOIN Projects p ON gi.ProjectID = p.ProjectID
@@ -138,7 +150,12 @@ try {
 
         // ── DSOLinks ──────────────────────────────────────────────────────────
         $lnk_stmt = $db->prepare("
-            SELECT LinkID, DSOKey, Label, URL, SortOrder
+            SELECT
+                LinkID    AS \"LinkID\",
+                DSOKey    AS \"DSOKey\",
+                Label     AS \"Label\",
+                URL       AS \"URL\",
+                SortOrder AS \"SortOrder\"
             FROM DSOLinks
             WHERE DSOKey IN ($placeholders)
             ORDER BY DSOKey, SortOrder, LinkID
@@ -154,15 +171,15 @@ try {
         // ── Projects (informational; full Project-editing UI is Phase 2) ──────
         $proj_stmt = $db->prepare("
             SELECT
-                p.ProjectID,
-                p.DSOKey,
-                p.ProjectFolder,
-                p.IsMosaic,
-                p.Notes,
-                (SELECT MAX(ObservationDate) FROM Observations WHERE ProjectID = p.ProjectID) AS MostRecentObservation,
-                (SELECT SUM(GoodLights) FROM Observations WHERE ProjectID = p.ProjectID) AS TotalLights,
+                p.ProjectID     AS \"ProjectID\",
+                p.DSOKey        AS \"DSOKey\",
+                p.ProjectFolder AS \"ProjectFolder\",
+                p.IsMosaic      AS \"IsMosaic\",
+                p.Notes         AS \"Notes\",
+                (SELECT MAX(ObservationDate) FROM Observations WHERE ProjectID = p.ProjectID) AS \"MostRecentObservation\",
+                (SELECT SUM(GoodLights) FROM Observations WHERE ProjectID = p.ProjectID) AS \"TotalLights\",
                 (SELECT SUM(IntegrationMins)
-                    FROM Observations WHERE ProjectID = p.ProjectID) AS TotalIntegrationMins
+                    FROM Observations WHERE ProjectID = p.ProjectID) AS \"TotalIntegrationMins\"
             FROM Projects p
             WHERE p.DSOKey IN ($placeholders)
             ORDER BY p.DSOKey, p.ProjectID
@@ -173,18 +190,18 @@ try {
         // ── Observations (nested read-only list under each Project) ───────────
         $obs_stmt = $db->prepare("
             SELECT
-                o.ObservationID,
-                o.ProjectID,
-                o.ObservationDate,
-                o.ObservationFolder,
-                o.StartTime,
-                o.EndTime,
-                o.ExposureTimeSecs,
-                o.Filter,
-                o.TotalExposures,
-                o.GoodLights,
-                o.IntegrationMins,
-                o.Notes
+                o.ObservationID     AS \"ObservationID\",
+                o.ProjectID         AS \"ProjectID\",
+                o.ObservationDate   AS \"ObservationDate\",
+                o.ObservationFolder AS \"ObservationFolder\",
+                o.StartTime         AS \"StartTime\",
+                o.EndTime           AS \"EndTime\",
+                o.ExposureTimeSecs  AS \"ExposureTimeSecs\",
+                o.Filter            AS \"Filter\",
+                o.TotalExposures    AS \"TotalExposures\",
+                o.GoodLights        AS \"GoodLights\",
+                o.IntegrationMins   AS \"IntegrationMins\",
+                o.Notes             AS \"Notes\"
             FROM Observations o
             JOIN Projects p ON o.ProjectID = p.ProjectID
             WHERE p.DSOKey IN ($placeholders)

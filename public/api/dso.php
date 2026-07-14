@@ -64,22 +64,22 @@ try {
 try {
     $stmt = $db->prepare("
         SELECT
-            o.DSOKey,
-            o.CommonName,
-            c.CatalogID AS PrimaryCatalogID,
-            o.ObjectTypeID,
-            ot.TypeName AS ObjectTypeName,
-            o.ConstellationID,
-            con.Name AS ConstellationName,
-            o.RAHours,
-            o.DecDegrees,
-            o.Magnitude,
-            o.ObjectSize,
-            o.DistanceLY,
-            o.SocialBlurb,
-            o.Notes,
-            o.WantBetter,
-            o.SqArcMins
+            o.DSOKey         AS \"DSOKey\",
+            o.CommonName     AS \"CommonName\",
+            c.CatalogID AS \"PrimaryCatalogID\",
+            o.ObjectTypeID   AS \"ObjectTypeID\",
+            ot.TypeName AS \"ObjectTypeName\",
+            o.ConstellationID AS \"ConstellationID\",
+            con.Name AS \"ConstellationName\",
+            o.RAHours        AS \"RAHours\",
+            o.DecDegrees     AS \"DecDegrees\",
+            o.Magnitude      AS \"Magnitude\",
+            o.ObjectSize     AS \"ObjectSize\",
+            o.DistanceLY     AS \"DistanceLY\",
+            o.SocialBlurb    AS \"SocialBlurb\",
+            o.Notes          AS \"Notes\",
+            o.WantBetter     AS \"WantBetter\",
+            o.SqArcMins      AS \"SqArcMins\"
         FROM Objects o
         LEFT JOIN CatalogIDs c ON o.DSOKey = c.DSOKey AND c.IsPrimary = 1
         LEFT JOIN ObjectTypes ot ON o.ObjectTypeID = ot.ObjectTypeID
@@ -111,13 +111,13 @@ if (!$row) {
 try {
     $pstmt = $db->prepare("
         SELECT
-            p.ProjectID,
-            p.ProjectFolder,
-            p.IsMosaic,
-            p.Notes AS ProjectNotes,
-            (SELECT MAX(ObservationDate) FROM Observations WHERE ProjectID = p.ProjectID) AS MostRecentObservation,
-            (SELECT SUM(GoodLights) FROM Observations WHERE ProjectID = p.ProjectID) AS TotalLights,
-            (SELECT SUM(IntegrationMins) FROM Observations WHERE ProjectID = p.ProjectID) AS TotalIntegrationMins
+            p.ProjectID      AS \"ProjectID\",
+            p.ProjectFolder  AS \"ProjectFolder\",
+            p.IsMosaic       AS \"IsMosaic\",
+            p.Notes AS \"ProjectNotes\",
+            (SELECT MAX(ObservationDate) FROM Observations WHERE ProjectID = p.ProjectID) AS \"MostRecentObservation\",
+            (SELECT SUM(GoodLights) FROM Observations WHERE ProjectID = p.ProjectID) AS \"TotalLights\",
+            (SELECT SUM(IntegrationMins) FROM Observations WHERE ProjectID = p.ProjectID) AS \"TotalIntegrationMins\"
         FROM Projects p
         WHERE p.DSOKey = :dsokey
         ORDER BY p.IsMosaic ASC, p.ProjectID ASC

@@ -53,6 +53,26 @@ Usage:
 import sqlite3
 import sys
 import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+from db_connect import get_driver
+
+# This script's view-recreation logic (below) writes unaliased, unquoted
+# SQL for vw_GalleryObjects/vw_ObservationSummary/vw_NeedsMoreData -- fine
+# on SQLite, but on Postgres it would silently re-create those views with
+# all-lowercase output columns again, undoing
+# migrate_lowercase_postgres_view_columns.py. Those views also appear to
+# no longer be consumed by anything live (dso.php and api_search.php now
+# query Projects/Observations directly per DB_REWORK_PLAN.md), so rather
+# than port the view-recreation logic, this script simply refuses to run
+# in Postgres mode. If IntegrationMins ever needs a schema change against
+# the live Postgres DB, write a small dedicated migration instead of
+# re-running this one.
+if get_driver() == 'pgsql':
+    print("This script only supports SQLite (DB_DRIVER='sqlite' in shared/db_config.json).")
+    print("Its view-recreation logic would re-lowercase vw_GalleryObjects/vw_ObservationSummary/")
+    print("vw_NeedsMoreData's output columns, undoing migrate_lowercase_postgres_view_columns.py.")
+    print("Write a small dedicated migration if this needs to run against the live Postgres DB.")
+    sys.exit(1)
 
 DB_PATH = r"C:\laragon7\www\astro\dsodb\astro.db"
 args = sys.argv[1:]

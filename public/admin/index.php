@@ -235,6 +235,7 @@ header('Pragma: no-cache');
   <span class="subtitle">Deep Sky Object Database Maintenance</span>
   <nav style="margin-left:auto; display:flex; gap:16px; align-items:center;">
     <a href="/todo/" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">To Do List</a>
+    <a href="/check-missing/" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Gallery Check</a>
     <a href="/vis/" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">DSO Visibility</a>
     <a href="/" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Picture Gallery</a>
     <a href="logout.php" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Sign out</a>
@@ -615,6 +616,7 @@ function loadObject(row) {
   const activeEl = document.querySelector('.object-item.active');
   if (activeEl) activeEl.scrollIntoView({ block: 'nearest' });
   showEditor();
+  dismissSyncResult();
   document.getElementById('editor-title').childNodes[0].textContent = row.DSOKey + ' ';
   document.getElementById('editor-subtitle').textContent = row.CommonName || '';
   document.getElementById('f_DSOKey').value = row.DSOKey;
@@ -643,6 +645,7 @@ function newObject() {
   currentObject = null;
   document.querySelectorAll('.object-item').forEach(el => el.classList.remove('active'));
   showEditor();
+  dismissSyncResult();
   document.getElementById('editor-title').childNodes[0].textContent = 'New Object ';
   document.getElementById('editor-subtitle').textContent = '';
   const selectDefaults = { WantBetter: '0' };

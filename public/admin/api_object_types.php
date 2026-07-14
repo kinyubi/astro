@@ -12,7 +12,11 @@ try {
     $db = get_db();
 
     $stmt = $db->query("
-        SELECT ot.ObjectTypeID, ot.TypeName, oc.CategoryID, oc.CategoryName
+        SELECT
+            ot.ObjectTypeID AS \"ObjectTypeID\",
+            ot.TypeName     AS \"TypeName\",
+            oc.CategoryID   AS \"CategoryID\",
+            oc.CategoryName AS \"CategoryName\"
         FROM ObjectTypes ot
         JOIN ObjectCategories oc ON ot.CategoryID = oc.CategoryID
         ORDER BY oc.CategoryName, ot.TypeName

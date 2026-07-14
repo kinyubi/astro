@@ -166,7 +166,7 @@ try {
     // it. If there's more than one, the caller must specify which via
     // {"ProjectID": n} in the POST body -- a proper per-project sync picker
     // in the admin UI is planned for Phase 2 of DB_REWORK_PLAN.md.
-    $stmt = $db->prepare("SELECT ProjectID, ProjectFolder FROM Projects WHERE DSOKey = ?");
+    $stmt = $db->prepare("SELECT ProjectID AS \"ProjectID\", ProjectFolder AS \"ProjectFolder\" FROM Projects WHERE DSOKey = ?");
     $stmt->execute([$dso_key]);
     $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -231,8 +231,14 @@ try {
 
     // ── Load existing GalleryImages rows for this DSO ─────────────────────
     $stmt = $db->prepare("
-        SELECT GalleryImageID, BaseName, DateCaptured, Equipment,
-               PaletteID, SessionDir, IsFeature
+        SELECT
+            GalleryImageID AS \"GalleryImageID\",
+            BaseName       AS \"BaseName\",
+            DateCaptured   AS \"DateCaptured\",
+            Equipment      AS \"Equipment\",
+            PaletteID      AS \"PaletteID\",
+            SessionDir     AS \"SessionDir\",
+            IsFeature      AS \"IsFeature\"
         FROM GalleryImages
         WHERE DSOKey = ?
         ORDER BY SortOrder, GalleryImageID
