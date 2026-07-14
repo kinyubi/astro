@@ -477,3 +477,56 @@ Hit a reproducible bug in the `edit_file` tool: patches to files containing rege
 - **Next session should start by running, in order, against the real live DB/`MyWorks` folder:** `migrate_add_integration_mins.py`, then `audit_observations.py`. Review each preview report carefully before confirming — especially the FIT-file-derived values for the comet project, given how many rounds of fixes that took.
 - Confirm `pythonscripts/migrate_add_manual_integration_override.py` has been deleted (Carl confirmed he would do this manually).
 - Still open from Phase 2: dead `IsMosaic` checkbox in admin Gallery Image card; no Project-picker UI for multi-project DSOs; the tabled deeper "smarter file/folder-based inference" idea has effectively been superseded by `audit_observations.py` itself.
+
+---
+
+## Session: 2026-07-13 (Postgres live migration + automated backups)
+
+### Postgres migration executed for real
+
+The `migrate_sqlite_to_postgres.py` script (written/validated in a prior session against a sandbox) was run for real against the IONOS VPS's `astro` Postgres database over the WireGuard tunnel.
+
+- **First attempt failed**: `psycopg2.errors.InsufficientPrivilege: must be owner of schema public` on `DROP SCHEMA public CASCADE` inside `reset_target()`. Root cause: `astro_app` had connect/write grants but not ownership of the `public` schema (default owner was `postgres`).
+- **Fix**: `sudo -u postgres psql -d astro -c "ALTER SCHEMA public OWNER TO astro_app;"` — one-time ownership transfer, no other config touched.
+- **Second run succeeded completely**: all 19 tables migrated with matching SQLite/Postgres row counts (Constellations 38, Objects 100, CatalogIDs 165, Projects 62, GalleryImages 75, Observations 90, ProcessingRuns 41, Images 331, VisibilityForecast 54, etc.), all 20 foreign key constraints created, `Projects.IsMosaic` generated column recreated correctly, all 4 views created, column casing verified preserved (`DSOKey`, `ProjectFolder`, etc.).
+- **The live `astro` database on the VPS is now a real, populated copy of local `astro.db`.** Local SQLite `astro.db` was not modified by the migration script (read-only source).
+
+### Automated Postgres backups (pg_dump → Dropbox), on the VPS
+
+Built an end-to-end automated backup pipeline per Carl's spec: connect via the WireGuard address (`10.8.0.1`, not loopback), run every ~3 days, keep 5 rotated backups both locally and on Dropbox.
+
+**`/usr/local/bin/backup_astro_pg.sh`** (new, on VPS)
+- `pg_dump -h 10.8.0.1 -U astro_app -d astro -Fc` (custom format) to a timestamped file in `/var/backups/postgres/`.
+- Pushes the new dump to Dropbox via `rclone copy` to `dropbox:astro-backups`.
+- Rotates to keep only the 5 newest dumps locally (`ls -1t ... | tail -n +6 | xargs rm -f`) and the 5 newest on Dropbox (`rclone lsf --files-only | sort -r | tail -n +6` → `rclone deletefile` per leftover).
+- Logs each run to `/var/backups/postgres/backup.log`.
+- Password currently embedded in the script (`PGPASSWORD=...`) — flagged as a candidate for a `~/.pgpass` file later, not yet changed.
+
+**rclone Dropbox remote setup** — done via the standard headless-machine flow: `rclone config` on the VPS walked to a `config_token>` prompt; `rclone authorize "dropbox"` was run on Carl's Windows machine (browser-based Dropbox OAuth approval), and the resulting JSON token pasted back into the VPS prompt to complete the `dropbox:` remote.
+
+**Two real infrastructure bugs found and fixed while getting the first successful backup run:**
+
+1. **Missing `pg_hba.conf` entry for the VPS's own WireGuard IP.** The existing rule only allowed `10.8.0.2/32` (Carl's Windows box); the backup script runs *on* the VPS but connects via the tunnel address `10.8.0.1`, which had no matching rule. Fixed by adding `host astro astro_app 10.8.0.1/32 scram-sha-256` (matching the existing line's auth method) below the existing entry.
+2. **`postgresql.service` is a meta-unit, not the real server, on this Debian/Ubuntu install.** `systemctl reload postgresql` / `restart postgresql` appeared to succeed (`active (exited)`, `ExecStart=/bin/true`) but never actually reloaded the running cluster, so the new `pg_hba.conf` line was never picked up despite being correct and correctly ordered. The real per-cluster service is `postgresql@16-main`; `sudo systemctl reload postgresql@16-main` (or `restart`) is what actually applies config changes. This was the actual fix — `pg_hba.conf` had been correct since the first edit.
+3. **`postgresql@16-main` showed `enabled-runtime`, not persistently `enabled`**, meaning the boot-enablement symlink only lived in `/run/systemd/system/` and would not have survived a reboot. Fixed with an explicit `sudo systemctl enable postgresql@16-main`, confirmed now shows plain `enabled`. (Reboot verification deferred — not yet done, low urgency since backups already run successfully post-fix.)
+
+**Cron scheduling** — initial crontab entry was accidentally left as `0 3 * * *` (daily) instead of the intended `0 3 */3 * *` (~every 3 days); caught by Carl reviewing `crontab -l` and corrected. Final confirmed crontab line: `0 3 */3 * * /usr/local/bin/backup_astro_pg.sh`. Noted caveat: `*/3` on day-of-month resets at each month boundary, so the actual gap is usually 3 days but occasionally 1 day right after a month rolls over — considered harmless for a backup job.
+
+**End state, verified working:** manual run of `backup_astro_pg.sh` completes, writes a local dump, pushes to `dropbox:astro-backups`, rotates both locations to 5, and appends to `backup.log`. Scheduled via cron for recurring runs.
+
+### Key learnings (this session)
+- **Postgres database/schema ownership is separate from GRANT-based privileges** — a role can have full read/write grants on a database yet still be unable to `DROP SCHEMA`/`CREATE SCHEMA` without owning the schema itself. `ALTER SCHEMA public OWNER TO <role>` is the one-time fix for a freshly created app role.
+- **On Debian/Ubuntu, `postgresql.service` is a meta/target unit, not the running server** — `ExecStart=/bin/true` and `active (exited)` are the tells. Config reloads must target the real per-cluster unit (`postgresql@<version>-<cluster>`, e.g. `postgresql@16-main`), or changes silently fail to apply while the meta-unit reports success.
+- **`systemctl is-enabled` can report `enabled-runtime`**, which looks fine at a glance but only reflects a `/run/systemd/system/` symlink that resets on reboot — persistent boot-enablement requires the enable command to succeed against `/etc/systemd/system/`; re-running `systemctl enable` on the specific unit is the fix, and a real reboot test is the only fully reliable verification.
+- **`pg_hba.conf` matching is address-based, not "which machine is asking"** — a script running locally on the VPS but connecting via a tunnel IP (`10.8.0.1`) needs its own `pg_hba.conf` entry distinct from a genuinely remote client's IP (`10.8.0.2`), even though both eventually reach the same server process.
+- **rclone's headless/no-browser OAuth flow (`rclone authorize` run on a *different*, browser-capable machine, token pasted back) is the standard pattern for configuring cloud-storage remotes on a VPS** — worth remembering for any future headless-server-to-cloud-storage integration.
+- **Always verify a systemd config change with the service's actual runtime status, not just the exit code of the reload command** — a reload command can return success while having reloaded the wrong (meta) unit.
+
+### Status at end of session
+- Postgres `astro` database on the VPS is now live and populated; automated backups (pg_dump → Dropbox, 3-day cadence, 5-deep rotation both locally and remotely) are confirmed working and scheduled via cron.
+- **Not yet done, from the original Postgres punch list:**
+  1. Refactor PHP (Laragon admin app) and Python (`titling.py`, `todays_dsos_web.py`, `audit_observations.py`, etc.) to point at Postgres instead of SQLite — app code still reads/writes local `astro.db` only; the new Postgres copy is not yet consumed by anything.
+  2. `plesk-firewall.service` cleanup (disabled but not uninstalled) — untouched this session.
+  3. WireGuard as a Windows service, for unattended script runs without the GUI app open — untouched this session.
+  4. Consider moving the backup script's embedded `PGPASSWORD` to a `~/.pgpass` file.
+- **Still outstanding from the 2026-07-06/07 session, not addressed this session:** running `migrate_add_integration_mins.py` then `audit_observations.py` against the live SQLite DB/`MyWorks` folder. Worth deciding, before running those, whether to apply them to SQLite and re-run the Postgres migration afterward, or apply them directly against Postgres going forward (depends on which DB becomes the app's source of truth first).

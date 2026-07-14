@@ -4,9 +4,9 @@
 // No authentication — personal tool, not sensitive data.
 //
 // action=list    (GET)  -> { todos: [...], categories: [...] }
-// action=add     (POST) -> { id }            body: {item_text, category}
+// action=add     (POST) -> { id }            body: {item_text, category, priority?}
 // action=toggle  (POST) -> { id, is_done }   body: {id}
-// action=update  (POST) -> { id }            body: {id, item_text?, category?}
+// action=update  (POST) -> { id }            body: {id, item_text?, category?, priority?}
 // action=delete  (POST) -> { deleted }       body: {id}
 // ============================================================
 
@@ -26,9 +26,14 @@ try {
 
         case 'list':
             $stmt = $db->query("
-                SELECT TodoID, Category, ItemText, IsDone, SortOrder, CreatedDate, CompletedDate
+                SELECT TodoID, Category, ItemText, IsDone, Priority, SortOrder, CreatedDate, CompletedDate
                 FROM Todos
-                ORDER BY IsDone ASC, Category COLLATE NOCASE ASC, SortOrder ASC, TodoID ASC
+                ORDER BY
+                    IsDone ASC,
+                    CASE Priority WHEN 'High' THEN 0 WHEN 'Medium' THEN 1 WHEN 'Low' THEN 2 ELSE 1 END ASC,
+                    Category COLLATE NOCASE ASC,
+                    SortOrder ASC,
+                    TodoID ASC
             ");
             $todos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -41,13 +46,17 @@ try {
         case 'add':
             $text = trim($body['item_text'] ?? '');
             $category = trim($body['category'] ?? '') ?: 'General';
+            $priority = trim($body['priority'] ?? '') ?: 'Medium';
+            if (!in_array($priority, ['High', 'Medium', 'Low'], true)) {
+                $priority = 'Medium';
+            }
             if ($text === '') {
                 http_response_code(400);
                 echo json_encode(['error' => 'item_text is required']);
                 break;
             }
-            $stmt = $db->prepare("INSERT INTO Todos (Category, ItemText) VALUES (?, ?)");
-            $stmt->execute([$category, $text]);
+            $stmt = $db->prepare("INSERT INTO Todos (Category, ItemText, Priority) VALUES (?, ?, ?)");
+            $stmt->execute([$category, $text, $priority]);
             echo json_encode(['id' => (int)$db->lastInsertId()]);
             break;
 
@@ -94,6 +103,16 @@ try {
             if (isset($body['category'])) {
                 $fields[] = 'Category = ?';
                 $params[] = trim($body['category']) ?: 'General';
+            }
+            if (isset($body['priority'])) {
+                $p = trim($body['priority']);
+                if (!in_array($p, ['High', 'Medium', 'Low'], true)) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'priority must be High, Medium, or Low']);
+                    break;
+                }
+                $fields[] = 'Priority = ?';
+                $params[] = $p;
             }
             if (!$fields) {
                 echo json_encode(['id' => $id]);

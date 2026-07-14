@@ -10,6 +10,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>To Do List</title>
+<link rel="icon" type="image/png" href="/images/favicon.png">
 <style>
   :root {
     --bg:       #0d1117;
@@ -72,6 +73,15 @@
     border-radius: var(--radius);
     color: var(--text);
     padding: 9px 12px;
+    font-size: 14px;
+  }
+  .add-row select {
+    width: 110px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    padding: 9px 8px;
     font-size: 14px;
   }
   .add-row button {
@@ -171,6 +181,22 @@
   }
   .item .del:hover { color: var(--danger); }
 
+  .item .prio {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    padding: 3px 4px;
+    background: var(--bg);
+    cursor: pointer;
+    margin-top: 1px;
+  }
+  .item .prio.prio-High    { color: var(--danger); border-color: var(--danger); }
+  .item .prio.prio-Medium  { color: var(--warn);   border-color: var(--warn); }
+  .item .prio.prio-Low     { color: var(--muted);  border-color: var(--border); }
+  .item.done .prio { opacity: 0.5; }
+
   .empty {
     color: var(--muted);
     font-size: 13px;
@@ -193,6 +219,11 @@
     <input type="text" id="new-text" placeholder="Add an item&#8230;" autocomplete="off">
     <input type="text" id="new-category" list="category-options" placeholder="Category" autocomplete="off" value="General">
     <datalist id="category-options"></datalist>
+    <select id="new-priority">
+      <option value="High">High</option>
+      <option value="Medium" selected>Medium</option>
+      <option value="Low">Low</option>
+    </select>
     <button onclick="addItem()">+ Add</button>
   </div>
 
@@ -253,12 +284,17 @@ function render() {
     return;
   }
 
-  // Group by category, incomplete items first within each group
+  // Group by category, incomplete items first within each group, then by priority
+  const prioRank = { High: 0, Medium: 1, Low: 2 };
   const groups = {};
   visible.forEach(t => {
     (groups[t.Category] ||= []).push(t);
   });
-  Object.values(groups).forEach(g => g.sort((a, b) => (a.IsDone - b.IsDone) || (a.SortOrder - b.SortOrder)));
+  Object.values(groups).forEach(g => g.sort((a, b) =>
+    (a.IsDone - b.IsDone) ||
+    (prioRank[a.Priority] ?? 1) - (prioRank[b.Priority] ?? 1) ||
+    (a.SortOrder - b.SortOrder)
+  ));
 
   const catNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
 
@@ -271,10 +307,16 @@ function render() {
 }
 
 function renderItem(t) {
+  const prio = t.Priority || 'Medium';
   return `
     <div class="item ${t.IsDone ? 'done' : ''}" data-id="${t.TodoID}">
-      <input type="checkbox" ${t.IsDone ? 'checked' : ''} onchange="toggleItem(${t.TodoID})">
+      <input type="checkbox" ${t.IsDone ? 'checked' : ''} onchange="toggleItem(${t.TodoID})" title="Mark completed">
       <div class="text" contenteditable="true" onblur="saveText(${t.TodoID}, this.innerText)">${escHtml(t.ItemText)}</div>
+      <select class="prio prio-${prio}" onchange="savePriority(${t.TodoID}, this.value)" title="Priority">
+        <option value="High" ${prio === 'High' ? 'selected' : ''}>High</option>
+        <option value="Medium" ${prio === 'Medium' ? 'selected' : ''}>Med</option>
+        <option value="Low" ${prio === 'Low' ? 'selected' : ''}>Low</option>
+      </select>
       <button class="del" onclick="deleteItem(${t.TodoID})" title="Delete">&times;</button>
     </div>
   `;
@@ -283,14 +325,16 @@ function renderItem(t) {
 async function addItem() {
   const textEl = document.getElementById('new-text');
   const catEl = document.getElementById('new-category');
+  const prioEl = document.getElementById('new-priority');
   const text = textEl.value.trim();
   const category = catEl.value.trim() || 'General';
+  const priority = prioEl.value;
   if (!text) return;
 
   await fetch('api.php?action=add', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ item_text: text, category })
+    body: JSON.stringify({ item_text: text, category, priority })
   });
   textEl.value = '';
   await loadTodos();
@@ -302,6 +346,15 @@ async function toggleItem(id) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id })
+  });
+  await loadTodos();
+}
+
+async function savePriority(id, priority) {
+  await fetch('api.php?action=update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, priority })
   });
   await loadTodos();
 }
