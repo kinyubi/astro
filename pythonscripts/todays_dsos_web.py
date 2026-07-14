@@ -5,9 +5,11 @@ Web version with sortable output: Outputs HTML for browser display with dropdown
 import datetime
 import sqlite3
 import numpy as np
+import math
 from zoneinfo import ZoneInfo
 from skyfield.api import load, Topos, Star, Angle
-from skyfield.almanac import dark_twilight_day, find_discrete
+from skyfield.almanac import dark_twilight_day, find_discrete, moon_phase
+from skyfield.magnitudelib import planetary_magnitude
 import sys
 import json
 import argparse
@@ -172,6 +174,80 @@ def find_visibility_window(star, base_date, max_days, ts, eph, observer, observe
     return first_date, last_date
 
 
+# ── Planets & Moon helpers ──────────────────────────────────────────────────
+# Planets aren't in the Objects table (their RA/Dec change constantly, unlike
+# catalog DSOs) -- their positions come straight from the ephemeris already
+# loaded for twilight calculations, not the database.
+
+PLANET_TARGETS = [
+    ('Moon', 'moon'),
+    ('Mercury', 'mercury barycenter'),
+    ('Venus', 'venus barycenter'),
+    ('Mars', 'mars barycenter'),
+    ('Jupiter', 'jupiter barycenter'),
+    ('Saturn', 'saturn barycenter'),
+    ('Uranus', 'uranus barycenter'),
+    ('Neptune', 'neptune barycenter'),
+]
+
+MOON_PHASE_NAMES = ['New Moon', 'Waxing Crescent', 'First Quarter', 'Waxing Gibbous',
+                     'Full Moon', 'Waning Gibbous', 'Last Quarter', 'Waning Crescent']
+
+
+def _compute_planet_window(alt_deg, az_deg, time_range, tz, min_alt, az_min, az_max):
+    """Given alt/az degree arrays across time_range, returns
+    (start_local, end_local, duration_minutes, start_alt, start_az, end_alt,
+    end_az) for the span from the first to the last moment meeting the given
+    alt/az criteria -- same convention used for DSOs and alignment stars
+    elsewhere in this script. Returns None if the criteria are never met
+    during time_range."""
+    is_vis = (alt_deg >= min_alt) & (az_deg >= az_min) & (az_deg <= az_max)
+    visible_indices = np.where(is_vis)[0]
+    if len(visible_indices) == 0:
+        return None
+    start_idx = visible_indices[0]
+    end_idx = visible_indices[-1]
+    obj_start = time_range[start_idx].astimezone(tz)
+    obj_end = time_range[end_idx].astimezone(tz)
+    duration = (obj_end - obj_start).total_seconds() / 60
+    return (obj_start, obj_end, duration,
+            float(alt_deg[start_idx]), float(az_deg[start_idx]),
+            float(alt_deg[end_idx]), float(az_deg[end_idx]))
+
+
+def _is_planet_visible_on_offset(target_key, observer_pos, day_offset, base_date, ts, eph, observer,
+                                  min_alt, az_min, az_max, viewing_window_cache):
+    """Returns True if the planet at target_key meets the alt/az criteria at
+    any point during base_date + day_offset's viewing window. No minimum
+    duration -- matches the "show any window" rule used for tonight's planet
+    visibility."""
+    _, _, time_range = _get_cached_viewing_window(day_offset, base_date, ts, eph, observer, viewing_window_cache)
+    if time_range is None:
+        return False
+    body = eph[target_key]
+    astrometric = observer_pos.at(time_range).observe(body).apparent()
+    alt, az, _ = astrometric.altaz()
+    is_vis = (alt.degrees >= min_alt) & (az.degrees >= az_min) & (az.degrees <= az_max)
+    return bool(np.any(is_vis))
+
+
+def find_planet_next_visible_date(target_key, base_date, max_days, ts, eph, observer, observer_pos,
+                                   min_alt, az_min, az_max, viewing_window_cache):
+    """Returns the next date after base_date (exclusive) that the planet at
+    target_key meets the alt/az criteria at some point during that night,
+    searching day-by-day up to max_days ahead. Unlike find_visibility_window
+    (used for fixed-position DSOs, which uses a coarse-then-refine search),
+    this recomputes the planet's actual ephemeris position fresh for each
+    day checked, since planets move -- a plain linear scan is used since
+    only the first matching day is needed (no window end date), and only 8
+    planets are ever searched. Returns None if not found within max_days."""
+    for offset in range(1, max_days + 1):
+        if _is_planet_visible_on_offset(target_key, observer_pos, offset, base_date, ts, eph, observer,
+                                         min_alt, az_min, az_max, viewing_window_cache):
+            return base_date + datetime.timedelta(days=offset)
+    return None
+
+
 def calculate_visibility(specified_date=None, profile_name='default'):
     """
     Main function to calculate visibility of objects and output HTML with sorting capability.
@@ -222,6 +298,8 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     time_range = ts.linspace(viewing_start, viewing_end, duration_minutes)
 
     visible_objects = []
+    planets_restricted = []
+    planets_unrestricted = []
 
     try:
         log = []
@@ -385,6 +463,124 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                         'end_alt': end_alt,
                         'end_az': end_az,
                     })
+
+        # ── Planets & Moon ──────────────────────────────────────────────────
+        # Two views: "restricted" uses this profile's own alt/az criteria
+        # (same as everything else in this report); "unrestricted" ignores
+        # azimuth entirely and just asks whether it clears 25° altitude
+        # anywhere in the sky. No minimum-duration cutoff (unlike DSOs/stars
+        # above) -- even a brief window is shown.
+        UNRESTRICTED_MIN_ALT = 25.0
+        UNRESTRICTED_AZ_MIN = 0.0
+        UNRESTRICTED_AZ_MAX = 360.0
+
+        mid_time = time_range[len(time_range) // 2]
+        planet_viewing_window_cache = {}
+
+        for planet_name, target_key in PLANET_TARGETS:
+            try:
+                body = eph[target_key]
+            except (KeyError, ValueError) as e:
+                log.append(f"Planet target not found in ephemeris: {target_key} ({e})")
+                continue
+
+            astrometric_series = observer_pos.at(time_range).observe(body).apparent()
+            alt_p, az_p, _ = astrometric_series.altaz()
+
+            # Magnitude and (Moon-only) phase barely change over a single
+            # night -- one representative value at the mid-window time is
+            # enough, same approach as everything else in this report using
+            # a single static value per object per night.
+            mid_astrometric = observer_pos.at(mid_time).observe(body).apparent()
+            try:
+                planet_magnitude = float(planetary_magnitude(mid_astrometric))
+            except Exception as e:
+                planet_magnitude = None
+                log.append(f"Magnitude lookup failed for {planet_name}: {e}")
+
+            # Diagnostic Alt/Az at the same mid-window reference time, shown
+            # for every row (visible or not) -- helps confirm the underlying
+            # alt/az calculation is producing sane values.
+            try:
+                mid_alt, mid_az, _ = mid_astrometric.altaz()
+                current_alt = round(float(mid_alt.degrees), 1)
+                current_az = round(float(mid_az.degrees), 1)
+                log.append(f"{planet_name} alt/az at mid-window ({mid_time.utc_iso()}): "
+                           f"alt={current_alt}, az={current_az}")
+            except Exception as e:
+                current_alt = None
+                current_az = None
+                log.append(f"Alt/az lookup failed for {planet_name}: {e}")
+
+            phase_pct = None
+            phase_name = None
+            if planet_name == 'Moon':
+                try:
+                    phase_angle_deg = moon_phase(eph, mid_time).degrees
+                    phase_pct = round((1 - math.cos(math.radians(phase_angle_deg))) / 2 * 100)
+                    phase_name = MOON_PHASE_NAMES[int(((phase_angle_deg + 22.5) % 360) // 45)]
+                except Exception as e:
+                    log.append(f"Moon phase lookup failed: {e}")
+
+            restricted_window = _compute_planet_window(
+                alt_p.degrees, az_p.degrees, time_range, tz,
+                minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees
+            )
+            if restricted_window:
+                obj_start, obj_end, duration, start_alt, start_az, end_alt, end_az = restricted_window
+                planets_restricted.append({
+                    'name': planet_name, 'visible_tonight': True,
+                    'start': obj_start, 'end': obj_end, 'duration': duration,
+                    'start_alt': start_alt, 'start_az': start_az,
+                    'end_alt': end_alt, 'end_az': end_az,
+                    'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
+                    'phase_pct': phase_pct, 'phase_name': phase_name,
+                    'next_visible': None,
+                })
+            else:
+                next_date = find_planet_next_visible_date(
+                    target_key, specified_date, FORECAST_MAX_DAYS, ts, eph, observer, observer_pos,
+                    minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees,
+                    planet_viewing_window_cache
+                )
+                planets_restricted.append({
+                    'name': planet_name, 'visible_tonight': False,
+                    'start': None, 'end': None, 'duration': None,
+                    'start_alt': None, 'start_az': None, 'end_alt': None, 'end_az': None,
+                    'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
+                    'phase_pct': phase_pct, 'phase_name': phase_name,
+                    'next_visible': next_date.strftime('%Y-%m-%d') if next_date else None,
+                })
+
+            unrestricted_window = _compute_planet_window(
+                alt_p.degrees, az_p.degrees, time_range, tz,
+                UNRESTRICTED_MIN_ALT, UNRESTRICTED_AZ_MIN, UNRESTRICTED_AZ_MAX
+            )
+            if unrestricted_window:
+                obj_start, obj_end, duration, start_alt, start_az, end_alt, end_az = unrestricted_window
+                planets_unrestricted.append({
+                    'name': planet_name, 'visible_tonight': True,
+                    'start': obj_start, 'end': obj_end, 'duration': duration,
+                    'start_alt': start_alt, 'start_az': start_az,
+                    'end_alt': end_alt, 'end_az': end_az,
+                    'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
+                    'phase_pct': phase_pct, 'phase_name': phase_name,
+                    'next_visible': None,
+                })
+            else:
+                next_date = find_planet_next_visible_date(
+                    target_key, specified_date, FORECAST_MAX_DAYS, ts, eph, observer, observer_pos,
+                    UNRESTRICTED_MIN_ALT, UNRESTRICTED_AZ_MIN, UNRESTRICTED_AZ_MAX,
+                    planet_viewing_window_cache
+                )
+                planets_unrestricted.append({
+                    'name': planet_name, 'visible_tonight': False,
+                    'start': None, 'end': None, 'duration': None,
+                    'start_alt': None, 'start_az': None, 'end_alt': None, 'end_az': None,
+                    'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
+                    'phase_pct': phase_pct, 'phase_name': phase_name,
+                    'next_visible': next_date.strftime('%Y-%m-%d') if next_date else None,
+                })
 
         if log:
             with open('dso_visibility.log', 'a') as log_file:
@@ -594,6 +790,65 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     </div>
 """
 
+    planets_table_html = """
+    <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Planets &amp; Moon</h2>
+    <p style="color:#b8c5d6;">Restricted view uses your profile's altitude/azimuth criteria. Unrestricted view shows anywhere in the sky above 25&deg; altitude.</p>
+
+    <h3 style="color:#7ec8ff; margin-top:20px;">Restricted View (your criteria)</h3>
+    <div class="controls" style="margin-top:10px;">
+        <label for="planetRestrictedSort">Sort by:</label>
+        <select id="planetRestrictedSort" onchange="sortPlanetTable('restricted')">
+            <option value="duration">Duration (longest first)</option>
+            <option value="start">Start Time (earliest first)</option>
+            <option value="name">Name (A-Z)</option>
+        </select>
+    </div>
+    <table id="planetRestrictedTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Start</th>
+                <th>Start Alt</th>
+                <th>Start Az</th>
+                <th>End</th>
+                <th>End Alt</th>
+                <th>End Az</th>
+                <th>Duration</th>
+                <th>Mag</th>
+                <th>Phase</th>
+            </tr>
+        </thead>
+        <tbody id="planetRestrictedBody"></tbody>
+    </table>
+
+    <h3 style="color:#7ec8ff; margin-top:28px;">Unrestricted View (any direction, Alt &gt; 25&deg;)</h3>
+    <div class="controls" style="margin-top:10px;">
+        <label for="planetUnrestrictedSort">Sort by:</label>
+        <select id="planetUnrestrictedSort" onchange="sortPlanetTable('unrestricted')">
+            <option value="duration">Duration (longest first)</option>
+            <option value="start">Start Time (earliest first)</option>
+            <option value="name">Name (A-Z)</option>
+        </select>
+    </div>
+    <table id="planetUnrestrictedTable">
+        <thead>
+            <tr>
+                <th>Name</th>
+                <th>Start</th>
+                <th>Start Alt</th>
+                <th>Start Az</th>
+                <th>End</th>
+                <th>End Alt</th>
+                <th>End Az</th>
+                <th>Duration</th>
+                <th>Mag</th>
+                <th>Phase</th>
+            </tr>
+        </thead>
+        <tbody id="planetUnrestrictedBody"></tbody>
+    </table>
+"""
+
     def safe_float(value, default=0.0):
         if value is None or value == '':
             return default
@@ -657,6 +912,35 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         'end_alt': safe_float(obj.get('end_alt')),
         'end_az': safe_float(obj.get('end_az')),
     } for obj in visible_stars])
+
+    def _planet_start_minutes(dt):
+        if dt is None:
+            return 999999  # sorts "not visible tonight" entries last
+        m = dt.hour * 60 + dt.minute
+        return m + 24 * 60 if dt.hour < 12 else m
+
+    def _planets_to_json(planet_list):
+        return json.dumps([{
+            'name': safe_str(p.get('name', '')),
+            'visible_tonight': bool(p.get('visible_tonight')),
+            'start': safe_time_str(p.get('start')) if p.get('start') else None,
+            'start_minutes': _planet_start_minutes(p.get('start')),
+            'end': safe_time_str(p.get('end')) if p.get('end') else None,
+            'duration': safe_float(p.get('duration')) if p.get('duration') is not None else -1,
+            'start_alt': p.get('start_alt'),
+            'start_az': p.get('start_az'),
+            'end_alt': p.get('end_alt'),
+            'end_az': p.get('end_az'),
+            'magnitude': p.get('magnitude'),
+            'alt': p.get('alt'),
+            'az': p.get('az'),
+            'phase_pct': p.get('phase_pct'),
+            'phase_name': p.get('phase_name'),
+            'next_visible': p.get('next_visible'),
+        } for p in planet_list])
+
+    planets_restricted_json = _planets_to_json(planets_restricted)
+    planets_unrestricted_json = _planets_to_json(planets_unrestricted)
 
 
     # Output HTML
@@ -977,7 +1261,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         <p><strong>Total visible objects:</strong> <span id="totalCount"></span></p>
         <p><strong>&#9733;</strong> = Priority target (not recently observed)</p>
     </div>
-""" + alignment_table_html + forecast_table_html + """
+""" + alignment_table_html + planets_table_html + forecast_table_html + """
     <script>
         const objectsData = """ + objects_json + """;
 
@@ -1118,6 +1402,82 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
         // Initial render with default sort (duration)
         sortStarTable();
+
+        // -- Planets & Moon tables -------------------------------------------
+        const planetsRestrictedData = """ + planets_restricted_json + """;
+        const planetsUnrestrictedData = """ + planets_unrestricted_json + """;
+
+        function formatPhase(p) {
+            if (p.phase_pct === null || p.phase_pct === undefined) return '';
+            return p.phase_pct + '% (' + p.phase_name + ')';
+        }
+
+        function renderPlanetTable(kind, data) {
+            const bodyId = kind === 'restricted' ? 'planetRestrictedBody' : 'planetUnrestrictedBody';
+            const tbody = document.getElementById(bodyId);
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            const fmtDeg = v => (v !== null && v !== undefined) ? v.toFixed(1) + '&deg;' : '&mdash;';
+            data.forEach(obj => {
+                const row = tbody.insertRow();
+                const magCell = obj.magnitude !== null && obj.magnitude !== undefined ? obj.magnitude.toFixed(1) : '&mdash;';
+                const phaseCell = formatPhase(obj) || '&mdash;';
+                if (obj.visible_tonight) {
+                    row.innerHTML = `
+                        <td><strong>${obj.name}</strong></td>
+                        <td class="time">${obj.start}</td>
+                        <td>${fmtDeg(obj.start_alt)}</td>
+                        <td>${fmtDeg(obj.start_az)}</td>
+                        <td class="time">${obj.end}</td>
+                        <td>${fmtDeg(obj.end_alt)}</td>
+                        <td>${fmtDeg(obj.end_az)}</td>
+                        <td class="duration">${formatDuration(obj.duration)}</td>
+                        <td>${magCell}</td>
+                        <td>${phaseCell}</td>
+                    `;
+                } else {
+                    const currentPos = (obj.alt !== null && obj.alt !== undefined)
+                        ? ' (currently ' + fmtDeg(obj.alt) + ' alt, ' + fmtDeg(obj.az) + ' az)'
+                        : '';
+                    const nextText = obj.next_visible
+                        ? 'Not visible tonight' + currentPos + ' &mdash; next: ' + obj.next_visible
+                        : 'Not visible tonight' + currentPos + ' &mdash; none in next 180 days';
+                    row.innerHTML = `
+                        <td><strong>${obj.name}</strong></td>
+                        <td colspan="7" style="color:#8b9dc3; font-style:italic;">${nextText}</td>
+                        <td>${magCell}</td>
+                        <td>${phaseCell}</td>
+                    `;
+                }
+            });
+        }
+
+        function sortPlanetTable(kind) {
+            const selectId = kind === 'restricted' ? 'planetRestrictedSort' : 'planetUnrestrictedSort';
+            const sortSelect = document.getElementById(selectId);
+            if (!sortSelect) return;
+            const sortBy = sortSelect.value;
+            const source = kind === 'restricted' ? planetsRestrictedData : planetsUnrestrictedData;
+            const sortedData = [...source];
+
+            switch(sortBy) {
+                case 'duration':
+                    sortedData.sort((a, b) => b.duration - a.duration);
+                    break;
+                case 'start':
+                    sortedData.sort((a, b) => a.start_minutes - b.start_minutes);
+                    break;
+                case 'name':
+                    sortedData.sort((a, b) => a.name.localeCompare(b.name));
+                    break;
+            }
+
+            renderPlanetTable(kind, sortedData);
+        }
+
+        // Initial render, both tables
+        sortPlanetTable('restricted');
+        sortPlanetTable('unrestricted');
 
         // -- Visibility Dates table ----------------------------------------
         const forecastData = """ + forecast_json + """;
