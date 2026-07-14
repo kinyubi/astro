@@ -4,6 +4,8 @@
  * Provides options for slideshow or browsing DSO gallery
  */
 
+require_once __DIR__ . '/../shared/db.php';
+
 $extensions = ['jpg','jpeg','png','gif','webp'];
 
 // ── Slideshow images (still from filesystem) ──────────────────────────────────
@@ -27,132 +29,128 @@ $wallImages = gatherImages(__DIR__ . '/images/annotated_wall', 'images/annotated
 // ── Gallery data from GalleryImages + Objects DB ──────────────────────────────
 $galleryItems = [];
 try {
-    $dbPath = __DIR__ . '/../dsodb/astro.db';
-    if (file_exists($dbPath)) {
-        $db = new PDO('sqlite:' . $dbPath);
-        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $db = get_db();
 
-        // One row per GalleryImages entry, joined to its Project and object metadata.
-        // Grouping key is now ProjectID, not DSOKey -- a DSO can have more than one
-        // Project (e.g. a standard framing and a separate mosaic framing), and each
-        // now gets its own gallery card. See DB_REWORK_PLAN.md.
-        $stmt = $db->query("
-            SELECT
-                gi.GalleryImageID,
-                gi.DSOKey,
-                gi.ProjectID,
-                p.ProjectFolder,
-                p.IsMosaic,
-                gi.BaseName,
-                gi.Caption,
-                gi.PaletteID,
-                pt.PaletteName,
-                gi.DateCaptured,
-                gi.Copyright,
-                gi.IsOwn,
-                gi.Attribution,
-                gi.Equipment,
-                gi.SortOrder,
-                gi.IsFeature,
-                o.CommonName,
-                o.ConstellationID,
-                con.Name        AS ConstellationName,
-                o.DistanceLY,
-                o.ObjectSize,
-                o.SocialBlurb,
-                o.RAHours,
-                o.DecDegrees,
-                c.CatalogID     AS PrimaryCatalogID
-            FROM GalleryImages gi
-            JOIN Objects o ON gi.DSOKey = o.DSOKey
-            LEFT JOIN Projects p            ON gi.ProjectID      = p.ProjectID
-            LEFT JOIN PaletteTreatments pt  ON gi.PaletteID      = pt.PaletteID
-            LEFT JOIN CatalogIDs c          ON o.DSOKey          = c.DSOKey AND c.IsPrimary = 1
-            LEFT JOIN Constellations con     ON o.ConstellationID = con.ConstellationID
-            ORDER BY o.CommonName, o.DSOKey, p.IsMosaic, gi.SortOrder, gi.GalleryImageID
-        ");
-        $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+    // One row per GalleryImages entry, joined to its Project and object metadata.
+    // Grouping key is now ProjectID, not DSOKey -- a DSO can have more than one
+    // Project (e.g. a standard framing and a separate mosaic framing), and each
+    // now gets its own gallery card. See DB_REWORK_PLAN.md.
+    $stmt = $db->query("
+        SELECT
+            gi.GalleryImageID,
+            gi.DSOKey,
+            gi.ProjectID,
+            p.ProjectFolder,
+            p.IsMosaic,
+            gi.BaseName,
+            gi.Caption,
+            gi.PaletteID,
+            pt.PaletteName,
+            gi.DateCaptured,
+            gi.Copyright,
+            gi.IsOwn,
+            gi.Attribution,
+            gi.Equipment,
+            gi.SortOrder,
+            gi.IsFeature,
+            o.CommonName,
+            o.ConstellationID,
+            con.Name        AS ConstellationName,
+            o.DistanceLY,
+            o.ObjectSize,
+            o.SocialBlurb,
+            o.RAHours,
+            o.DecDegrees,
+            c.CatalogID     AS PrimaryCatalogID
+        FROM GalleryImages gi
+        JOIN Objects o ON gi.DSOKey = o.DSOKey
+        LEFT JOIN Projects p            ON gi.ProjectID      = p.ProjectID
+        LEFT JOIN PaletteTreatments pt  ON gi.PaletteID      = pt.PaletteID
+        LEFT JOIN CatalogIDs c          ON o.DSOKey          = c.DSOKey AND c.IsPrimary = 1
+        LEFT JOIN Constellations con     ON o.ConstellationID = con.ConstellationID
+        ORDER BY o.CommonName, o.DSOKey, p.IsMosaic, gi.SortOrder, gi.GalleryImageID
+    ");
+    $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-        // Fetch DSOLinks keyed by DSOKey
-        $linkStmt = $db->query("
-            SELECT DSOKey, Label, URL, SortOrder
-            FROM DSOLinks
-            ORDER BY DSOKey, SortOrder, LinkID
-        ");
-        $allLinks = [];
-        foreach ($linkStmt->fetchAll(PDO::FETCH_ASSOC) as $lnk) {
-            $allLinks[$lnk['DSOKey']][] = ['label' => $lnk['Label'], 'url' => $lnk['URL']];
-        }
+    // Fetch DSOLinks keyed by DSOKey
+    $linkStmt = $db->query("
+        SELECT DSOKey, Label, URL, SortOrder
+        FROM DSOLinks
+        ORDER BY DSOKey, SortOrder, LinkID
+    ");
+    $allLinks = [];
+    foreach ($linkStmt->fetchAll(PDO::FETCH_ASSOC) as $lnk) {
+        $allLinks[$lnk['DSOKey']][] = ['label' => $lnk['Label'], 'url' => $lnk['URL']];
+    }
 
-        // Group by ProjectID -- one gallery card per Project, not per DSO.
-        // Rows with no ProjectID (shouldn't normally happen post-migration, but
-        // guards against a newly-added image not yet assigned one) fall back to
-        // grouping by DSOKey so they still show up rather than being dropped.
-        $byProject = [];
-        foreach ($rows as $row) {
-            $groupKey = $row['ProjectID'] !== null ? ('p' . $row['ProjectID']) : ('dso_' . $row['DSOKey']);
-            if (!isset($byProject[$groupKey])) {
-                $displayName = ($row['CommonName'] ?? $row['DSOKey']) . ' (' . $row['DSOKey'] . ')';
-                $byProject[$groupKey] = [
-                    'groupKey'    => $groupKey,
-                    'projectId'   => $row['ProjectID'] !== null ? (int)$row['ProjectID'] : null,
-                    'dsoKey'      => $row['DSOKey'],
-                    'displayName' => $displayName,
-                    'isMosaic'    => (int)($row['IsMosaic'] ?? 0),
-                    'info'        => [
-                        'CommonName'       => $row['CommonName'],
-                        'ConstellationID'  => $row['ConstellationID'],
-                        'ConstellationName'=> $row['ConstellationName'],
-                        'DistanceLY'       => $row['DistanceLY'],
-                        'ObjectSize'       => $row['ObjectSize'],
-                        'SocialBlurb'      => $row['SocialBlurb'],
-                        'RAHours'          => $row['RAHours'],
-                        'DecDegrees'       => $row['DecDegrees'],
-                        'PrimaryCatalogID' => $row['PrimaryCatalogID'],
-                    ],
-                    'links'       => $allLinks[$row['DSOKey']] ?? [],
-                    'images'      => [],
-                ];
-            }
-            $bn = $row['BaseName'];
-            $wall4kPath          = 'images/wall4k/'          . $bn . '_4k.jpg';
-            $wall4kAnnotatedPath = 'images/annotated_wall4k/' . $bn . '_4k_annotated.jpg';
-            $byProject[$groupKey]['images'][] = [
-                'galleryImageID' => (int)$row['GalleryImageID'],
-                'baseName'       => $bn,
-                'caption'        => $row['Caption'],
-                'paletteName'    => $row['PaletteName'] ?? 'Natural',
-                'paletteID'      => (int)$row['PaletteID'],
-                'dateCaptured'   => $row['DateCaptured'],
-                'copyright'      => $row['Copyright'],
-                'isOwn'          => (int)$row['IsOwn'],
-                'attribution'    => $row['Attribution'],
-                'equipment'      => $row['Equipment'],
-                'isFeature'      => (int)$row['IsFeature'],
-                'thumbPath'      => 'images/thumbs/' . $bn . '_thumb.jpg',
-                'favPath'        => 'images/fav/'    . $bn . '_fav.jpg',
-                'fullPath'       => 'images/annotated_full/' . $bn . '_full_annotated.jpg',
-                'wallPath'       => 'images/annotated_wall/' . $bn . '_wall_annotated.jpg',
-                'has4k'          => file_exists(__DIR__ . '/' . $wall4kPath),
-                'has4kAnnotated' => file_exists(__DIR__ . '/' . $wall4kAnnotatedPath),
+    // Group by ProjectID -- one gallery card per Project, not per DSO.
+    // Rows with no ProjectID (shouldn't normally happen post-migration, but
+    // guards against a newly-added image not yet assigned one) fall back to
+    // grouping by DSOKey so they still show up rather than being dropped.
+    $byProject = [];
+    foreach ($rows as $row) {
+        $groupKey = $row['ProjectID'] !== null ? ('p' . $row['ProjectID']) : ('dso_' . $row['DSOKey']);
+        if (!isset($byProject[$groupKey])) {
+            $displayName = ($row['CommonName'] ?? $row['DSOKey']) . ' (' . $row['DSOKey'] . ')';
+            $byProject[$groupKey] = [
+                'groupKey'    => $groupKey,
+                'projectId'   => $row['ProjectID'] !== null ? (int)$row['ProjectID'] : null,
+                'dsoKey'      => $row['DSOKey'],
+                'displayName' => $displayName,
+                'isMosaic'    => (int)($row['IsMosaic'] ?? 0),
+                'info'        => [
+                    'CommonName'       => $row['CommonName'],
+                    'ConstellationID'  => $row['ConstellationID'],
+                    'ConstellationName'=> $row['ConstellationName'],
+                    'DistanceLY'       => $row['DistanceLY'],
+                    'ObjectSize'       => $row['ObjectSize'],
+                    'SocialBlurb'      => $row['SocialBlurb'],
+                    'RAHours'          => $row['RAHours'],
+                    'DecDegrees'       => $row['DecDegrees'],
+                    'PrimaryCatalogID' => $row['PrimaryCatalogID'],
+                ],
+                'links'       => $allLinks[$row['DSOKey']] ?? [],
+                'images'      => [],
             ];
         }
-
-        // Sort by display name, then non-mosaic before mosaic for the same DSO;
-        // ensure featured image is first within each card.
-        uasort($byProject, function ($a, $b) {
-            $cmp = strcmp($a['displayName'], $b['displayName']);
-            return $cmp !== 0 ? $cmp : ($a['isMosaic'] - $b['isMosaic']);
-        });
-        foreach ($byProject as &$dso) {
-            usort($dso['images'], fn($a, $b) =>
-                $b['isFeature'] - $a['isFeature'] ?: $a['galleryImageID'] - $b['galleryImageID']
-            );
-        }
-        unset($dso);
-
-        $galleryItems = array_values($byProject);
+        $bn = $row['BaseName'];
+        $wall4kPath          = 'images/wall4k/'          . $bn . '_4k.jpg';
+        $wall4kAnnotatedPath = 'images/annotated_wall4k/' . $bn . '_4k_annotated.jpg';
+        $byProject[$groupKey]['images'][] = [
+            'galleryImageID' => (int)$row['GalleryImageID'],
+            'baseName'       => $bn,
+            'caption'        => $row['Caption'],
+            'paletteName'    => $row['PaletteName'] ?? 'Natural',
+            'paletteID'      => (int)$row['PaletteID'],
+            'dateCaptured'   => $row['DateCaptured'],
+            'copyright'      => $row['Copyright'],
+            'isOwn'          => (int)$row['IsOwn'],
+            'attribution'    => $row['Attribution'],
+            'equipment'      => $row['Equipment'],
+            'isFeature'      => (int)$row['IsFeature'],
+            'thumbPath'      => 'images/thumbs/' . $bn . '_thumb.jpg',
+            'favPath'        => 'images/fav/'    . $bn . '_fav.jpg',
+            'fullPath'       => 'images/annotated_full/' . $bn . '_full_annotated.jpg',
+            'wallPath'       => 'images/annotated_wall/' . $bn . '_wall_annotated.jpg',
+            'has4k'          => file_exists(__DIR__ . '/' . $wall4kPath),
+            'has4kAnnotated' => file_exists(__DIR__ . '/' . $wall4kAnnotatedPath),
+        ];
     }
+
+    // Sort by display name, then non-mosaic before mosaic for the same DSO;
+    // ensure featured image is first within each card.
+    uasort($byProject, function ($a, $b) {
+        $cmp = strcmp($a['displayName'], $b['displayName']);
+        return $cmp !== 0 ? $cmp : ($a['isMosaic'] - $b['isMosaic']);
+    });
+    foreach ($byProject as &$dso) {
+        usort($dso['images'], fn($a, $b) =>
+            $b['isFeature'] - $a['isFeature'] ?: $a['galleryImageID'] - $b['galleryImageID']
+        );
+    }
+    unset($dso);
+
+    $galleryItems = array_values($byProject);
 } catch (Exception $e) {
     // Fall back to empty gallery
 }

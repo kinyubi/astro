@@ -150,9 +150,13 @@ PROMPT;
 
     // Catalog IDs
     if (!empty($fields['CatalogIDs']) && is_array($fields['CatalogIDs'])) {
+        // "ON CONFLICT DO NOTHING" (no target column) is valid on both
+        // SQLite 3.24+ and Postgres — portable replacement for SQLite's
+        // old "INSERT OR IGNORE".
         $stmt = $db->prepare("
-            INSERT OR IGNORE INTO CatalogIDs (CatalogID, DSOKey, IsPrimary)
+            INSERT INTO CatalogIDs (CatalogID, DSOKey, IsPrimary)
             VALUES (:cid, :dkey, :primary)
+            ON CONFLICT DO NOTHING
         ");
         foreach ($fields['CatalogIDs'] as $entry) {
             $cid = strtoupper(trim($entry['CatalogID'] ?? ''));

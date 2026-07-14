@@ -1,7 +1,7 @@
 <?php
 require_once __DIR__ . '/../admin/auth.php';
+require_once __DIR__ . '/../../shared/db.php';
 
-$dbPath  = __DIR__ . '/../../dsodb/astro.db';
 $favDir  = __DIR__ . '/../images/fav';
 $adminUrl = '/admin/';
 
@@ -23,26 +23,21 @@ if (!is_dir($favDir)) {
 }
 
 // ── 2. Query GalleryImages ────────────────────────────────────────────────────
-if (!file_exists($dbPath)) {
-    $errors[] = "Database not found: $dbPath";
-} else {
-    try {
-        $db = new PDO('sqlite:' . $dbPath);
-        $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-        $stmt = $db->query("SELECT gi.BaseName, gi.DSOKey, o.CommonName
-                            FROM GalleryImages gi
-                            LEFT JOIN Objects o ON gi.DSOKey = o.DSOKey
-                            ORDER BY gi.DSOKey, gi.BaseName");
-        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-            $dbBaseNames[$row['BaseName']] = true;
-            $dbRows[$row['BaseName']] = [
-                'dsoKey'     => $row['DSOKey'],
-                'commonName' => $row['CommonName'] ?? '',
-            ];
-        }
-    } catch (Exception $e) {
-        $errors[] = "DB error: " . $e->getMessage();
+try {
+    $db = get_db();
+    $stmt = $db->query("SELECT gi.BaseName, gi.DSOKey, o.CommonName
+                        FROM GalleryImages gi
+                        LEFT JOIN Objects o ON gi.DSOKey = o.DSOKey
+                        ORDER BY gi.DSOKey, gi.BaseName");
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+        $dbBaseNames[$row['BaseName']] = true;
+        $dbRows[$row['BaseName']] = [
+            'dsoKey'     => $row['DSOKey'],
+            'commonName' => $row['CommonName'] ?? '',
+        ];
     }
+} catch (Exception $e) {
+    $errors[] = "DB error: " . $e->getMessage();
 }
 
 // ── 3. Compute diffs ──────────────────────────────────────────────────────────

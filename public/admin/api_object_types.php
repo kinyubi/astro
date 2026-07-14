@@ -4,12 +4,12 @@
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
+require_once __DIR__ . '/db_logger.php';
 
 header('Content-Type: application/json');
 
 try {
-    $db = new PDO('sqlite:' . DB_PATH);
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $db = get_db();
 
     $stmt = $db->query("
         SELECT ot.ObjectTypeID, ot.TypeName, oc.CategoryID, oc.CategoryName

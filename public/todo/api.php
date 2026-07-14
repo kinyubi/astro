@@ -10,14 +10,12 @@
 // action=delete  (POST) -> { deleted }       body: {id}
 // ============================================================
 
+require_once __DIR__ . '/../../shared/db.php';
+
 header('Content-Type: application/json');
 
-define('DB_PATH', __DIR__ . '/../../dsodb/astro.db');
-
 try {
-    $db = new PDO('sqlite:' . DB_PATH);
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    $db->exec('PRAGMA foreign_keys = ON');
+    $db = get_db();
 
     $action = $_REQUEST['action'] ?? 'list';
     $body = json_decode(file_get_contents('php://input'), true) ?? [];
@@ -25,19 +23,23 @@ try {
     switch ($action) {
 
         case 'list':
+            // LOWER(Category) instead of SQLite's "COLLATE NOCASE" -- NOCASE
+            // is a SQLite built-in collation name that doesn't exist in
+            // Postgres; LOWER() gives the same case-insensitive ordering
+            // on both engines without branching per driver.
             $stmt = $db->query("
                 SELECT TodoID, Category, ItemText, IsDone, Priority, SortOrder, CreatedDate, CompletedDate
                 FROM Todos
                 ORDER BY
                     IsDone ASC,
                     CASE Priority WHEN 'High' THEN 0 WHEN 'Medium' THEN 1 WHEN 'Low' THEN 2 ELSE 1 END ASC,
-                    Category COLLATE NOCASE ASC,
+                    LOWER(Category) ASC,
                     SortOrder ASC,
                     TodoID ASC
             ");
             $todos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $cat_stmt = $db->query("SELECT DISTINCT Category FROM Todos ORDER BY Category COLLATE NOCASE ASC");
+            $cat_stmt = $db->query("SELECT DISTINCT Category FROM Todos ORDER BY LOWER(Category) ASC");
             $categories = array_column($cat_stmt->fetchAll(PDO::FETCH_ASSOC), 'Category');
 
             echo json_encode(['todos' => $todos, 'categories' => $categories]);
@@ -57,7 +59,7 @@ try {
             }
             $stmt = $db->prepare("INSERT INTO Todos (Category, ItemText, Priority) VALUES (?, ?, ?)");
             $stmt->execute([$category, $text, $priority]);
-            echo json_encode(['id' => (int)$db->lastInsertId()]);
+            echo json_encode(['id' => db_last_insert_id($db, 'Todos', 'TodoID')]);
             break;
 
         case 'toggle':

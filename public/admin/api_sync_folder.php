@@ -299,7 +299,7 @@ try {
                     VALUES (?, ?, ?, NULL, NULL, ?, NULL, 1, ?, ?)
                 ");
                 $stmt->execute([$dso_key, $bn, $f['palette_id'], $project_id, $sort, $is_feature]);
-                $new_id = (int)$db->lastInsertId();
+                $new_id = db_last_insert_id($db, 'GalleryImages', 'GalleryImageID');
                 $inserted[] = [
                     'GalleryImageID' => $new_id,
                     'BaseName'       => $bn,
@@ -362,7 +362,7 @@ try {
                 $dso_key, $bn, $palette_id, $date_captured,
                 $equipment, $project_id, $session_dir, $sort, $is_feature
             ]);
-            $new_id = (int)$db->lastInsertId();
+            $new_id = db_last_insert_id($db, 'GalleryImages', 'GalleryImageID');
 
             $inserted[] = [
                 'GalleryImageID' => $new_id,

@@ -8,6 +8,7 @@
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
+require_once __DIR__ . '/db_logger.php';
 
 header('Content-Type: application/json');
 
@@ -15,12 +16,14 @@ $q = trim($_GET['q'] ?? '');
 $searching = strlen($q) >= 1;
 
 try {
-    $db = new PDO('sqlite:' . DB_PATH);
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+    $db = get_db();
 
     $like = '%' . $q . '%';
 
     if ($searching) {
+        // LOWER() on both sides keeps this case-insensitive on both SQLite
+        // (whose LIKE is case-insensitive by default for ASCII) and Postgres
+        // (whose LIKE is case-sensitive) without branching per driver.
         $stmt = $db->prepare("
             SELECT
                 o.DSOKey,
@@ -41,11 +44,11 @@ try {
             FROM Objects o
             LEFT JOIN CatalogIDs c ON o.DSOKey = c.DSOKey AND c.IsPrimary = 1
             WHERE
-                o.DSOKey     LIKE :q OR
-                o.CommonName LIKE :q OR
+                LOWER(o.DSOKey)     LIKE LOWER(:q) OR
+                LOWER(o.CommonName) LIKE LOWER(:q) OR
                 EXISTS (
                     SELECT 1 FROM CatalogIDs ac
-                    WHERE ac.DSOKey = o.DSOKey AND ac.CatalogID LIKE :q
+                    WHERE ac.DSOKey = o.DSOKey AND LOWER(ac.CatalogID) LIKE LOWER(:q)
                 )
             ORDER BY o.DSOKey
             LIMIT 50

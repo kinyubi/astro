@@ -23,6 +23,8 @@
  *   500  { "success": false, "error": "Database error: <message>" }
  */
 
+require_once __DIR__ . '/../../shared/db.php';
+
 header('Content-Type: application/json');
 
 // ---------------------------------------------------------------------------
@@ -47,17 +49,9 @@ if ($key === '') {
 // ---------------------------------------------------------------------------
 // Open database
 // ---------------------------------------------------------------------------
-$dbPath = __DIR__ . '/../../dsodb/astro.db';
-if (!file_exists($dbPath)) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'error' => 'Database not found']);
-    exit;
-}
-
 try {
-    $db = new PDO('sqlite:' . $dbPath);
-    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-} catch (PDOException $e) {
+    $db = get_db();
+} catch (Exception $e) {
     http_response_code(500);
     echo json_encode(['success' => false, 'error' => 'Database error: ' . $e->getMessage()]);
     exit;

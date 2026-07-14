@@ -1,6 +1,6 @@
 <?php
 // ============================================================
-// api_save.php  —  Save object fields to the SQLite database
+// api_save.php  —  Save object fields to the database
 //
 // Accepts POST with JSON body containing DSOKey + any Object fields.
 // Also handles:
@@ -82,9 +82,13 @@ try {
     // ── CatalogIDs ────────────────────────────────────────────────────────────
 
     if (!empty($body['CatalogIDs']) && is_array($body['CatalogIDs'])) {
+        // "ON CONFLICT DO NOTHING" (no target column) is valid on both
+        // SQLite 3.24+ and Postgres and mirrors SQLite's old "INSERT OR
+        // IGNORE" — suppresses the insert on any constraint violation.
         $stmt = $db->prepare("
-            INSERT OR IGNORE INTO CatalogIDs (CatalogID, DSOKey, IsPrimary)
+            INSERT INTO CatalogIDs (CatalogID, DSOKey, IsPrimary)
             VALUES (:cid, :dkey, :primary)
+            ON CONFLICT DO NOTHING
         ");
         foreach ($body['CatalogIDs'] as $entry) {
             $cid = strtoupper(trim($entry['CatalogID'] ?? ''));

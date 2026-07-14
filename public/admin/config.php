@@ -3,18 +3,11 @@
 // config.php  —  Local configuration for the DSO Admin tool
 // ============================================================
 
-// Path to the SQLite database
-define('DB_PATH', __DIR__ . '/../../dsodb/astro.db');
-
-// Anthropic API key — loaded from secrets.php which lives outside
-// the public folder and should never be committed or deployed.
-// secrets.php lives at C:\laragon7\www\astro\secrets.php
-$_secrets_file = __DIR__ . '/../../secrets.php';
-if (file_exists($_secrets_file)) {
-    require_once $_secrets_file;
-} else {
-    die('secrets.php not found. Create C:\\laragon7\\www\\astro\\secrets.php with: define(\'ANTHROPIC_API_KEY\', \'your-key-here\');');
-}
+// DB_DRIVER, DB_PATH, and secrets.php (PG_*, ANTHROPIC_API_KEY,
+// ADMIN_USERNAME/PASSWORD) are all pulled in from the shared,
+// app-wide config so every entry point (admin, gallery, /api/dso.php,
+// check-missing, todo) agrees on which database backend is active.
+require_once __DIR__ . '/../../shared/config.php';
 
 // Path to the astrophotography works directory (session subdirs live here)
 define('WORKS_ROOT', 'C:\\Astronomy\\MyWorks');
