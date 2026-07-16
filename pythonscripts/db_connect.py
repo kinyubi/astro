@@ -37,8 +37,13 @@ automatically -- callers don't need to think about it.
 """
 import json
 import sqlite3
+from pathlib import Path
 
-_CONFIG_PATH = r"C:\laragon7\www\astro\shared\db_config.json"
+# Derived relative to this script: pythonscripts/ -> astro/ -> shared/db_config.json
+# (matches the ASTRO_DB convention in todays_dsos_web.py). Previously a hardcoded
+# absolute Windows path, which broke on any OS/deployment/drive-letter other than
+# the exact one it was written on.
+_CONFIG_PATH = Path(__file__).parent.parent / 'shared' / 'db_config.json'
 
 
 def _load_config():

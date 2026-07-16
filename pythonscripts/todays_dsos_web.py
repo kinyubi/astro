@@ -13,6 +13,7 @@ from skyfield.magnitudelib import planetary_magnitude
 import sys
 import json
 import argparse
+import time
 from profile_manager import load_profile
 from pathlib import Path
 from db_connect import get_connection
@@ -258,12 +259,26 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     """
     if specified_date is None:
         specified_date = datetime.date.today()
-    
+
+    # ── Timing instrumentation ──────────────────────────────────────────────
+    # Logs a per-phase breakdown to dso_visibility.log on every run so slow
+    # requests can be diagnosed without guessing. Also surfaced as an HTML
+    # comment near the top of the output for a quick "View Source" check.
+    _timings = []
+    _t_prev = time.time()
+
+    def _lap(label):
+        nonlocal _t_prev
+        now = time.time()
+        _timings.append((label, now - _t_prev))
+        _t_prev = now
+
     # Load profile
     profile = load_profile(profile_name)
     if profile is None:
         print(f"<p>Error: Could not load profile '{profile_name}'</p>")
         return
+    _lap('load_profile')
     
     # Extract settings from profile
     location_name = profile['location']
@@ -282,6 +297,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     observer_pos = earth + observer
 
     tz = ZoneInfo(time_zone)
+    _lap('skyfield_setup')
 
     # Get viewing window
     viewing_start, viewing_end = get_viewing_window(specified_date, ts, eph, observer)
@@ -296,6 +312,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     # Create time array (1-minute intervals)
     duration_minutes = int((viewing_end.utc_datetime() - viewing_start.utc_datetime()).total_seconds() / 60)
     time_range = ts.linspace(viewing_start, viewing_end, duration_minutes)
+    _lap('viewing_window')
 
     visible_objects = []
     planets_restricted = []
@@ -341,6 +358,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         """)
         star_rows = cur.fetchall()
         conn.close()
+        _lap('db_fetch')
 
         for row in dso_rows:
             name      = row['DSOKey']
@@ -404,6 +422,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                         'end_az': end_az,
                         'sq_arcmins': row['SqArcMins']
                     })
+        _lap('dso_visibility_loop')
         # ── Alignment Stars — same viewing-window logic, separate list ──────
         visible_stars = []
         for row in star_rows:
@@ -463,6 +482,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                         'end_alt': end_alt,
                         'end_az': end_az,
                     })
+        _lap('star_visibility_loop')
 
         # ── Planets & Moon ──────────────────────────────────────────────────
         # Two views: "restricted" uses this profile's own alt/az criteria
@@ -581,6 +601,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                     'phase_pct': phase_pct, 'phase_name': phase_name,
                     'next_visible': next_date.strftime('%Y-%m-%d') if next_date else None,
                 })
+        _lap('planets_loop')
 
         if log:
             with open('dso_visibility.log', 'a') as log_file:
@@ -615,19 +636,56 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         for row in dso_rows:
             name = row['DSOKey']
 
-            # Objects visible tonight: first = today, compute season end
+            # Objects visible tonight: first = today, reuse or compute season end.
+            # Previously this branch always called find_visibility_window() (a full
+            # coarse-then-refine search up to 180 days out) on EVERY request for
+            # EVERY object visible that night, regardless of whether the season-end
+            # date was already known and still valid -- the main cost driver on
+            # nights with many visible objects. Now checks VisibilityForecast first,
+            # same "only recompute once the cached window has fully elapsed" rule
+            # already used below for objects not visible tonight.
             if name in visible_names:
-                try:
-                    star = Star(ra=Angle(hours=float(row['RAHours'])),
-                                dec=Angle(degrees=float(row['DecDegrees'])))
-                except Exception:
-                    continue
-                _, last_date = find_visibility_window(
-                    star, specified_date - datetime.timedelta(days=1),
-                    FORECAST_MAX_DAYS, ts, eph, observer, observer_pos,
-                    minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees,
-                    viewing_window_cache
+                fcur.execute(
+                    "SELECT LastVisibleDate AS \"LastVisibleDate\" FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
+                    (profile_name, name)
                 )
+                cached = fcur.fetchone()
+
+                last_date = None
+                need_compute = True
+                if cached and cached['LastVisibleDate']:
+                    cached_last = datetime.datetime.strptime(cached['LastVisibleDate'], '%Y-%m-%d').date()
+                    if specified_date <= cached_last:
+                        last_date = cached_last
+                        need_compute = False
+
+                if need_compute:
+                    try:
+                        star = Star(ra=Angle(hours=float(row['RAHours'])),
+                                    dec=Angle(degrees=float(row['DecDegrees'])))
+                    except Exception:
+                        continue
+                    _, last_date = find_visibility_window(
+                        star, specified_date - datetime.timedelta(days=1),
+                        FORECAST_MAX_DAYS, ts, eph, observer, observer_pos,
+                        minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees,
+                        viewing_window_cache
+                    )
+                    fcur.execute("""
+                        INSERT INTO VisibilityForecast (ProfileName, DSOKey, ComputedDate, FirstVisibleDate, LastVisibleDate, SearchDays)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        ON CONFLICT(ProfileName, DSOKey) DO UPDATE SET
+                            ComputedDate = excluded.ComputedDate,
+                            FirstVisibleDate = excluded.FirstVisibleDate,
+                            LastVisibleDate = excluded.LastVisibleDate,
+                            SearchDays = excluded.SearchDays
+                    """, (
+                        profile_name, name, target_date_iso,
+                        target_date_iso,
+                        last_date.strftime('%Y-%m-%d') if last_date else None,
+                        FORECAST_MAX_DAYS
+                    ))
+
                 forecast_objects.append({
                     'do_me': '&#9733;' if row['WantBetter'] else '',
                     'name': name,
@@ -702,6 +760,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                     'visible_tonight': False,
                 })
 
+        _lap('forecast_loop')
         forecast_conn.commit()
         forecast_conn.close()
     except Exception as e:
@@ -943,6 +1002,19 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     planets_unrestricted_json = _planets_to_json(planets_unrestricted)
 
 
+    # ── Write timing breakdown to log, and build an HTML comment summary ────
+    _total_elapsed = sum(dur for _, dur in _timings)
+    _timing_line = ", ".join(f"{label}={dur:.2f}s" for label, dur in _timings)
+    try:
+        with open('dso_visibility.log', 'a') as _tlog:
+            _tlog.write(
+                f"{datetime.datetime.now().isoformat()} - TIMING date={specified_date} "
+                f"profile={profile_name}: {_timing_line}, TOTAL={_total_elapsed:.2f}s\n"
+            )
+    except Exception:
+        pass
+    timing_comment = f"<!-- timing: {_timing_line}, TOTAL={_total_elapsed:.2f}s -->"
+
     # Output HTML
     target_date_str = specified_date.strftime('%Y-%m-%d')
 
@@ -990,11 +1062,11 @@ def calculate_visibility(specified_date=None, profile_name='default'):
             color: #4a9eff;
             font-weight: 600;
         }}
-        #force-rebuild-btn, controls button {{
+        #force-rebuild-btn, .controls button {{
             padding: 8px 16px;
             background: #4a9eff !important;
             color: #ffffff !important;
-            border: 1px solid #4a9eff !important;
+            border: 1px solid rgba(255,255,255,0.3) !important;
             border-radius: 4px;
             font-size: 14px;
             font-weight: 600;
@@ -1204,6 +1276,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     </style>
 </head>
 <body>
+    {timing_comment}
     <h1>DSO Visibility Report</h1>
     <div class="info">
         <p><strong>Location:</strong> {location_name}</p>
@@ -1225,7 +1298,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
             <option value="aka">Friendly Name</option>
         </select>
         <button id="force-rebuild-btn" onclick="window.location.href=window.location.pathname + '?date={target_date_str}&profile={profile_name}&rebuild=1'">Force Rebuild</button>
-        <button id="quickadd-btn" onclick="openQuickAdd()" style="background:#3fb950 !important; border-color:#3fb950 !important;">&#43; Quick Add DSO</button>
+        <button id="quickadd-btn" onclick="openQuickAdd()" style="background:#3fb950 !important; border-color:rgba(255,255,255,0.3) !important;">&#43; Quick Add DSO</button>
     </div>
 
 """)
