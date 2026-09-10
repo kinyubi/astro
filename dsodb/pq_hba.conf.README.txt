@@ -1,0 +1,27 @@
+#THIS IS HOW THE TAIL END IS NOW
+# Database administrative login by Unix domain socket
+local   all             postgres                                peer
+
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+# "local" is for Unix domain socket connections only
+local   all             all                                     peer
+# IPv4 local connections:
+host    all             all             127.0.0.1/32            scram-sha-256
+# IPv6 local connections:
+host    all             all             ::1/128                 scram-sha-256
+# Allow replication connections from localhost, by a user with the
+# replication privilege.
+local   replication     all                                     peer
+host    replication     all             127.0.0.1/32            scram-sha-256
+host    replication     all             ::1/128                 scram-sha-256
+host    astro    astro_app    10.8.0.2/32    scram-sha-256
+host    astro    astro_app    10.8.0.1/32    scram-sha-256
+
+# THIS IS WHAT CLAUDE SAYS IT SHOULD BE
+# TYPE  DATABASE  USER       ADDRESS         METHOD
+local   all       postgres                   peer
+local   all       all                        scram-sha-256
+host    astro     astro_app  127.0.0.1/32    scram-sha-256
+host    astro     astro_app  10.8.0.2/32     scram-sha-256
+host    astro     astro_app  10.8.0.1/32     scram-sha-256

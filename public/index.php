@@ -1336,12 +1336,11 @@ $solarJson = json_encode(array_values($solarObjects));
             captionParts.push(`<span class="caption-palette">${img.paletteName} Palette</span>`);
         }
 
-        // Equipment — prepend 'Seestar' for known Seestar models
+        // Equipment — map known Seestar model codes to a friendly display label
         if (img.equipment) {
             const eq = img.equipment.trim();
-            const seestarModels = ['S30', 'S50', 'S30 Pro'];
-            const label = seestarModels.some(m => eq.toLowerCase() === m.toLowerCase())
-                ? `Seestar ${eq}` : eq;
+            const seestarLabels = { 's30': 'Seestar S30', 's50': 'Seestar S50', 's50p': 'Seestar S50 Pro' };
+            const label = seestarLabels[eq.toLowerCase()] || eq;
             captionParts.push(`<span class="caption-equipment"><span class="caption-label">Equipment:</span> ${label}</span>`);
         }
 

@@ -49,7 +49,7 @@
     text-decoration: none;
   }
   header a:hover { color: var(--accent); }
-  .wrap { max-width: 720px; margin: 24px auto; padding: 0 16px 60px; }
+  .wrap { max-width: 900px; margin: 24px auto; padding: 0 16px 60px; }
 
   .add-row {
     display: flex;
@@ -58,7 +58,7 @@
     flex-wrap: wrap;
   }
   .add-row input[type=text] {
-    flex: 1 1 260px;
+    flex: 1 1 338px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -67,13 +67,19 @@
     font-size: 14px;
   }
   .add-row input[list] {
-    width: 150px;
+    width: 60px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     color: var(--text);
     padding: 9px 12px;
     font-size: 14px;
+  }
+  /* #new-category also matches .add-row input[type=text] above; that rule's
+     explicit flex-basis (338px) wins over plain "width" on a flex item,
+     so it must be overridden here by id, not just re-set by attribute. */
+  #new-category {
+    flex: 0 0 150px;
   }
   .add-row select {
     width: 110px;
@@ -192,6 +198,16 @@
     cursor: pointer;
     margin-top: 1px;
   }
+
+  .item .age {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--muted);
+    white-space: nowrap;
+    margin-top: 3px;
+  }
+  .item .age.stale { color: var(--warn); }
+  .item.done .age { opacity: 0.5; }
   .item .prio.prio-High    { color: var(--danger); border-color: var(--danger); }
   .item .prio.prio-Medium  { color: var(--warn);   border-color: var(--warn); }
   .item .prio.prio-Low     { color: var(--muted);  border-color: var(--border); }
@@ -312,6 +328,7 @@ function renderItem(t) {
     <div class="item ${t.IsDone ? 'done' : ''}" data-id="${t.TodoID}">
       <input type="checkbox" ${t.IsDone ? 'checked' : ''} onchange="toggleItem(${t.TodoID})" title="Mark completed">
       <div class="text" contenteditable="true" onblur="saveText(${t.TodoID}, this.innerText)">${escHtml(t.ItemText)}</div>
+      <span class="age ${isStale(t.CreatedDate) ? 'stale' : ''}" title="Added ${escAttr(t.CreatedDate || '')}">${formatAge(t.CreatedDate)}</span>
       <select class="prio prio-${prio}" onchange="savePriority(${t.TodoID}, this.value)" title="Priority">
         <option value="High" ${prio === 'High' ? 'selected' : ''}>High</option>
         <option value="Medium" ${prio === 'Medium' ? 'selected' : ''}>Med</option>
@@ -378,6 +395,32 @@ async function deleteItem(id) {
     body: JSON.stringify({ id })
   });
   await loadTodos();
+}
+
+function daysSince(dateStr) {
+  if (!dateStr) return null;
+  // Postgres/SQLite timestamps come back as 'YYYY-MM-DD HH:MM:SS' (no
+  // timezone) -- swap the space for 'T' so browsers parse it as local
+  // time instead of guessing/UTC-defaulting on the space-separated form.
+  const d = new Date(dateStr.replace(' ', 'T'));
+  if (isNaN(d)) return null;
+  const ms = Date.now() - d.getTime();
+  return Math.floor(ms / 86400000);
+}
+
+function isStale(dateStr) {
+  const days = daysSince(dateStr);
+  return days !== null && days >= 14;
+}
+
+function formatAge(dateStr) {
+  const days = daysSince(dateStr);
+  if (days === null) return '';
+  if (days <= 0) return 'Today';
+  if (days === 1) return '1d';
+  if (days < 30) return `${days}d`;
+  if (days < 365) return `${Math.floor(days / 30)}mo`;
+  return `${Math.floor(days / 365)}y`;
 }
 
 function escHtml(s) {

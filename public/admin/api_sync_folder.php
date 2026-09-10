@@ -79,7 +79,8 @@ function infer_palette(string $fav_filename, string $base_name): int {
 }
 
 function infer_equipment(string $session_dir): ?string {
-    if (preg_match('/_(S\d+)$/i', $session_dir, $m)) {
+    // Trailing _S##[P] token, e.g. _S30, _S50, _S50P
+    if (preg_match('/_(S\d+P?)$/i', $session_dir, $m)) {
         return strtoupper($m[1]);
     }
     return null;

@@ -69,12 +69,13 @@ def infer_palette(fav_filename, base_name):
 
 def infer_equipment(session_dir_name):
     """
-    Extracts equipment code from trailing _S## token.
+    Extracts equipment code from trailing _S##[P] token.
     e.g. '20251108_165x60s_S30' → 'S30'
          '20260118_35x30s_S50'  → 'S50'
+         '20260904_S50P'        → 'S50P'
     Returns None if not found.
     """
-    m = re.search(r'_(S\d+)$', session_dir_name, re.IGNORECASE)
+    m = re.search(r'_(S\d+P?)$', session_dir_name, re.IGNORECASE)
     return m.group(1).upper() if m else None
 
 def infer_is_mosaic(session_dir_name, project_folder):

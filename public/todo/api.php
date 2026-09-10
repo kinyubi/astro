@@ -52,7 +52,7 @@ try {
             ");
             $todos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $cat_stmt = $db->query("SELECT DISTINCT Category AS \"Category\" FROM Todos ORDER BY LOWER(Category) ASC");
+            $cat_stmt = $db->query("SELECT DISTINCT Category AS \"Category\", LOWER(Category) AS cat_sort FROM Todos ORDER BY cat_sort ASC");
             $categories = array_column($cat_stmt->fetchAll(PDO::FETCH_ASSOC), 'Category');
 
             echo json_encode(['todos' => $todos, 'categories' => $categories]);

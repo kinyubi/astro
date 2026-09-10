@@ -369,9 +369,10 @@ INSERT INTO ObjectTypes (ObjectTypeID, CategoryID, TypeName, Description) VALUES
 ('SOLAR_SYSTEM',        'PLANETARY', 'Solar System Object', 'Sun, Moon, planets, comets, and other solar system bodies'),
 ('NON_PERIODIC_COMET',  'PLANETARY', 'Non-Periodic Comet',  'Comet with a hyperbolic or very long-period orbit (e.g. C/2023 A3)');
 
-INSERT INTO Equipment (EquipmentID, EquipmentName, Manufacturer, Model, EquipmentType, FocalLengthMM, ApertureMM, SensorWidthPx, SensorHeightPx, ArcSecsPerPixel) VALUES
-('S30', 'Seestar S30', 'ZWO', 'Seestar S30', 'SMART_TELESCOPE', 250, 30, 1080, 1920, NULL),
-('S50', 'Seestar S50', 'ZWO', 'Seestar S50', 'SMART_TELESCOPE', 250, 50, 1080, 1920, NULL);
+INSERT INTO Equipment (EquipmentID, EquipmentName, Manufacturer, Model, EquipmentType, FocalLengthMM, ApertureMM, PixelSizeMicrons, SensorWidthPx, SensorHeightPx, ArcSecsPerPixel) VALUES
+('S30', 'Seestar S30', 'ZWO', 'Seestar S30', 'SMART_TELESCOPE', 250, 30, NULL, 1080, 1920, NULL),
+('S50', 'Seestar S50', 'ZWO', 'Seestar S50', 'SMART_TELESCOPE', 250, 50, NULL, 1080, 1920, NULL),
+('S50P', 'Seestar S50 Pro', 'ZWO', 'Seestar S50 Pro', 'SMART_TELESCOPE', 260, 50, 2.9, 3840, 2160, NULL);
 
 INSERT INTO ImageTypes (ImageTypeID, Description, DefaultWidth, DefaultHeight, AspectRatio, WebFolder) VALUES
 ('fav',      'Social Media Favorite', 1080, 1350, '4:5',  'fav'),

@@ -233,12 +233,12 @@ header('Pragma: no-cache');
 <header>
   <h1>&#11088; DSO Admin</h1>
   <span class="subtitle">Deep Sky Object Database Maintenance</span>
-  <nav style="margin-left:auto; display:flex; gap:16px; align-items:center;">
-    <a href="/todo/" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">To Do List</a>
-    <a href="/check-missing/" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Gallery Check</a>
-    <a href="/vis/" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">DSO Visibility</a>
-    <a href="/" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Picture Gallery</a>
-    <a href="logout.php" style="font-size:12px; color:var(--muted); text-decoration:none;" onmouseover="this.style.color='var(--accent)'" onmouseout="this.style.color='var(--muted)'">Sign out</a>
+  <nav style="margin-left:auto; display:flex; gap:10px; align-items:center;">
+    <a href="/vis/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Visibility</a>
+    <a href="/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Slideshow</a>
+    <a href="/todo/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">To Do</a>
+    <a href="/check-missing/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Complete?</a>
+    <a href="logout.php" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Sign out</a>
   </nav>
 </header>
 

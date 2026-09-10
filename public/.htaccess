@@ -9,3 +9,7 @@ AddHandler cgi-script .py
 Options +ExecCGI
 
 RewriteEngine On
+
+# /vis/all -> full DSO visibility report (Alignment Stars, Planets & Moon,
+# Visibility Dates included). Plain /vis defaults to the DSO table only.
+RewriteRule ^vis/all/?$ vis/index.php?all=1 [L,QSA]

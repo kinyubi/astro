@@ -23,6 +23,15 @@ $profile = isset($_GET['profile']) ? (string)$_GET['profile'] : 'default';
 // Check if force rebuild is requested
 $forceRebuild = isset($_GET['rebuild']) && $_GET['rebuild'] == '1';
 
+// Check if the full report is requested (Alignment Stars, Planets & Moon,
+// Visibility Dates, in addition to the main DSO table). Reached either via
+// the /vis/all rewrite (which sets all=1 through .htaccess) or directly via
+// /vis?all=1. Plain /vis defaults to the DSO table only -- the Planets &
+// Moon section in particular is expensive to compute, so skipping it by
+// default keeps the everyday report fast.
+$showAll = isset($_GET['all']) && $_GET['all'] == '1';
+$routeBase = $showAll ? '/vis/all' : '/vis';
+
 // Sanitize profile name (alphanumeric, hyphens, underscores only)
 if (!preg_match('/^[a-zA-Z0-9_-]+$/', $profile)) {
     http_response_code(400);
@@ -48,8 +57,8 @@ if (!is_dir($cacheDir)) {
     }
 }
 
-// Cache file path (include profile in cache key)
-$cacheFile = $cacheDir . DIRECTORY_SEPARATOR . 'dso_report_' . $profile . '_' . $date . '.html';
+// Cache file path (include profile and view -- DSO-only vs full report -- in the cache key)
+$cacheFile = $cacheDir . DIRECTORY_SEPARATOR . 'dso_report_' . $profile . '_' . $date . ($showAll ? '_all' : '') . '.html';
 $cacheMaxAge = 86400; // 24 hours in seconds
 
 // Check if we should use cached version
@@ -94,7 +103,7 @@ if ($useCache) {
             echo "<!DOCTYPE html><html><body><h1>Error</h1><p>Python executable not found at: $pythonExe</p><p>OS: " . PHP_OS . "</p></body></html>";
             exit;
         }
-        $command = sprintf('"%s" "%s" --date %s --profile %s 2>&1', $pythonExe, $pythonScript, $date, $profile);
+        $command = sprintf('"%s" "%s" --date %s --profile %s%s 2>&1', $pythonExe, $pythonScript, $date, $profile, $showAll ? ' --all' : '');
         $output = shell_exec($command);
 
         if ($output === null || trim($output) === '') {
@@ -125,11 +134,12 @@ if ($useCache) {
         }
 
         $command = sprintf(
-            'bash -c "source %s && python %s --date %s --profile %s" 2>&1',
+            'bash -c "source %s && python %s --date %s --profile %s%s" 2>&1',
             escapeshellarg($activateScript),
             escapeshellarg($pythonScript),
             escapeshellarg($date),
-            escapeshellarg($profile)
+            escapeshellarg($profile),
+            $showAll ? ' --all' : ''
         );
         $output = shell_exec($command);
 
@@ -208,20 +218,22 @@ foreach ($availableProfiles as $profileName) {
 }
 $controlsHtml .= '</select></div>';
 
-$controlsHtml .= <<<'JS'
+$routeBaseJs = json_encode($routeBase);
+$controlsHtml .= <<<JS
 <script>
 (function() {
     const dateInput    = document.getElementById('report-date');
     const profileSelect = document.getElementById('report-profile');
+    const routeBase     = $routeBaseJs;
 
     function updateReport() {
-        const url = '/vis?date=' + encodeURIComponent(dateInput.value)
+        const url = routeBase + '?date=' + encodeURIComponent(dateInput.value)
                   + '&profile=' + encodeURIComponent(profileSelect.value);
         window.location.href = url;
     }
 
     window.forceRebuild = function() {
-        const url = '/vis?date=' + encodeURIComponent(dateInput.value)
+        const url = routeBase + '?date=' + encodeURIComponent(dateInput.value)
                   + '&profile=' + encodeURIComponent(profileSelect.value)
                   + '&rebuild=1';
         window.location.href = url;

@@ -530,3 +530,51 @@ Built an end-to-end automated backup pipeline per Carl's spec: connect via the W
   3. WireGuard as a Windows service, for unattended script runs without the GUI app open — untouched this session.
   4. Consider moving the backup script's embedded `PGPASSWORD` to a `~/.pgpass` file.
 - **Still outstanding from the 2026-07-06/07 session, not addressed this session:** running `migrate_add_integration_mins.py` then `audit_observations.py` against the live SQLite DB/`MyWorks` folder. Worth deciding, before running those, whether to apply them to SQLite and re-run the Postgres migration afterward, or apply them directly against Postgres going forward (depends on which DB becomes the app's source of truth first).
+
+---
+
+## Session: 2026-07-25 (App fully cut over to Postgres; Todo list bugs)
+
+### Context established this session
+
+The app has clearly moved well past the "Not yet done" state noted at the end of the 2026-07-13 session — this wasn't visible from `SUMMARIZE.md` alone (it was discovered by reading the live code), so recording it now:
+
+- **`shared/config.php` / `shared/db.php` / `shared/db_config.json`** (new since 2026-07-13, not previously documented here) — a single app-wide DB toggle consumed by both PHP (`get_db()`) and Python (`pythonscripts/db_connect.py`), read from `shared/db_config.json`. `driver` is currently `"pgsql"`, pointed at `10.8.0.1` (the VPS's WireGuard address), db `astro`, user `astro_app`. This is the "refactor PHP/Python to point at Postgres" punch-list item from 2026-07-13 — apparently completed in an intervening, undocumented session. The SQLite `LoggingPDOStatement`/`remote.log` mechanism from 2026-07-04 is preserved in `db.php` but is now dead code in practice while `DB_DRIVER === 'pgsql'`.
+- **`pythonscripts/migrations/migrate_lowercase_postgres_identifiers.py`** (also new/undocumented) — a dynamic (information_schema-driven) migration that renames every mixed-case table/column in the Postgres `public` schema to lowercase, since Postgres folds unquoted identifiers to lowercase and the app's SQL is written unquoted throughout. PHP queries that need the original mixed-case JSON keys back (e.g. `TodoID`, `ItemText`) use explicit `AS "MixedCase"` aliases.
+- **A `todo` feature** (`public/todo/index.php` + `public/todo/api.php`) — a small unauthenticated personal to-do list, also not previously documented here. Table: `todos` (lowercase in Postgres), columns `todoid, category, itemtext, isdone, sortorder, createddate, completeddate, priority`.
+
+### Bug Fix: Todo list showing empty despite rows existing in Postgres
+
+Carl reported the To Do page showing no items despite 2 rows existing in the `todos` table, with a `500` on `todo/api.php?action=list`.
+
+**Investigation path (several wrong turns before the real cause):**
+1. First suspected the `todos` table simply didn't exist in Postgres yet (no migration script for it existed in `pythonscripts/migrations/`) — ruled out once Carl confirmed the table and its columns exist.
+2. Then suspected missing Postgres **grants** for `astro_app` on the table and its `todoid` sequence (a real pattern seen before on this VPS) — checked via `information_schema.table_privileges`; grants were all present (INSERT/SELECT/UPDATE/DELETE/TRUNCATE/REFERENCES/TRIGGER). Not the cause.
+3. **Actual root cause**, found by getting Carl to hit `todo/api.php?action=list` directly and read the raw JSON error body: `SQLSTATE[42P10]: Invalid column reference ... for SELECT DISTINCT, ORDER BY expressions must appear in select list`. Postgres enforces that `ORDER BY` expressions in a `SELECT DISTINCT` query must appear in the select list; SQLite does not enforce this. The categories query ordered by `LOWER(Category)` without selecting that expression.
+
+**`public/todo/api.php`** (fixed)
+- Changed the categories query from:
+  `SELECT DISTINCT Category AS "Category" FROM Todos ORDER BY LOWER(Category) ASC`
+  to:
+  `SELECT DISTINCT Category AS "Category", LOWER(Category) AS cat_sort FROM Todos ORDER BY cat_sort ASC`
+- Adding the sort expression to the select list satisfies Postgres; harmless on SQLite too (extra column is simply ignored by `array_column(..., 'Category')` in the PHP).
+- Edited via `edit_file` (not `write_file`) since the change was a single short line with no regex-heavy/`$`-heavy content — consistent with the 2026-07-06/07 guidance that `write_file` is the safer default only for large/regex-heavy files. Verified clean afterward by re-reading the file.
+
+### Bug Fix: All local admin/API calls started 500ing with "could not find driver" (unrelated to the above)
+
+Immediately after the Todo fix, Carl reported **every** local API call failing (`admin/api_search.php`, `api_object_types.php`, `api_constellations.php`), with the browser console showing `Error: could not find driver`.
+
+- **Root cause**: `pdo_pgsql` was commented out in the local (Laragon) `php.ini` for PHP 8.3 — a pure PHP-environment issue, unrelated to the SQL fix above and unrelated to any file Carl or I had touched this session. `could not find driver` is PDO's error when the requested driver extension (`pdo_pgsql`) isn't loaded, as distinct from a connection or SQL error.
+- **Diagnosis approach**: since Claude has no shell/exec access to Carl's machine (only file read/write), asked Carl to check `phpinfo.php` (already present in `public/`) for `pdo_pgsql` rather than guessing further.
+- **Fix**: Carl uncommented `extension=pdo_pgsql` in the local `php.ini` himself. Confirmed working immediately after — no Laragon restart mentioned as separately necessary.
+
+### WireGuard / pg_hba.conf follow-up (context for future sessions)
+
+Session opened with Carl reactivating the `astro_tunnel` WireGuard connection (10.8.0.2 ↔ VPS 10.8.0.1:51820, matches 2026-07-13 setup) and stating `pg_hba.conf` didn't currently exist, wanting it set up from scratch. Provided the expected file location (`/etc/postgresql/16/main/pg_hba.conf` on this VPS), full rule content matching the existing `astro`/`astro_app`/`10.8.0.0/24` setup from 2026-07-13, and the reload gotcha already documented that session (must target `postgresql@16-main`, not the `postgresql` meta-unit). **Not fully reconciled with the 2026-07-13 entry, which describes `pg_hba.conf` already having both the `10.8.0.2/32` and `10.8.0.1/32` rules in place** — Carl did not clarify whether this was a fresh/different Postgres instance, a config reset, or simply hadn't checked before asking. Worth clarifying with Carl next time `pg_hba.conf` comes up, since the current live state of that file was never actually re-verified this session (the conversation moved on to the Todo bug once Carl confirmed WireGuard connectivity).
+
+### Key learnings (this session)
+- **`SUMMARIZE.md` can fall behind real app state** — significant undocumented changes (full Postgres cutover, the lowercase-identifiers migration, the Todo feature) had already happened by the start of this session. When something referenced in chat ("the summarize.md file") isn't in memory/history, read the live file/codebase directly rather than assuming it doesn't exist or relying on stale documentation.
+- **Postgres's `SELECT DISTINCT` + `ORDER BY` strictness is a recurring SQLite→Postgres portability gap** (distinct from the `NOCASE` collation gap already documented in `todo/api.php`'s own comments) — any `ORDER BY` expression not in the select list needs to be added to the select list (aliased) rather than left implicit, even though SQLite tolerates the implicit form.
+- **"Everything is 500ing" and "one specific query 500s" are different failure classes and shouldn't be diagnosed with the same fix** — the first pointed at environment (PDO driver), the second at a single SQL statement. Getting the actual response body (not just the console's generic 500 line) was the fastest way to distinguish permissions vs. driver vs. SQL-syntax causes across this session's two, unrelated bugs.
+- **`could not find driver` (PDO) always means a missing/disabled PDO extension, never a bad connection string or bad SQL** — worth immediately ruling in/out via `phpinfo.php` or `php -m` rather than re-checking grants or connection details when this exact message appears.
+- **When Claude has no shell/exec access to the user's machine, diagnosis has to route through artifacts the user can trigger themselves** (hitting an API URL directly, reading `phpinfo.php`) rather than Claude attempting to introspect remotely — worth defaulting to "ask for the raw response/output" earlier rather than iterating through hypotheses first.

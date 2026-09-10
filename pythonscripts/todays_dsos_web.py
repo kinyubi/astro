@@ -68,12 +68,18 @@ def get_viewing_window(specified_date, ts, eph, observer):
 # location (not on the object), so they're cached by day-offset and shared
 # across every object's search to keep this affordable.
 
-FORECAST_MAX_DAYS = 180
+FORECAST_MAX_DAYS = 370
 FORECAST_COARSE_STEP_DAYS = 7
 
 
 def _get_cached_viewing_window(day_offset, base_date, ts, eph, observer, viewing_window_cache):
-    """Returns (viewing_start, viewing_end, time_range) for base_date + day_offset, cached."""
+    """Returns (viewing_start, viewing_end) for base_date + day_offset, cached.
+
+    Previously also built and returned a full 1-minute-resolution time array
+    for the night, but neither caller needs it anymore now that both
+    _is_object_visible_on_offset and _is_planet_visible_on_offset build their
+    own coarse-stride sample times directly from v_start/v_end -- keeping it
+    here was pure wasted work."""
     if day_offset in viewing_window_cache:
         return viewing_window_cache[day_offset]
 
@@ -81,27 +87,69 @@ def _get_cached_viewing_window(day_offset, base_date, ts, eph, observer, viewing
     v_start, v_end = get_viewing_window(check_date, ts, eph, observer)
 
     if v_start is None or v_end is None:
-        viewing_window_cache[day_offset] = (None, None, None)
+        viewing_window_cache[day_offset] = (None, None)
         return viewing_window_cache[day_offset]
 
     duration_minutes = int((v_end.utc_datetime() - v_start.utc_datetime()).total_seconds() / 60)
     if duration_minutes < 1:
-        viewing_window_cache[day_offset] = (None, None, None)
+        viewing_window_cache[day_offset] = (None, None)
         return viewing_window_cache[day_offset]
 
-    time_range = ts.linspace(v_start, v_end, duration_minutes)
-    viewing_window_cache[day_offset] = (v_start, v_end, time_range)
+    viewing_window_cache[day_offset] = (v_start, v_end)
     return viewing_window_cache[day_offset]
 
 
+def _binary_refine_boundary(observer_pos, target, ts, t_visible, t_not_visible, min_alt, az_min, az_max,
+                             fine_stride_min=2):
+    """
+    Narrows a visibility transition between t_visible (criteria met) and
+    t_not_visible (criteria not met) -- one coarse stride apart -- via
+    binary search: check the midpoint, keep halving the gap toward whichever
+    side it falls on (e.g. 16 -> 8 -> 4 -> 2 minutes) until the gap is
+    within fine_stride_min. Returns the tightest known-visible time found.
+    """
+    lo, hi = t_visible, t_not_visible
+    gap_minutes = abs((hi.tt - lo.tt) * 24 * 60)
+    while gap_minutes > fine_stride_min:
+        mid = ts.tt_jd((lo.tt + hi.tt) / 2.0)
+        astrometric = observer_pos.at(mid).observe(target).apparent()
+        alt, az, _ = astrometric.altaz()
+        if (alt.degrees >= min_alt) and (az.degrees >= az_min) and (az.degrees <= az_max):
+            lo = mid
+        else:
+            hi = mid
+        gap_minutes = abs((hi.tt - lo.tt) * 24 * 60)
+    return lo
+
+
 def _is_object_visible_on_offset(star, observer_pos, day_offset, base_date, ts, eph, observer,
-                                  min_alt, az_min, az_max, viewing_window_cache):
-    """Returns True if `star` meets the visibility criteria (duration >= 60 min) on base_date + day_offset."""
-    _, _, time_range = _get_cached_viewing_window(day_offset, base_date, ts, eph, observer, viewing_window_cache)
-    if time_range is None:
+                                  min_alt, az_min, az_max, viewing_window_cache,
+                                  coarse_stride_min=16, fine_stride_min=2):
+    """Returns True if `star` meets the visibility criteria (duration >= 60 min) on base_date + day_offset.
+
+    Samples the night at a coarse_stride_min-minute stride (16 min default)
+    instead of the full 1-minute resolution -- each sampled point is a real
+    per-point astrometry cost, repeated for every DSO and every day checked
+    during forecast scanning, so this was the single biggest lever for
+    forecast_loop's cost (roughly 16x fewer points evaluated per call).
+    Unlike a pure visible/not-visible boolean, this DOES need real boundary
+    precision -- the 60-minute duration threshold can't be judged from
+    16-minute-resolution samples alone -- so on a coarse hit, the start and
+    end boundaries are each refined via binary search (halving the gap:
+    16 -> 8 -> 4 -> 2 minutes) rather than left at coarse resolution.
+    """
+    v_start, v_end = _get_cached_viewing_window(day_offset, base_date, ts, eph, observer, viewing_window_cache)
+    if v_start is None:
         return False
 
-    astrometric = observer_pos.at(time_range).observe(star)
+    total_minutes = int((v_end.utc_datetime() - v_start.utc_datetime()).total_seconds() / 60)
+    if total_minutes < 1:
+        return False
+
+    n_samples = max(2, total_minutes // coarse_stride_min + 1)
+    coarse_times = ts.linspace(v_start, v_end, n_samples)
+
+    astrometric = observer_pos.at(coarse_times).observe(star)
     alt, az, _ = astrometric.apparent().altaz()
 
     is_vis = (alt.degrees >= min_alt) & (az.degrees >= az_min) & (az.degrees <= az_max)
@@ -111,7 +159,25 @@ def _is_object_visible_on_offset(star, observer_pos, day_offset, base_date, ts, 
 
     start_idx = visible_indices[0]
     end_idx = visible_indices[-1]
-    span_minutes = (time_range[end_idx].utc_datetime() - time_range[start_idx].utc_datetime()).total_seconds() / 60
+
+    # If the coarse hit is at the very first/last sample, there's no
+    # "not visible" neighbor on that side within the window to refine
+    # against -- use the coarse sample as-is (matches the window edge).
+    start_time = coarse_times[start_idx]
+    if start_idx > 0:
+        start_time = _binary_refine_boundary(
+            observer_pos, star, ts, coarse_times[start_idx], coarse_times[start_idx - 1],
+            min_alt, az_min, az_max, fine_stride_min
+        )
+
+    end_time = coarse_times[end_idx]
+    if end_idx < len(coarse_times) - 1:
+        end_time = _binary_refine_boundary(
+            observer_pos, star, ts, coarse_times[end_idx], coarse_times[end_idx + 1],
+            min_alt, az_min, az_max, fine_stride_min
+        )
+
+    span_minutes = (end_time.tt - start_time.tt) * 24 * 60
     return span_minutes >= 60
 
 
@@ -217,16 +283,28 @@ def _compute_planet_window(alt_deg, az_deg, time_range, tz, min_alt, az_min, az_
 
 
 def _is_planet_visible_on_offset(target_key, observer_pos, day_offset, base_date, ts, eph, observer,
-                                  min_alt, az_min, az_max, viewing_window_cache):
+                                  min_alt, az_min, az_max, viewing_window_cache, coarse_stride_min=16):
     """Returns True if the planet at target_key meets the alt/az criteria at
     any point during base_date + day_offset's viewing window. No minimum
     duration -- matches the "show any window" rule used for tonight's planet
-    visibility."""
-    _, _, time_range = _get_cached_viewing_window(day_offset, base_date, ts, eph, observer, viewing_window_cache)
-    if time_range is None:
+    visibility.
+
+    Samples the night at a coarse_stride_min-minute stride (16 min default)
+    instead of the full 1-minute resolution. This only needs a yes/no answer
+    -- unlike the DSO duration check, there's no threshold to pin down
+    precisely -- so the moment any coarse sample hits, that's the answer;
+    no boundary refinement is needed or performed. Roughly 16x fewer points
+    evaluated per day checked than the previous full-resolution scan."""
+    v_start, v_end = _get_cached_viewing_window(day_offset, base_date, ts, eph, observer, viewing_window_cache)
+    if v_start is None:
         return False
+    total_minutes = int((v_end.utc_datetime() - v_start.utc_datetime()).total_seconds() / 60)
+    if total_minutes < 1:
+        return False
+    n_samples = max(2, total_minutes // coarse_stride_min + 1)
+    coarse_times = ts.linspace(v_start, v_end, n_samples)
     body = eph[target_key]
-    astrometric = observer_pos.at(time_range).observe(body).apparent()
+    astrometric = observer_pos.at(coarse_times).observe(body).apparent()
     alt, az, _ = astrometric.altaz()
     is_vis = (alt.degrees >= min_alt) & (az.degrees >= az_min) & (az.degrees <= az_max)
     return bool(np.any(is_vis))
@@ -235,27 +313,69 @@ def _is_planet_visible_on_offset(target_key, observer_pos, day_offset, base_date
 def find_planet_next_visible_date(target_key, base_date, max_days, ts, eph, observer, observer_pos,
                                    min_alt, az_min, az_max, viewing_window_cache):
     """Returns the next date after base_date (exclusive) that the planet at
-    target_key meets the alt/az criteria at some point during that night,
-    searching day-by-day up to max_days ahead. Unlike find_visibility_window
-    (used for fixed-position DSOs, which uses a coarse-then-refine search),
-    this recomputes the planet's actual ephemeris position fresh for each
-    day checked, since planets move -- a plain linear scan is used since
-    only the first matching day is needed (no window end date), and only 8
-    planets are ever searched. Returns None if not found within max_days."""
-    for offset in range(1, max_days + 1):
-        if _is_planet_visible_on_offset(target_key, observer_pos, offset, base_date, ts, eph, observer,
-                                         min_alt, az_min, az_max, viewing_window_cache):
-            return base_date + datetime.timedelta(days=offset)
-    return None
+    target_key meets the alt/az criteria at some point during that night.
+
+    Uses the same coarse-then-refine search as find_visibility_window (step
+    every FORECAST_COARSE_STEP_DAYS days, then refine backward day-by-day)
+    instead of a plain linear day-by-day scan. The linear scan was the single
+    biggest cost in the whole report on nights where planets aren't visible:
+    up to max_days individual full-resolution alt/az evaluations per planet
+    per view (restricted + unrestricted) -- up to 16x that across all 8
+    planets, each one a real per-call astrometry cost (light-time iteration
+    etc.), not something a cache can remove since the position is planet-
+    and day-specific. Coarse-then-refine cuts the worst case to roughly
+    max_days/FORECAST_COARSE_STEP_DAYS + FORECAST_COARSE_STEP_DAYS per
+    planet per view -- a several-fold reduction that gets bigger as
+    max_days grows.
+
+    Like find_visibility_window, this assumes visibility trends smoothly
+    within a coarse step (true here -- planet alt/az drifts slowly day to
+    day). A planet visible for only a single day buried in the middle of an
+    otherwise-invisible week could be missed by up to
+    FORECAST_COARSE_STEP_DAYS-1 days; acceptable for a several-month-ahead
+    forecast display, same tradeoff already accepted for the DSO forecast.
+    Returns None if not found within max_days.
+    """
+    def visible_on(offset):
+        return _is_planet_visible_on_offset(target_key, observer_pos, offset, base_date, ts, eph, observer,
+                                             min_alt, az_min, az_max, viewing_window_cache)
+
+    first_offset = None
+    prev_offset = 0
+    offset = FORECAST_COARSE_STEP_DAYS
+    while offset <= max_days:
+        if visible_on(offset):
+            first_offset = offset
+            break
+        prev_offset = offset
+        offset += FORECAST_COARSE_STEP_DAYS
+
+    if first_offset is None:
+        return None
+
+    # Refine backward to find the exact first visible day within this coarse step
+    exact_first = first_offset
+    for d in range(first_offset - 1, prev_offset, -1):
+        if visible_on(d):
+            exact_first = d
+        else:
+            break
+
+    return base_date + datetime.timedelta(days=exact_first)
 
 
-def calculate_visibility(specified_date=None, profile_name='default'):
+def calculate_visibility(specified_date=None, profile_name='default', show_all=False):
     """
     Main function to calculate visibility of objects and output HTML with sorting capability.
     
     Args:
         specified_date: datetime.date object or None for today
         profile_name: Name of location profile to use
+        show_all: If False (default), only the core DSO report is computed/shown --
+            the main visible-tonight table plus the Visibility Dates forecast.
+            Alignment Stars and Planets & Moon are skipped entirely (not just
+            hidden) to keep the everyday report fast. If True, the full report
+            is computed, same as this script's original behavior.
     """
     if specified_date is None:
         specified_date = datetime.date.today()
@@ -342,21 +462,27 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         """)
         dso_rows = cur.fetchall()
 
-        cur.execute("""
-            SELECT
-                o.DSOKey       AS "DSOKey",
-                o.CommonName   AS "CommonName",
-                con.Name       AS "Constellation",
-                o.Magnitude    AS "Magnitude",
-                o.RAHours      AS "RAHours",
-                o.DecDegrees   AS "DecDegrees"
-            FROM Objects o
-            LEFT JOIN Constellations con ON o.ConstellationID = con.ConstellationID
-            WHERE o.RAHours IS NOT NULL
-              AND o.DecDegrees IS NOT NULL
-              AND o.ObjectTypeID IN ('SINGLE_STAR', 'DOUBLE_STAR', 'VARIABLE_STAR')
-        """)
-        star_rows = cur.fetchall()
+        # Alignment-star rows are only needed for the Alignment Stars section,
+        # which is skipped entirely when show_all is False -- no reason to
+        # even query for them on the fast, default path.
+        if show_all:
+            cur.execute("""
+                SELECT
+                    o.DSOKey       AS "DSOKey",
+                    o.CommonName   AS "CommonName",
+                    con.Name       AS "Constellation",
+                    o.Magnitude    AS "Magnitude",
+                    o.RAHours      AS "RAHours",
+                    o.DecDegrees   AS "DecDegrees"
+                FROM Objects o
+                LEFT JOIN Constellations con ON o.ConstellationID = con.ConstellationID
+                WHERE o.RAHours IS NOT NULL
+                  AND o.DecDegrees IS NOT NULL
+                  AND o.ObjectTypeID IN ('SINGLE_STAR', 'DOUBLE_STAR', 'VARIABLE_STAR')
+            """)
+            star_rows = cur.fetchall()
+        else:
+            star_rows = []
         conn.close()
         _lap('db_fetch')
 
@@ -423,65 +549,70 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                         'sq_arcmins': row['SqArcMins']
                     })
         _lap('dso_visibility_loop')
+
         # ── Alignment Stars — same viewing-window logic, separate list ──────
+        # Skipped entirely on the default (non-/all) path -- this section
+        # isn't shown there, so there's no reason to spend the per-star
+        # astrometry cost computing it.
         visible_stars = []
-        for row in star_rows:
-            name          = row['DSOKey']
-            aka           = row['CommonName'] or name
-            constellation = row['Constellation'] or ''
-            magnitude     = row['Magnitude'] or 0.0
+        if show_all:
+            for row in star_rows:
+                name          = row['DSOKey']
+                aka           = row['CommonName'] or name
+                constellation = row['Constellation'] or ''
+                magnitude     = row['Magnitude'] or 0.0
 
-            try:
-                star = Star(ra=Angle(hours=float(row['RAHours'])),
-                            dec=Angle(degrees=float(row['DecDegrees'])))
-            except Exception as e:
-                log.append(f"Error building star for {name}: {e}")
-                continue
+                try:
+                    star = Star(ra=Angle(hours=float(row['RAHours'])),
+                                dec=Angle(degrees=float(row['DecDegrees'])))
+                except Exception as e:
+                    log.append(f"Error building star for {name}: {e}")
+                    continue
 
-            astrometric = observer_pos.at(time_range).observe(star)
-            alt, az, _ = astrometric.apparent().altaz()
+                astrometric = observer_pos.at(time_range).observe(star)
+                alt, az, _ = astrometric.apparent().altaz()
 
-            is_visible = (alt.degrees >= minimum_altitude) & \
-                         (az.degrees >= azimuth_minimum_degrees) & \
-                         (az.degrees <= azimuth_maximum_degrees)
+                is_visible = (alt.degrees >= minimum_altitude) & \
+                             (az.degrees >= azimuth_minimum_degrees) & \
+                             (az.degrees <= azimuth_maximum_degrees)
 
-            visible_indices = np.where(is_visible)[0]
+                visible_indices = np.where(is_visible)[0]
 
-            if len(visible_indices) > 0:
-                start_idx = visible_indices[0]
-                end_idx   = visible_indices[-1]
+                if len(visible_indices) > 0:
+                    start_idx = visible_indices[0]
+                    end_idx   = visible_indices[-1]
 
-                obj_start = time_range[start_idx].astimezone(tz)
-                obj_end   = time_range[end_idx].astimezone(tz)
-                time_span = (obj_end - obj_start).total_seconds() / 60
-                start_minutes = obj_start.hour * 60 + obj_start.minute
-                if obj_start.hour < 12:
-                    start_minutes += 24 * 60
-                end_minutes = obj_end.hour * 60 + obj_end.minute
-                if obj_end.hour < 12:
-                    end_minutes += 24 * 60
+                    obj_start = time_range[start_idx].astimezone(tz)
+                    obj_end   = time_range[end_idx].astimezone(tz)
+                    time_span = (obj_end - obj_start).total_seconds() / 60
+                    start_minutes = obj_start.hour * 60 + obj_start.minute
+                    if obj_start.hour < 12:
+                        start_minutes += 24 * 60
+                    end_minutes = obj_end.hour * 60 + obj_end.minute
+                    if obj_end.hour < 12:
+                        end_minutes += 24 * 60
 
-                start_alt = alt.degrees[start_idx]
-                start_az  = az.degrees[start_idx]
-                end_alt   = alt.degrees[end_idx]
-                end_az    = az.degrees[end_idx]
+                    start_alt = alt.degrees[start_idx]
+                    start_az  = az.degrees[start_idx]
+                    end_alt   = alt.degrees[end_idx]
+                    end_az    = az.degrees[end_idx]
 
-                if time_span >= 60:
-                    visible_stars.append({
-                        'name': name,
-                        'aka': aka,
-                        'start': obj_start,
-                        'start_minutes': start_minutes,
-                        'end': obj_end,
-                        'end_minutes': end_minutes,
-                        'duration': time_span,
-                        'magnitude': magnitude,
-                        'constellation': constellation,
-                        'start_alt': start_alt,
-                        'start_az': start_az,
-                        'end_alt': end_alt,
-                        'end_az': end_az,
-                    })
+                    if time_span >= 60:
+                        visible_stars.append({
+                            'name': name,
+                            'aka': aka,
+                            'start': obj_start,
+                            'start_minutes': start_minutes,
+                            'end': obj_end,
+                            'end_minutes': end_minutes,
+                            'duration': time_span,
+                            'magnitude': magnitude,
+                            'constellation': constellation,
+                            'start_alt': start_alt,
+                            'start_az': start_az,
+                            'end_alt': end_alt,
+                            'end_az': end_az,
+                        })
         _lap('star_visibility_loop')
 
         # ── Planets & Moon ──────────────────────────────────────────────────
@@ -490,117 +621,182 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         # azimuth entirely and just asks whether it clears 25° altitude
         # anywhere in the sky. No minimum-duration cutoff (unlike DSOs/stars
         # above) -- even a brief window is shown.
-        UNRESTRICTED_MIN_ALT = 25.0
-        UNRESTRICTED_AZ_MIN = 0.0
-        UNRESTRICTED_AZ_MAX = 360.0
+        #
+        # Skipped entirely on the default (non-/all) path -- this is the
+        # single most expensive section of the report (find_planet_next_visible_date
+        # is a real up-to-FORECAST_MAX_DAYS-day forward search per planet per view whenever
+        # that planet isn't visible tonight), and it isn't shown outside /all.
+        #
+        # When show_all is True, next-visible-date results are cached in
+        # PlanetVisibilityForecast (mirrors DSOs' VisibilityForecast table)
+        # so repeated /all runs don't re-run that forward search every time --
+        # only once the previously predicted next-visible date has arrived.
+        if show_all:
+            UNRESTRICTED_MIN_ALT = 25.0
+            UNRESTRICTED_AZ_MIN = 0.0
+            UNRESTRICTED_AZ_MAX = 360.0
 
-        mid_time = time_range[len(time_range) // 2]
-        planet_viewing_window_cache = {}
+            mid_time = time_range[len(time_range) // 2]
+            planet_viewing_window_cache = {}
 
-        for planet_name, target_key in PLANET_TARGETS:
-            try:
-                body = eph[target_key]
-            except (KeyError, ValueError) as e:
-                log.append(f"Planet target not found in ephemeris: {target_key} ({e})")
-                continue
+            planet_forecast_conn = get_connection()
+            planet_forecast_conn.execute("""
+                CREATE TABLE IF NOT EXISTS PlanetVisibilityForecast (
+                    ProfileName     TEXT NOT NULL,
+                    PlanetName      TEXT NOT NULL,
+                    ViewType        TEXT NOT NULL,
+                    ComputedDate    TEXT NOT NULL,
+                    NextVisibleDate TEXT,
+                    SearchDays      INTEGER NOT NULL DEFAULT 370,
+                    PRIMARY KEY (ProfileName, PlanetName, ViewType)
+                )
+            """)
+            pfcur = planet_forecast_conn.cursor()
+            target_date_iso_planets = specified_date.strftime('%Y-%m-%d')
 
-            astrometric_series = observer_pos.at(time_range).observe(body).apparent()
-            alt_p, az_p, _ = astrometric_series.altaz()
+            def _get_planet_next_visible(target_key, planet_name, view_type,
+                                          min_alt, az_min, az_max):
+                """Cached wrapper around find_planet_next_visible_date. Reuses
+                the cached NextVisibleDate as long as specified_date hasn't
+                reached it yet -- once we're at or past that date, either
+                tonight's direct check above already found it visible (this
+                function is only called when it didn't), or the prediction
+                needs to be recomputed for real."""
+                pfcur.execute(
+                    "SELECT NextVisibleDate AS \"NextVisibleDate\" FROM PlanetVisibilityForecast "
+                    "WHERE ProfileName=? AND PlanetName=? AND ViewType=?",
+                    (profile_name, planet_name, view_type)
+                )
+                cached = pfcur.fetchone()
 
-            # Magnitude and (Moon-only) phase barely change over a single
-            # night -- one representative value at the mid-window time is
-            # enough, same approach as everything else in this report using
-            # a single static value per object per night.
-            mid_astrometric = observer_pos.at(mid_time).observe(body).apparent()
-            try:
-                planet_magnitude = float(planetary_magnitude(mid_astrometric))
-            except Exception as e:
-                planet_magnitude = None
-                log.append(f"Magnitude lookup failed for {planet_name}: {e}")
+                if cached and cached['NextVisibleDate']:
+                    cached_next = datetime.datetime.strptime(cached['NextVisibleDate'], '%Y-%m-%d').date()
+                    if specified_date < cached_next:
+                        return cached_next
 
-            # Diagnostic Alt/Az at the same mid-window reference time, shown
-            # for every row (visible or not) -- helps confirm the underlying
-            # alt/az calculation is producing sane values.
-            try:
-                mid_alt, mid_az, _ = mid_astrometric.altaz()
-                current_alt = round(float(mid_alt.degrees), 1)
-                current_az = round(float(mid_az.degrees), 1)
-                log.append(f"{planet_name} alt/az at mid-window ({mid_time.utc_iso()}): "
-                           f"alt={current_alt}, az={current_az}")
-            except Exception as e:
-                current_alt = None
-                current_az = None
-                log.append(f"Alt/az lookup failed for {planet_name}: {e}")
+                next_date = find_planet_next_visible_date(
+                    target_key, specified_date, FORECAST_MAX_DAYS, ts, eph, observer, observer_pos,
+                    min_alt, az_min, az_max, planet_viewing_window_cache
+                )
+                pfcur.execute("""
+                    INSERT INTO PlanetVisibilityForecast (ProfileName, PlanetName, ViewType, ComputedDate, NextVisibleDate, SearchDays)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(ProfileName, PlanetName, ViewType) DO UPDATE SET
+                        ComputedDate = excluded.ComputedDate,
+                        NextVisibleDate = excluded.NextVisibleDate,
+                        SearchDays = excluded.SearchDays
+                """, (
+                    profile_name, planet_name, view_type, target_date_iso_planets,
+                    next_date.strftime('%Y-%m-%d') if next_date else None,
+                    FORECAST_MAX_DAYS
+                ))
+                return next_date
 
-            phase_pct = None
-            phase_name = None
-            if planet_name == 'Moon':
+            for planet_name, target_key in PLANET_TARGETS:
                 try:
-                    phase_angle_deg = moon_phase(eph, mid_time).degrees
-                    phase_pct = round((1 - math.cos(math.radians(phase_angle_deg))) / 2 * 100)
-                    phase_name = MOON_PHASE_NAMES[int(((phase_angle_deg + 22.5) % 360) // 45)]
+                    body = eph[target_key]
+                except (KeyError, ValueError) as e:
+                    log.append(f"Planet target not found in ephemeris: {target_key} ({e})")
+                    continue
+
+                astrometric_series = observer_pos.at(time_range).observe(body).apparent()
+                alt_p, az_p, _ = astrometric_series.altaz()
+
+                # Magnitude and (Moon-only) phase barely change over a single
+                # night -- one representative value at the mid-window time is
+                # enough, same approach as everything else in this report using
+                # a single static value per object per night.
+                mid_astrometric = observer_pos.at(mid_time).observe(body).apparent()
+                try:
+                    planet_magnitude = float(planetary_magnitude(mid_astrometric))
                 except Exception as e:
-                    log.append(f"Moon phase lookup failed: {e}")
+                    planet_magnitude = None
+                    log.append(f"Magnitude lookup failed for {planet_name}: {e}")
 
-            restricted_window = _compute_planet_window(
-                alt_p.degrees, az_p.degrees, time_range, tz,
-                minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees
-            )
-            if restricted_window:
-                obj_start, obj_end, duration, start_alt, start_az, end_alt, end_az = restricted_window
-                planets_restricted.append({
-                    'name': planet_name, 'visible_tonight': True,
-                    'start': obj_start, 'end': obj_end, 'duration': duration,
-                    'start_alt': start_alt, 'start_az': start_az,
-                    'end_alt': end_alt, 'end_az': end_az,
-                    'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
-                    'phase_pct': phase_pct, 'phase_name': phase_name,
-                    'next_visible': None,
-                })
-            else:
-                next_date = find_planet_next_visible_date(
-                    target_key, specified_date, FORECAST_MAX_DAYS, ts, eph, observer, observer_pos,
-                    minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees,
-                    planet_viewing_window_cache
-                )
-                planets_restricted.append({
-                    'name': planet_name, 'visible_tonight': False,
-                    'start': None, 'end': None, 'duration': None,
-                    'start_alt': None, 'start_az': None, 'end_alt': None, 'end_az': None,
-                    'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
-                    'phase_pct': phase_pct, 'phase_name': phase_name,
-                    'next_visible': next_date.strftime('%Y-%m-%d') if next_date else None,
-                })
+                # Diagnostic Alt/Az at the same mid-window reference time, shown
+                # for every row (visible or not) -- helps confirm the underlying
+                # alt/az calculation is producing sane values.
+                try:
+                    mid_alt, mid_az, _ = mid_astrometric.altaz()
+                    current_alt = round(float(mid_alt.degrees), 1)
+                    current_az = round(float(mid_az.degrees), 1)
+                    log.append(f"{planet_name} alt/az at mid-window ({mid_time.utc_iso()}): "
+                               f"alt={current_alt}, az={current_az}")
+                except Exception as e:
+                    current_alt = None
+                    current_az = None
+                    log.append(f"Alt/az lookup failed for {planet_name}: {e}")
 
-            unrestricted_window = _compute_planet_window(
-                alt_p.degrees, az_p.degrees, time_range, tz,
-                UNRESTRICTED_MIN_ALT, UNRESTRICTED_AZ_MIN, UNRESTRICTED_AZ_MAX
-            )
-            if unrestricted_window:
-                obj_start, obj_end, duration, start_alt, start_az, end_alt, end_az = unrestricted_window
-                planets_unrestricted.append({
-                    'name': planet_name, 'visible_tonight': True,
-                    'start': obj_start, 'end': obj_end, 'duration': duration,
-                    'start_alt': start_alt, 'start_az': start_az,
-                    'end_alt': end_alt, 'end_az': end_az,
-                    'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
-                    'phase_pct': phase_pct, 'phase_name': phase_name,
-                    'next_visible': None,
-                })
-            else:
-                next_date = find_planet_next_visible_date(
-                    target_key, specified_date, FORECAST_MAX_DAYS, ts, eph, observer, observer_pos,
-                    UNRESTRICTED_MIN_ALT, UNRESTRICTED_AZ_MIN, UNRESTRICTED_AZ_MAX,
-                    planet_viewing_window_cache
+                phase_pct = None
+                phase_name = None
+                if planet_name == 'Moon':
+                    try:
+                        phase_angle_deg = moon_phase(eph, mid_time).degrees
+                        phase_pct = round((1 - math.cos(math.radians(phase_angle_deg))) / 2 * 100)
+                        phase_name = MOON_PHASE_NAMES[int(((phase_angle_deg + 22.5) % 360) // 45)]
+                    except Exception as e:
+                        log.append(f"Moon phase lookup failed: {e}")
+
+                restricted_window = _compute_planet_window(
+                    alt_p.degrees, az_p.degrees, time_range, tz,
+                    minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees
                 )
-                planets_unrestricted.append({
-                    'name': planet_name, 'visible_tonight': False,
-                    'start': None, 'end': None, 'duration': None,
-                    'start_alt': None, 'start_az': None, 'end_alt': None, 'end_az': None,
-                    'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
-                    'phase_pct': phase_pct, 'phase_name': phase_name,
-                    'next_visible': next_date.strftime('%Y-%m-%d') if next_date else None,
-                })
+                if restricted_window:
+                    obj_start, obj_end, duration, start_alt, start_az, end_alt, end_az = restricted_window
+                    planets_restricted.append({
+                        'name': planet_name, 'visible_tonight': True,
+                        'start': obj_start, 'end': obj_end, 'duration': duration,
+                        'start_alt': start_alt, 'start_az': start_az,
+                        'end_alt': end_alt, 'end_az': end_az,
+                        'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
+                        'phase_pct': phase_pct, 'phase_name': phase_name,
+                        'next_visible': None,
+                    })
+                else:
+                    next_date = _get_planet_next_visible(
+                        target_key, planet_name, 'restricted',
+                        minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees
+                    )
+                    planets_restricted.append({
+                        'name': planet_name, 'visible_tonight': False,
+                        'start': None, 'end': None, 'duration': None,
+                        'start_alt': None, 'start_az': None, 'end_alt': None, 'end_az': None,
+                        'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
+                        'phase_pct': phase_pct, 'phase_name': phase_name,
+                        'next_visible': next_date.strftime('%Y-%m-%d') if next_date else None,
+                    })
+
+                unrestricted_window = _compute_planet_window(
+                    alt_p.degrees, az_p.degrees, time_range, tz,
+                    UNRESTRICTED_MIN_ALT, UNRESTRICTED_AZ_MIN, UNRESTRICTED_AZ_MAX
+                )
+                if unrestricted_window:
+                    obj_start, obj_end, duration, start_alt, start_az, end_alt, end_az = unrestricted_window
+                    planets_unrestricted.append({
+                        'name': planet_name, 'visible_tonight': True,
+                        'start': obj_start, 'end': obj_end, 'duration': duration,
+                        'start_alt': start_alt, 'start_az': start_az,
+                        'end_alt': end_alt, 'end_az': end_az,
+                        'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
+                        'phase_pct': phase_pct, 'phase_name': phase_name,
+                        'next_visible': None,
+                    })
+                else:
+                    next_date = _get_planet_next_visible(
+                        target_key, planet_name, 'unrestricted',
+                        UNRESTRICTED_MIN_ALT, UNRESTRICTED_AZ_MIN, UNRESTRICTED_AZ_MAX
+                    )
+                    planets_unrestricted.append({
+                        'name': planet_name, 'visible_tonight': False,
+                        'start': None, 'end': None, 'duration': None,
+                        'start_alt': None, 'start_az': None, 'end_alt': None, 'end_az': None,
+                        'magnitude': planet_magnitude, 'alt': current_alt, 'az': current_az,
+                        'phase_pct': phase_pct, 'phase_name': phase_name,
+                        'next_visible': next_date.strftime('%Y-%m-%d') if next_date else None,
+                    })
+
+            planet_forecast_conn.commit()
+            planet_forecast_conn.close()
         _lap('planets_loop')
 
         if log:
@@ -612,6 +808,11 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         return
 
     # ── Visibility Dates table — all DSOs (visible tonight + upcoming) ──────────────
+    # Part of the core DSO report (same as the main visible-tonight table),
+    # so this always runs regardless of show_all -- only Alignment Stars and
+    # Planets & Moon are held back for /all. Each DSO's range is cached in
+    # VisibilityForecast and only recomputed once the cached window has
+    # fully elapsed, so this stays cheap on the default path too.
     forecast_objects = []
     try:
         visible_names = {o['name'] for o in visible_objects}
@@ -625,7 +826,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                 ComputedDate     TEXT NOT NULL,
                 FirstVisibleDate TEXT,
                 LastVisibleDate  TEXT,
-                SearchDays       INTEGER NOT NULL DEFAULT 180,
+                SearchDays       INTEGER NOT NULL DEFAULT 370,
                 PRIMARY KEY (ProfileName, DSOKey)
             )
         """)
@@ -638,7 +839,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
             # Objects visible tonight: first = today, reuse or compute season end.
             # Previously this branch always called find_visibility_window() (a full
-            # coarse-then-refine search up to 180 days out) on EVERY request for
+            # coarse-then-refine search up to FORECAST_MAX_DAYS days out) on EVERY request for
             # EVERY object visible that night, regardless of whether the season-end
             # date was already known and still valid -- the main cost driver on
             # nights with many visible objects. Now checks VisibilityForecast first,
@@ -694,12 +895,15 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                     'last_visible': last_date.strftime('%Y-%m-%d') if last_date else target_date_iso,
                     'first_visible_sort': specified_date.toordinal(),
                     'visible_tonight': True,
+                    'no_window': False,
                 })
                 continue
 
             # Not visible tonight: look up or compute next window
             fcur.execute(
-                "SELECT FirstVisibleDate AS \"FirstVisibleDate\", LastVisibleDate AS \"LastVisibleDate\" FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
+                "SELECT FirstVisibleDate AS \"FirstVisibleDate\", LastVisibleDate AS \"LastVisibleDate\", "
+                "ComputedDate AS \"ComputedDate\", SearchDays AS \"SearchDays\" "
+                "FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
                 (profile_name, name)
             )
             cached = fcur.fetchone()
@@ -720,6 +924,29 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                     first_date = cached_first
                     last_date = cached_last
                     need_compute = False
+            elif cached and cached['ComputedDate']:
+                # A previous search found NO window at all within SearchDays of
+                # ComputedDate -- e.g. a seasonal target between windows (like
+                # M16 in late summer/fall), or one that genuinely never meets
+                # this profile's criteria. Before this fix, a null result was
+                # never cached as valid, so this branch recomputed the full
+                # forward search on EVERY single report run forever. Now it's
+                # only re-checked once specified_date has moved far enough past
+                # ComputedDate that the search window would actually cover new
+                # ground -- same "don't recompute until necessary" rule used
+                # for found windows above.
+                computed_date = datetime.datetime.strptime(cached['ComputedDate'], '%Y-%m-%d').date()
+                search_days = cached['SearchDays'] or FORECAST_MAX_DAYS
+                # Only trust the cached null result if it was searched over at
+                # least as many days as the script searches now -- otherwise a
+                # null result cached under a shorter, now-stale search range
+                # (e.g. everything computed before FORECAST_MAX_DAYS was raised
+                # from 180) would block the new, wider search from ever running
+                # until the old range's ComputedDate+SearchDays happened to age
+                # out on its own.
+                if search_days >= FORECAST_MAX_DAYS and specified_date < computed_date + datetime.timedelta(days=search_days):
+                    need_compute = False
+                    # first_date/last_date stay None -- correctly represents "no window found"
 
             if need_compute:
                 try:
@@ -758,6 +985,22 @@ def calculate_visibility(specified_date=None, profile_name='default'):
                     'last_visible': last_date.strftime('%Y-%m-%d') if last_date else '',
                     'first_visible_sort': first_date.toordinal(),
                     'visible_tonight': False,
+                    'no_window': False,
+                })
+            else:
+                # No window found within FORECAST_MAX_DAYS -- shown explicitly
+                # rather than silently dropped, so a DSO that's simply between
+                # seasons (or unreachable under the current alt/az criteria)
+                # doesn't just vanish from the report with no explanation.
+                forecast_objects.append({
+                    'do_me': '&#9733;' if row['WantBetter'] else '',
+                    'name': name,
+                    'aka': row['CommonName'] or name,
+                    'first_visible': '',
+                    'last_visible': '',
+                    'first_visible_sort': 99999999,  # sorts after every real date
+                    'visible_tonight': False,
+                    'no_window': True,
                 })
 
         _lap('forecast_loop')
@@ -776,6 +1019,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         'last_visible': o['last_visible'],
         'first_visible_sort': o['first_visible_sort'],
         'visible_tonight': o['visible_tonight'],
+        'no_window': o.get('no_window', False),
     } for o in forecast_objects])
 
     forecast_table_html = f"""
@@ -804,13 +1048,15 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     </table>
 """
 
-    if not visible_stars:
-        alignment_table_html = """
+    alignment_table_html = ''
+    if show_all:
+        if not visible_stars:
+            alignment_table_html = """
     <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Alignment Stars</h2>
     <p style="color:#b8c5d6;">No alignment stars meet the visibility criteria for this date.</p>
 """
-    else:
-        alignment_table_html = """
+        else:
+            alignment_table_html = """
     <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Alignment Stars</h2>
     <p style="color:#b8c5d6;">Bright stars visible tonight within your viewing window &mdash; useful for scope alignment (e.g. Celestron SkyAlign).</p>
     <div class="controls" style="margin-top:10px;">
@@ -849,7 +1095,9 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     </div>
 """
 
-    planets_table_html = """
+    planets_table_html = ''
+    if show_all:
+        planets_table_html = """
     <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Planets &amp; Moon</h2>
     <p style="color:#b8c5d6;">Restricted view uses your profile's altitude/azimuth criteria. Unrestricted view shows anywhere in the sky above 25&deg; altitude.</p>
 
@@ -1001,6 +1249,218 @@ def calculate_visibility(specified_date=None, profile_name='default'):
     planets_restricted_json = _planets_to_json(planets_restricted)
     planets_unrestricted_json = _planets_to_json(planets_unrestricted)
 
+    # ── Extra-sections script (Alignment Stars / Planets & Moon) — built only
+    # when show_all is True. On the default path these tables aren't in the
+    # DOM at all, so their render/sort JS is omitted rather than emitted-but-
+    # inert. Visibility Dates (forecast_script, below) is part of the core
+    # DSO report and is always emitted regardless of show_all.
+    extra_sections_script = ''
+    if show_all:
+        extra_sections_script = """
+    <script>
+        // -- Alignment Stars table -------------------------------------------
+        const starsData = """ + stars_json + """;
+
+        function renderStarTable(data) {
+            const tbody = document.getElementById('starTableBody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            data.forEach(obj => {
+                const row = tbody.insertRow();
+                row.innerHTML = `
+                    <td><strong>${obj.name}</strong></td>
+                    <td>${obj.aka}</td>
+                    <td class="time">${obj.start}</td>
+                    <td>${obj.start_alt.toFixed(0)}&deg;</td>
+                    <td>${obj.start_az.toFixed(0)}&deg;</td>
+                    <td class="time">${obj.end}</td>
+                    <td>${obj.end_alt.toFixed(0)}&deg;</td>
+                    <td>${obj.end_az.toFixed(0)}&deg;</td>
+                    <td class="duration">${formatDuration(obj.duration)}</td>
+                    <td>${obj.magnitude.toFixed(1)}</td>
+                    <td>${obj.constellation}</td>
+                `;
+            });
+
+            const totalEl = document.getElementById('starTotalCount');
+            if (totalEl) totalEl.textContent = data.length;
+        }
+
+        function sortStarTable() {
+            const sortSelect = document.getElementById('starSortOrder');
+            if (!sortSelect) return;
+            const sortBy = sortSelect.value;
+            const sortedData = [...starsData];
+
+            switch(sortBy) {
+                case 'duration':
+                    sortedData.sort((a, b) => b.duration - a.duration);
+                    break;
+                case 'start':
+                    sortedData.sort((a, b) => a.start_minutes - b.start_minutes);
+                    break;
+                case 'end':
+                    sortedData.sort((a, b) => a.end_minutes - b.end_minutes);
+                    break;
+                case 'start_az':
+                    sortedData.sort((a, b) => a.start_az - b.start_az);
+                    break;
+                case 'start_alt':
+                    sortedData.sort((a, b) => b.start_alt - a.start_alt);
+                    break;
+                case 'magnitude':
+                    sortedData.sort((a, b) => a.magnitude - b.magnitude);
+                    break;
+                case 'name':
+                    sortedData.sort((a, b) => a.name.localeCompare(b.name));
+                    break;
+            }
+
+            renderStarTable(sortedData);
+        }
+
+        // Initial render with default sort (duration)
+        sortStarTable();
+
+        // -- Planets & Moon tables -------------------------------------------
+        const planetsRestrictedData = """ + planets_restricted_json + """;
+        const planetsUnrestrictedData = """ + planets_unrestricted_json + """;
+
+        function formatPhase(p) {
+            if (p.phase_pct === null || p.phase_pct === undefined) return '';
+            return p.phase_pct + '% (' + p.phase_name + ')';
+        }
+
+        function renderPlanetTable(kind, data) {
+            const bodyId = kind === 'restricted' ? 'planetRestrictedBody' : 'planetUnrestrictedBody';
+            const tbody = document.getElementById(bodyId);
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            const fmtDeg = v => (v !== null && v !== undefined) ? v.toFixed(1) + '&deg;' : '&mdash;';
+            data.forEach(obj => {
+                const row = tbody.insertRow();
+                const magCell = obj.magnitude !== null && obj.magnitude !== undefined ? obj.magnitude.toFixed(1) : '&mdash;';
+                const phaseCell = formatPhase(obj) || '&mdash;';
+                if (obj.visible_tonight) {
+                    row.innerHTML = `
+                        <td><strong>${obj.name}</strong></td>
+                        <td class="time">${obj.start}</td>
+                        <td>${fmtDeg(obj.start_alt)}</td>
+                        <td>${fmtDeg(obj.start_az)}</td>
+                        <td class="time">${obj.end}</td>
+                        <td>${fmtDeg(obj.end_alt)}</td>
+                        <td>${fmtDeg(obj.end_az)}</td>
+                        <td class="duration">${formatDuration(obj.duration)}</td>
+                        <td>${magCell}</td>
+                        <td>${phaseCell}</td>
+                    `;
+                } else {
+                    const currentPos = (obj.alt !== null && obj.alt !== undefined)
+                        ? ' (currently ' + fmtDeg(obj.alt) + ' alt, ' + fmtDeg(obj.az) + ' az)'
+                        : '';
+                    const nextText = obj.next_visible
+                        ? 'Not visible tonight' + currentPos + ' &mdash; next: ' + obj.next_visible
+                        : 'Not visible tonight' + currentPos + ' &mdash; none in next """ + str(FORECAST_MAX_DAYS) + """ days';
+                    row.innerHTML = `
+                        <td><strong>${obj.name}</strong></td>
+                        <td colspan="7" style="color:#8b9dc3; font-style:italic;">${nextText}</td>
+                        <td>${magCell}</td>
+                        <td>${phaseCell}</td>
+                    `;
+                }
+            });
+        }
+
+        function sortPlanetTable(kind) {
+            const selectId = kind === 'restricted' ? 'planetRestrictedSort' : 'planetUnrestrictedSort';
+            const sortSelect = document.getElementById(selectId);
+            if (!sortSelect) return;
+            const sortBy = sortSelect.value;
+            const source = kind === 'restricted' ? planetsRestrictedData : planetsUnrestrictedData;
+            const sortedData = [...source];
+
+            switch(sortBy) {
+                case 'duration':
+                    sortedData.sort((a, b) => b.duration - a.duration);
+                    break;
+                case 'start':
+                    sortedData.sort((a, b) => a.start_minutes - b.start_minutes);
+                    break;
+                case 'name':
+                    sortedData.sort((a, b) => a.name.localeCompare(b.name));
+                    break;
+            }
+
+            renderPlanetTable(kind, sortedData);
+        }
+
+        // Initial render, both tables
+        sortPlanetTable('restricted');
+        sortPlanetTable('unrestricted');
+    </script>
+"""
+
+    # ── Visibility Dates (forecast) script — always emitted, part of the
+    # core DSO report regardless of show_all.
+    forecast_script = """
+    <script>
+        // -- Visibility Dates table ----------------------------------------
+        const forecastData = """ + forecast_json + """;
+
+        function renderForecast(data) {
+            const tbody = document.getElementById('forecastBody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            data.forEach(obj => {
+                const row = tbody.insertRow();
+                const tonightCell = obj.visible_tonight
+                    ? '<span style="color:#7ec8a3; font-weight:600;">&#10003;</span>'
+                    : '';
+                if (obj.no_window) {
+                    row.innerHTML = `
+                        <td class="priority">${obj.do_me}</td>
+                        <td style="text-align:center;">${tonightCell}</td>
+                        <td><strong>${obj.name}</strong></td>
+                        <td>${obj.aka}</td>
+                        <td colspan="2" style="color:#8b9dc3; font-style:italic;">No window in next """ + str(FORECAST_MAX_DAYS) + """ days</td>
+                    `;
+                } else {
+                    row.innerHTML = `
+                        <td class="priority">${obj.do_me}</td>
+                        <td style="text-align:center;">${tonightCell}</td>
+                        <td><strong>${obj.name}</strong></td>
+                        <td>${obj.aka}</td>
+                        <td class="time">${obj.first_visible}</td>
+                        <td class="time">${obj.last_visible}</td>
+                    `;
+                }
+            });
+        }
+
+        function sortForecast() {
+            const sortSelect = document.getElementById('forecastSort');
+            if (!sortSelect) return;
+            const sortBy = sortSelect.value;
+            const sorted = [...forecastData];
+            switch (sortBy) {
+                case 'first_visible':
+                    sorted.sort((a, b) => a.first_visible_sort - b.first_visible_sort);
+                    break;
+                case 'name':
+                    sorted.sort((a, b) => a.name.localeCompare(b.name));
+                    break;
+                case 'aka':
+                    sorted.sort((a, b) => a.aka.localeCompare(b.aka));
+                    break;
+            }
+            renderForecast(sorted);
+        }
+
+        // Initial forecast render
+        sortForecast();
+    </script>
+"""
 
     # ── Write timing breakdown to log, and build an HTML comment summary ────
     _total_elapsed = sum(dur for _, dur in _timings)
@@ -1009,7 +1469,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         with open('dso_visibility.log', 'a') as _tlog:
             _tlog.write(
                 f"{datetime.datetime.now().isoformat()} - TIMING date={specified_date} "
-                f"profile={profile_name}: {_timing_line}, TOTAL={_total_elapsed:.2f}s\n"
+                f"profile={profile_name} all={show_all}: {_timing_line}, TOTAL={_total_elapsed:.2f}s\n"
             )
     except Exception:
         pass
@@ -1017,6 +1477,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
     # Output HTML
     target_date_str = specified_date.strftime('%Y-%m-%d')
+    route_base = '/vis/all' if show_all else '/vis'
 
     print(f"""<!DOCTYPE html>
 <html lang="en">
@@ -1282,6 +1743,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
         <p><strong>Location:</strong> {location_name}</p>
         <p><strong>Viewing Window:</strong> {start_local.strftime('%H:%M %Z')} to {end_local.strftime('%H:%M %Z')}</p>
         <p><strong>Criteria:</strong> Altitude &gt;= {minimum_altitude}&deg;, Azimuth {azimuth_minimum_degrees}&deg;-{azimuth_maximum_degrees}&deg;</p>
+        <p><strong>View:</strong> {"Full report (adds Alignment Stars &amp; Planets/Moon)" if show_all else "DSOs &amp; Visibility Dates"} &mdash; <a href="{'/vis' if show_all else '/vis/all'}?date={target_date_str}&amp;profile={profile_name}" style="color:#7ec8ff;">{"Switch to DSO Only" if show_all else "Switch to Full Report"}</a></p>
     </div>
 
     <div class="controls">
@@ -1297,7 +1759,7 @@ def calculate_visibility(specified_date=None, profile_name='default'):
             <option value="name">Name (A-Z)</option>
             <option value="aka">Friendly Name</option>
         </select>
-        <button id="force-rebuild-btn" onclick="window.location.href=window.location.pathname + '?date={target_date_str}&profile={profile_name}&rebuild=1'">Force Rebuild</button>
+        <button id="force-rebuild-btn" onclick="window.location.href='{route_base}?date={target_date_str}&profile={profile_name}&rebuild=1'">Force Rebuild</button>
         <button id="quickadd-btn" onclick="openQuickAdd()" style="background:#3fb950 !important; border-color:rgba(255,255,255,0.3) !important;">&#43; Quick Add DSO</button>
     </div>
 
@@ -1410,191 +1872,8 @@ def calculate_visibility(specified_date=None, profile_name='default'):
 
         // Initial render with default sort (duration)
         sortTable();
-
-        // -- Alignment Stars table -------------------------------------------
-        const starsData = """ + stars_json + """;
-
-        function renderStarTable(data) {
-            const tbody = document.getElementById('starTableBody');
-            if (!tbody) return;
-            tbody.innerHTML = '';
-
-            data.forEach(obj => {
-                const row = tbody.insertRow();
-                row.innerHTML = `
-                    <td><strong>${obj.name}</strong></td>
-                    <td>${obj.aka}</td>
-                    <td class="time">${obj.start}</td>
-                    <td>${obj.start_alt.toFixed(0)}&deg;</td>
-                    <td>${obj.start_az.toFixed(0)}&deg;</td>
-                    <td class="time">${obj.end}</td>
-                    <td>${obj.end_alt.toFixed(0)}&deg;</td>
-                    <td>${obj.end_az.toFixed(0)}&deg;</td>
-                    <td class="duration">${formatDuration(obj.duration)}</td>
-                    <td>${obj.magnitude.toFixed(1)}</td>
-                    <td>${obj.constellation}</td>
-                `;
-            });
-
-            const totalEl = document.getElementById('starTotalCount');
-            if (totalEl) totalEl.textContent = data.length;
-        }
-
-        function sortStarTable() {
-            const sortSelect = document.getElementById('starSortOrder');
-            if (!sortSelect) return;
-            const sortBy = sortSelect.value;
-            const sortedData = [...starsData];
-
-            switch(sortBy) {
-                case 'duration':
-                    sortedData.sort((a, b) => b.duration - a.duration);
-                    break;
-                case 'start':
-                    sortedData.sort((a, b) => a.start_minutes - b.start_minutes);
-                    break;
-                case 'end':
-                    sortedData.sort((a, b) => a.end_minutes - b.end_minutes);
-                    break;
-                case 'start_az':
-                    sortedData.sort((a, b) => a.start_az - b.start_az);
-                    break;
-                case 'start_alt':
-                    sortedData.sort((a, b) => b.start_alt - a.start_alt);
-                    break;
-                case 'magnitude':
-                    sortedData.sort((a, b) => a.magnitude - b.magnitude);
-                    break;
-                case 'name':
-                    sortedData.sort((a, b) => a.name.localeCompare(b.name));
-                    break;
-            }
-
-            renderStarTable(sortedData);
-        }
-
-        // Initial render with default sort (duration)
-        sortStarTable();
-
-        // -- Planets & Moon tables -------------------------------------------
-        const planetsRestrictedData = """ + planets_restricted_json + """;
-        const planetsUnrestrictedData = """ + planets_unrestricted_json + """;
-
-        function formatPhase(p) {
-            if (p.phase_pct === null || p.phase_pct === undefined) return '';
-            return p.phase_pct + '% (' + p.phase_name + ')';
-        }
-
-        function renderPlanetTable(kind, data) {
-            const bodyId = kind === 'restricted' ? 'planetRestrictedBody' : 'planetUnrestrictedBody';
-            const tbody = document.getElementById(bodyId);
-            if (!tbody) return;
-            tbody.innerHTML = '';
-            const fmtDeg = v => (v !== null && v !== undefined) ? v.toFixed(1) + '&deg;' : '&mdash;';
-            data.forEach(obj => {
-                const row = tbody.insertRow();
-                const magCell = obj.magnitude !== null && obj.magnitude !== undefined ? obj.magnitude.toFixed(1) : '&mdash;';
-                const phaseCell = formatPhase(obj) || '&mdash;';
-                if (obj.visible_tonight) {
-                    row.innerHTML = `
-                        <td><strong>${obj.name}</strong></td>
-                        <td class="time">${obj.start}</td>
-                        <td>${fmtDeg(obj.start_alt)}</td>
-                        <td>${fmtDeg(obj.start_az)}</td>
-                        <td class="time">${obj.end}</td>
-                        <td>${fmtDeg(obj.end_alt)}</td>
-                        <td>${fmtDeg(obj.end_az)}</td>
-                        <td class="duration">${formatDuration(obj.duration)}</td>
-                        <td>${magCell}</td>
-                        <td>${phaseCell}</td>
-                    `;
-                } else {
-                    const currentPos = (obj.alt !== null && obj.alt !== undefined)
-                        ? ' (currently ' + fmtDeg(obj.alt) + ' alt, ' + fmtDeg(obj.az) + ' az)'
-                        : '';
-                    const nextText = obj.next_visible
-                        ? 'Not visible tonight' + currentPos + ' &mdash; next: ' + obj.next_visible
-                        : 'Not visible tonight' + currentPos + ' &mdash; none in next 180 days';
-                    row.innerHTML = `
-                        <td><strong>${obj.name}</strong></td>
-                        <td colspan="7" style="color:#8b9dc3; font-style:italic;">${nextText}</td>
-                        <td>${magCell}</td>
-                        <td>${phaseCell}</td>
-                    `;
-                }
-            });
-        }
-
-        function sortPlanetTable(kind) {
-            const selectId = kind === 'restricted' ? 'planetRestrictedSort' : 'planetUnrestrictedSort';
-            const sortSelect = document.getElementById(selectId);
-            if (!sortSelect) return;
-            const sortBy = sortSelect.value;
-            const source = kind === 'restricted' ? planetsRestrictedData : planetsUnrestrictedData;
-            const sortedData = [...source];
-
-            switch(sortBy) {
-                case 'duration':
-                    sortedData.sort((a, b) => b.duration - a.duration);
-                    break;
-                case 'start':
-                    sortedData.sort((a, b) => a.start_minutes - b.start_minutes);
-                    break;
-                case 'name':
-                    sortedData.sort((a, b) => a.name.localeCompare(b.name));
-                    break;
-            }
-
-            renderPlanetTable(kind, sortedData);
-        }
-
-        // Initial render, both tables
-        sortPlanetTable('restricted');
-        sortPlanetTable('unrestricted');
-
-        // -- Visibility Dates table ----------------------------------------
-        const forecastData = """ + forecast_json + """;
-
-        function renderForecast(data) {
-            const tbody = document.getElementById('forecastBody');
-            if (!tbody) return;
-            tbody.innerHTML = '';
-            data.forEach(obj => {
-                const row = tbody.insertRow();
-                const tonightCell = obj.visible_tonight
-                    ? '<span style="color:#7ec8a3; font-weight:600;">&#10003;</span>'
-                    : '';
-                row.innerHTML = `
-                    <td class="priority">${obj.do_me}</td>
-                    <td style="text-align:center;">${tonightCell}</td>
-                    <td><strong>${obj.name}</strong></td>
-                    <td>${obj.aka}</td>
-                    <td class="time">${obj.first_visible}</td>
-                    <td class="time">${obj.last_visible}</td>
-                `;
-            });
-        }
-
-        function sortForecast() {
-            const sortBy = document.getElementById('forecastSort').value;
-            const sorted = [...forecastData];
-            switch (sortBy) {
-                case 'first_visible':
-                    sorted.sort((a, b) => a.first_visible_sort - b.first_visible_sort);
-                    break;
-                case 'name':
-                    sorted.sort((a, b) => a.name.localeCompare(b.name));
-                    break;
-                case 'aka':
-                    sorted.sort((a, b) => a.aka.localeCompare(b.aka));
-                    break;
-            }
-            renderForecast(sorted);
-        }
-
-        // Initial forecast render
-        sortForecast();
     </script>
+""" + extra_sections_script + forecast_script + """
 <!-- DSO Info Modal -->
 <div id="dso-modal-overlay" onclick="if(event.target===this)closeDSOInfo()">
   <div id="dso-modal">
@@ -1625,6 +1904,12 @@ async function showDSOInfo(dsoKey) {
 
     function fv(v) { return (v !== null && v !== undefined && v !== '') ? String(v) : '-'; }
     function fn(v, dec) { return (v !== null && v !== undefined && v !== '') ? parseFloat(v).toFixed(dec ?? 2) : '-'; }
+
+    const SEESTAR_LABELS = { s30: 'Seestar S30', s50: 'Seestar S50', s50p: 'Seestar S50 Pro' };
+    function equipmentLabel(codes) {
+      if (!codes || !codes.length) return '-';
+      return codes.map(c => SEESTAR_LABELS[String(c).toLowerCase()] || c).join(', ');
+    }
 
     function raToHMS(h) {
       if (h === null || h === undefined || h === '' || isNaN(h)) return '-';
@@ -1720,6 +2005,7 @@ async function showDSOInfo(dsoKey) {
             <div class="modal-field"><span class="modal-field-label">Last Observed</span><span class="modal-field-value">${fv(p.MostRecentObservation)}</span></div>
             <div class="modal-field"><span class="modal-field-label">Total Lights</span><span class="modal-field-value">${fv(p.TotalLights)}</span></div>
             <div class="modal-field"><span class="modal-field-label">Integration Time</span><span class="modal-field-value">${integStr}</span></div>
+            <div class="modal-field"><span class="modal-field-label">Equipment</span><span class="modal-field-value">${equipmentLabel(p.Equipment)}</span></div>
           </div>
         </div>`;
       });
@@ -1820,7 +2106,7 @@ async function submitQuickAdd() {
       const name = data.CommonName ? data.CommonName + ' (' + dsoKey + ')' : dsoKey;
       status.textContent = name + ' added! Rebuilding visibility report...';
       setTimeout(() => {
-        window.location.href = '/vis?date={target_date_str}&profile={profile_name}&rebuild=1';
+        window.location.href = '{route_base}?date={target_date_str}&profile={profile_name}&rebuild=1';
       }, 1200);
       return;
     }
@@ -1851,6 +2137,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Calculate DSO visibility for a given date')
     parser.add_argument('--date', type=str, help='Date in YYYY-MM-DD format (default: today)')
     parser.add_argument('--profile', type=str, default='default', help='Profile name to use (default: default)')
+    parser.add_argument('--all', action='store_true',
+                         help='Include Alignment Stars and Planets & Moon sections '
+                              '(default: DSO table + Visibility Dates only)')
     args = parser.parse_args()
     
     target_date = None
@@ -1861,4 +2150,4 @@ if __name__ == '__main__':
             print("<p>Error: Invalid date format. Use YYYY-MM-DD</p>")
             sys.exit(1)
     
-    calculate_visibility(target_date, args.profile)
+    calculate_visibility(target_date, args.profile, args.all)

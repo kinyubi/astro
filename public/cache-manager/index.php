@@ -37,13 +37,19 @@ $cacheFiles = [];
 if (is_dir($cacheDir)) {
     foreach (glob($cacheDir . DIRECTORY_SEPARATOR . 'dso_report_*.html') as $f) {
         $basename = basename($f);
-        preg_match('/dso_report_([a-z0-9_]+)_(\d{4}-\d{2}-\d{2})\.html/', $basename, $matches);
+        // Trailing optional "_all" marks the full report (DSOs + Alignment
+        // Stars + Planets & Moon + Visibility Dates) as opposed to the
+        // default DSO-only cache file for the same profile/date.
+        preg_match('/dso_report_([a-z0-9_]+)_(\d{4}-\d{2}-\d{2})(_all)?\.html/', $basename, $matches);
         $profile = isset($matches[1]) ? $matches[1] : 'unknown';
         $date    = isset($matches[2]) ? $matches[2] : 'Unknown';
+        $isAll   = isset($matches[3]) && $matches[3] === '_all';
         $cacheFiles[] = [
             'filename' => $basename,
             'profile'  => $profile,
             'date'     => $date,
+            'view'     => $isAll ? 'Full Report' : 'DSO Only',
+            'all'      => $isAll,
             'size'     => filesize($f),
             'age'      => time() - filemtime($f),
             'modified' => filemtime($f)
@@ -125,6 +131,7 @@ function formatAge($seconds) {
                 <tr>
                     <th>Date</th>
                     <th>Profile</th>
+                    <th>View</th>
                     <th>File Size</th>
                     <th>Age</th>
                     <th>Last Modified</th>
@@ -136,13 +143,14 @@ function formatAge($seconds) {
                     <tr>
                         <td><strong><?php echo htmlspecialchars($cf['date']); ?></strong></td>
                         <td><?php echo htmlspecialchars($cf['profile']); ?></td>
+                        <td><?php echo htmlspecialchars($cf['view']); ?></td>
                         <td><?php echo formatBytes($cf['size']); ?></td>
                         <td><?php echo formatAge($cf['age']); ?></td>
                         <td><?php echo date('Y-m-d H:i:s', $cf['modified']); ?></td>
                         <td>
-                            <a href="/vis?date=<?php echo urlencode($cf['date']); ?>&profile=<?php echo urlencode($cf['profile']); ?>"
+                            <a href="/vis?date=<?php echo urlencode($cf['date']); ?>&profile=<?php echo urlencode($cf['profile']); ?><?php echo $cf['all'] ? '&all=1' : ''; ?>"
                                class="btn" style="font-size: 0.9em; padding: 5px 10px;">View</a>
-                            <a href="/vis?date=<?php echo urlencode($cf['date']); ?>&profile=<?php echo urlencode($cf['profile']); ?>&rebuild=1"
+                            <a href="/vis?date=<?php echo urlencode($cf['date']); ?>&profile=<?php echo urlencode($cf['profile']); ?><?php echo $cf['all'] ? '&all=1' : ''; ?>&rebuild=1"
                                class="btn" style="font-size: 0.9em; padding: 5px 10px;">Rebuild</a>
                             <a href="?action=delete&file=<?php echo urlencode($cf['filename']); ?>"
                                class="btn btn-danger" style="font-size: 0.9em; padding: 5px 10px;"

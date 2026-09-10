@@ -130,6 +130,31 @@ try {
     exit;
 }
 
+// ---------------------------------------------------------------------------
+// Equipment used per project -- a Project can span more than one Observation
+// (e.g. an S30 pass followed later by an S50 revisit), so this is a distinct
+// list, not a single value. Done as one small query per project (DISTINCT
+// list aggregation isn't portable across SQLite/Postgres) since there are
+// only ever a handful of projects per DSO.
+// ---------------------------------------------------------------------------
+try {
+    $eqStmt = $db->prepare("
+        SELECT DISTINCT o.EquipmentID AS \"EquipmentID\"
+        FROM Observations o
+        WHERE o.ProjectID = :pid AND o.EquipmentID IS NOT NULL
+        ORDER BY o.EquipmentID
+    ");
+    foreach ($projects as &$p) {
+        $eqStmt->execute([':pid' => $p['ProjectID']]);
+        $p['Equipment'] = array_column($eqStmt->fetchAll(PDO::FETCH_ASSOC), 'EquipmentID');
+    }
+    unset($p);
+} catch (PDOException $e) {
+    http_response_code(500);
+    echo json_encode(['success' => false, 'error' => 'Query error: ' . $e->getMessage()]);
+    exit;
+}
+
 // Cast numeric columns that SQLite returns as strings
 foreach (['RAHours', 'DecDegrees', 'Magnitude'] as $col) {
     if (isset($row[$col]) && $row[$col] !== null) {
