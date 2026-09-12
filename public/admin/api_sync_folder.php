@@ -43,7 +43,13 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
 
 $body        = json_decode(file_get_contents('php://input'), true);
 $dso_key     = trim($body['DSOKey'] ?? '');
-$hint_map    = $body['sessionDirHints'] ?? []; // { baseName => sessionDir }
+
+// { baseName => sessionDir }. Keyed case-insensitively (see note below) since
+// hints round-trip from a prior scan and may not match disk case exactly.
+$hint_map = [];
+foreach (($body['sessionDirHints'] ?? []) as $hk => $hv) {
+    $hint_map[strtolower($hk)] = $hv;
+}
 
 if (!$dso_key) {
     http_response_code(400);
@@ -118,7 +124,10 @@ function build_works_root_map(string $project_folder): array {
         foreach (scandir($session_path) as $file) {
             if (!preg_match('/^(.+)_fav\.jpg$/i', $file, $fm)) continue;
             if (stripos($file, '_annotated') !== false) continue;
-            $map[$fm[1]] = [
+            // Keyed lowercase: Windows filenames are case-insensitive, so the
+            // same image can be cased differently here vs. the web fav/ scan
+            // vs. the DB's stored BaseName. Matching must not care which.
+            $map[strtolower($fm[1])] = [
                 'session'    => $session_dir,
                 'date'       => $date,
                 'equipment'  => $equip,
@@ -213,6 +222,14 @@ try {
         $project_folder = $match['ProjectFolder'];
     }
 
+    // Everything from here on writes to GalleryImages (insert/update/delete
+    // across potentially several fav files, plus the featured-image
+    // promotion at the end). Wrapped in one transaction so a failure
+    // partway through -- like the db_last_insert_id() bug that bit IC342 --
+    // rolls back cleanly instead of leaving some images synced and others
+    // not while still reporting "Sync failed" to the caller.
+    $db->beginTransaction();
+
     // ── Determine mode and build session map ──────────────────────────────
     $works_root_available = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
     $mode = $works_root_available ? 'local' : 'remote';
@@ -245,9 +262,12 @@ try {
         ORDER BY SortOrder, GalleryImageID
     ");
     $stmt->execute([$dso_key]);
+    // Keyed by lowercased BaseName -- see the case-insensitivity note on
+    // build_works_root_map() above. $row still carries the DB's actual
+    // original-case BaseName for anything that needs to display/report it.
     $existing = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $existing[$row['BaseName']] = $row;
+        $existing[strtolower($row['BaseName'])] = $row;
     }
 
     // Check if any featured image currently exists
@@ -265,8 +285,9 @@ try {
 
     // ── Process each fav file found in public/images/fav/ ─────────────────
     foreach ($fav_files as $f) {
-        $bn = $f['base_name'];
-        $disk_basenames[$bn] = true;
+        $bn     = $f['base_name'];      // case exactly as found on disk in public/images/fav/
+        $bn_key = strtolower($bn);      // case-insensitive key for all matching below
+        $disk_basenames[$bn_key] = true;
 
         // Resolve SessionDir via priority chain:
         // 1. WORKS_ROOT map (local mode)
@@ -277,14 +298,14 @@ try {
         $session_dir = null;
         $source      = null;
 
-        if (isset($works_map[$bn])) {
-            $session_dir = $works_map[$bn]['session'];
+        if (isset($works_map[$bn_key])) {
+            $session_dir = $works_map[$bn_key]['session'];
             $source      = 'works_root';
-        } elseif (!empty($existing[$bn]['SessionDir'])) {
-            $session_dir = $existing[$bn]['SessionDir'];
+        } elseif (!empty($existing[$bn_key]['SessionDir'])) {
+            $session_dir = $existing[$bn_key]['SessionDir'];
             $source      = 'db';
-        } elseif (!empty($hint_map[$bn])) {
-            $session_dir = trim($hint_map[$bn]);
+        } elseif (!empty($hint_map[$bn_key])) {
+            $session_dir = trim($hint_map[$bn_key]);
             $source      = 'hint';
         }
 
@@ -295,7 +316,7 @@ try {
                 'paletteId' => $f['palette_id'],
             ];
             // Still upsert with what we know (palette at minimum) if brand new
-            if (!isset($existing[$bn])) {
+            if (!isset($existing[$bn_key])) {
                 $is_feature = (!$has_feature) ? 1 : 0;
                 if ($is_feature) $has_feature = true;
                 $sort = count($existing) + count($inserted);
@@ -328,8 +349,13 @@ try {
         $is_mosaic     = infer_is_mosaic($session_dir, $project_folder);
         $palette_id    = $f['palette_id'];
 
-        if (isset($existing[$bn])) {
-            // Update existing row
+        if (isset($existing[$bn_key])) {
+            // Update existing row, targeted by GalleryImageID rather than
+            // BaseName+DSOKey: SQL '=' is case-sensitive in Postgres even
+            // though we already resolved this to the same row above via a
+            // case-insensitive match, so matching on BaseName here again
+            // could miss the row entirely over a pure case difference.
+            $existing_id = (int)$existing[$bn_key]['GalleryImageID'];
             $stmt = $db->prepare("
                 UPDATE GalleryImages
                 SET DateCaptured = ?,
@@ -337,16 +363,16 @@ try {
                     PaletteID    = ?,
                     SessionDir   = ?,
                     ProjectID    = ?
-                WHERE BaseName = ? AND DSOKey = ?
+                WHERE GalleryImageID = ?
             ");
             $stmt->execute([
                 $date_captured, $equipment,
-                $palette_id, $session_dir, $project_id, $bn, $dso_key
+                $palette_id, $session_dir, $project_id, $existing_id
             ]);
 
             $updated[] = [
-                'GalleryImageID' => (int)$existing[$bn]['GalleryImageID'],
-                'BaseName'       => $bn,
+                'GalleryImageID' => $existing_id,
+                'BaseName'       => $existing[$bn_key]['BaseName'],
                 'DateCaptured'   => $date_captured,
                 'Equipment'      => $equipment,
                 'IsMosaic'       => $is_mosaic,
@@ -385,15 +411,19 @@ try {
     }
 
     // ── Remove DB rows whose fav file is no longer in public/images/fav/ ──────
+    // $existing and $disk_basenames are both keyed by lowercased BaseName
+    // (see notes above), so this comparison is already case-insensitive --
+    // a file that's genuinely still on disk under different casing will not
+    // be wrongly deleted here.
     $removed_feature = false;
-    foreach ($existing as $bn => $row) {
-        if (!isset($disk_basenames[$bn])) {
+    foreach ($existing as $bn_key => $row) {
+        if (!isset($disk_basenames[$bn_key])) {
             $del = $db->prepare("DELETE FROM GalleryImages WHERE GalleryImageID = ?");
             $del->execute([(int)$row['GalleryImageID']]);
             if ($row['IsFeature']) $removed_feature = true;
             $warnings[] = [
                 'GalleryImageID' => (int)$row['GalleryImageID'],
-                'BaseName'       => $bn,
+                'BaseName'       => $row['BaseName'],
                 'reason'         => 'fav file not found in public/images/fav/ — removed from DB',
             ];
         }
@@ -415,6 +445,8 @@ try {
         }
     }
 
+    $db->commit();
+
     echo json_encode([
         'success'           => true,
         'mode'              => $mode,
@@ -426,6 +458,9 @@ try {
     ]);
 
 } catch (Exception $e) {
+    if (isset($db) && $db instanceof PDO && $db->inTransaction()) {
+        $db->rollBack();
+    }
     http_response_code(500);
     echo json_encode(['error' => $e->getMessage()]);
 }

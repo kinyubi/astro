@@ -158,8 +158,19 @@ function get_db(): PDO
 function db_last_insert_id(PDO $db, string $table, string $pkCol): int
 {
     if (db_driver() === 'pgsql') {
+        // pg_get_serial_sequence() parses/folds its TABLE argument as a
+        // normal SQL identifier -- 'GalleryImages' correctly resolves to
+        // the actual lowercase 'galleryimages' relation from the
+        // identifier-lowercasing migration -- but it does NOT fold its
+        // COLUMN argument; that one is matched completely literally
+        // against the catalog. Every caller in this codebase passes the
+        // mixed-case PHP-side column name (matching the AS "MixedCase"
+        // aliases used in SELECTs), which fails here with "column "X" of
+        // relation "y" does not exist" even though the column exists
+        // under its real lowercase name. Lowercasing just this argument
+        // fixes every call site at once.
         $stmt = $db->prepare("SELECT currval(pg_get_serial_sequence(?, ?))");
-        $stmt->execute([$table, $pkCol]);
+        $stmt->execute([$table, strtolower($pkCol)]);
         return (int) $stmt->fetchColumn();
     }
     return (int) $db->lastInsertId();

@@ -255,6 +255,7 @@ header('Pragma: no-cache');
     </div>
     <div class="sidebar-footer">
       <button class="btn-new" onclick="newObject()">+ New Object</button>
+      <button class="btn-new" style="margin-top:6px; background:var(--accent2);" onclick="quickAddDSO()">&#129302; Quick Add DSO</button>
     </div>
   </aside>
 
@@ -360,10 +361,13 @@ header('Pragma: no-cache');
 
       <!-- Observation & Project -->
       <div class="section">
-        <div class="section-header">Observation &amp; Project</div>
+        <div class="section-header">
+          Observation &amp; Project
+          <button class="btn" id="btn-add-project" style="font-size:11px; padding:3px 10px;" onclick="addProject()">+ Add Project</button>
+        </div>
         <div class="section-body">
           <div id="projects-list" style="display:grid; gap:10px;"></div>
-          <div class="note" style="margin-top:4px;">Read-only for now &mdash; a Project management UI is planned. A DSO can have more than one Project (e.g. a standard framing and a separate mosaic framing).</div>
+          <div class="note" style="margin-top:4px;">Otherwise read-only &mdash; a full Project management UI is planned. A DSO can have more than one Project (e.g. a standard framing and a separate mosaic framing).</div>
           <div class="field" style="margin-top:12px;">
             <label>Notes</label>
             <textarea id="f_Notes" placeholder="Personal notes about this object, imaging sessions, equipment used, etc." autocomplete="off"></textarea>
@@ -544,7 +548,7 @@ function renderList(rows) {
         <span class="completeness ${cls}" title="Field completeness"></span>
       </div>
     `;
-    div.addEventListener('click', () => loadObject(row));
+    div.addEventListener('click', () => openObject(row));
     ul.appendChild(div);
   });
   ul.scrollTop = scrollTop;
@@ -608,6 +612,54 @@ loadConstellations();
 // ──────────────────────────────────────────────
 // Load object into editor
 // ──────────────────────────────────────────────
+
+// Entry point for clicking a DSO in the sidebar: checks whether there's
+// an unregistered myWorks folder for it (api_check_project.php) and, if
+// so, offers to create the Project right then -- before the DSO is
+// actually displayed -- rather than requiring "+ Add Project" to be
+// found and clicked separately every time. Local-mode only; on a remote
+// deployment (or if the check itself fails) this just falls through to
+// loadObject(row) unchanged, since a broken convenience check must never
+// block opening a DSO.
+async function openObject(row) {
+  try {
+    const res  = await apiFetch('api_check_project.php?DSOKey=' + encodeURIComponent(row.DSOKey));
+    const data = await res.json();
+
+    if (data.needsProject && Array.isArray(data.folders) && data.folders.length) {
+      let projectAdded = false;
+      for (const folder of data.folders) {
+        const ok = confirm(
+          'DSO ' + row.DSOKey + ' has an unregistered myWorks folder:\n\n' +
+          folder + '\n\nCreate a Project for it now?'
+        );
+        if (!ok) continue;
+
+        const addRes  = await apiFetch('api_add_project.php', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ DSOKey: row.DSOKey, ProjectFolder: folder }),
+        });
+        const addData = await addRes.json();
+        if (addData.success) {
+          toast('Project added: ' + folder, 'ok');
+          projectAdded = true;
+        } else {
+          toast('Add Project failed: ' + (addData.error || 'unknown error'), 'err', 8000);
+        }
+      }
+      if (projectAdded) {
+        const fresh = await fetchOneByKey(row.DSOKey);
+        if (fresh) row = fresh;
+      }
+    }
+  } catch (e) {
+    // Convenience check only -- fall through and display the DSO regardless.
+    console.warn('Project check failed:', e);
+  }
+
+  loadObject(row);
+}
+
 function loadObject(row) {
   currentObject = row;
   document.querySelectorAll('.object-item').forEach(el => {
@@ -674,6 +726,59 @@ function showEditor() {
   document.getElementById('editor').style.display       = 'flex';
   document.getElementById('editor').style.flexDirection = 'column';
   document.getElementById('editor').style.gap           = '20px';
+}
+
+// ──────────────────────────────────────────────
+// Quick Add DSO -- same api_quickadd.php endpoint /vis uses, one prompt
+// instead of filling the New Object form by hand. AI-populates and saves
+// in one round trip; only creates the Objects/CatalogIDs row -- still
+// needs "+ Add Project" below before Sync Folder will work for it.
+// ──────────────────────────────────────────────
+async function quickAddDSO() {
+  const dsoKey = (prompt('DSO key or catalog ID to add (e.g. NGC1976, M42, SH2-129):') || '').trim().toUpperCase();
+  if (!dsoKey) return;
+
+  toast('Asking AI about ' + dsoKey + '\u2026', 'info', 15000);
+
+  try {
+    const res  = await apiFetch('api_quickadd.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dso_key: dsoKey }),
+    });
+    const data = await res.json();
+
+    if (data.exists) {
+      toast(dsoKey + ' already exists \u2014 opening it.', 'info');
+      await fetchList('');
+      const row = await fetchOneByKey(dsoKey);
+      if (row) loadObject(row);
+      return;
+    }
+
+    if (!data.success) {
+      toast('Quick Add failed: ' + (data.error || 'unknown error'), 'err', 8000);
+      return;
+    }
+
+    toast((data.CommonName ? data.CommonName + ' (' + dsoKey + ')' : dsoKey) + ' added.', 'ok');
+    await fetchList('');
+    const row = await fetchOneByKey(dsoKey);
+    if (row) loadObject(row);
+
+  } catch (e) {
+    toast('Network error: ' + e.message, 'err', 8000);
+  }
+}
+
+// Fetches a single object's full row (with Projects/GalleryImages/etc.)
+// by exact DSOKey, for re-loading into the editor after Quick Add or
+// Add Project. api_search.php's :q matches substrings, so filter to the
+// exact key rather than assuming the first result is the right one.
+async function fetchOneByKey(dsoKey) {
+  const res  = await apiFetch('api_search.php?q=' + encodeURIComponent(dsoKey));
+  const rows = await res.json();
+  if (!Array.isArray(rows)) return null;
+  return rows.find(r => r.DSOKey.toUpperCase() === dsoKey.toUpperCase()) || null;
 }
 
 // ──────────────────────────────────────────────
@@ -751,6 +856,45 @@ function renderProjects(projects) {
       </div>
     `;
   }).join('');
+}
+
+// Creates a Projects row for the currently-loaded DSO -- the in-admin
+// equivalent of running pythonscripts/sync_projects.py for just this one
+// DSO. Nothing auto-detects new myWorks folders, so this (or that script)
+// is the only way a new folder gets a Project row at all; Sync Folder
+// refuses with "No Project exists yet" until one does.
+async function addProject() {
+  if (!currentObject || !currentObject.DSOKey) {
+    toast('Save this object first, then add a Project.', 'err');
+    return;
+  }
+  const folder = (prompt('myWorks folder name for this Project (e.g. ic342_hidden_galaxy):') || '').trim();
+  if (!folder) return;
+
+  const btn = document.getElementById('btn-add-project');
+  btn.disabled = true;
+
+  try {
+    const res  = await apiFetch('api_add_project.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ DSOKey: currentObject.DSOKey, ProjectFolder: folder }),
+    });
+    const data = await res.json();
+
+    if (!data.success) {
+      toast('Add Project failed: ' + (data.error || 'unknown error'), 'err', 8000);
+      return;
+    }
+
+    toast('Project added: ' + folder, 'ok');
+    const row = await fetchOneByKey(currentObject.DSOKey);
+    if (row) loadObject(row);
+
+  } catch (e) {
+    toast('Network error: ' + e.message, 'err', 8000);
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ──────────────────────────────────────────────

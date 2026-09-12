@@ -14,15 +14,17 @@ Usage:
 Run from any directory; Laragon must be running.
 """
 
-import sqlite3
 import requests
 import json
 import sys
 import time
 import re
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # pythonscripts/, for db_connect
+from db_connect import get_connection  # noqa: E402
 
 # ── Config ────────────────────────────────────────────────────────────────────
-DB_PATH       = r"C:\laragon7\www\astro\dsodb\astro.db"
 POPULATE_URL  = "http://astro.app/admin/api_populate.php"
 SAVE_URL      = "http://astro.app/admin/api_save.php"
 DELAY_SECS    = 1.5   # polite pause between API calls
@@ -32,18 +34,24 @@ SKIP_KEYS = {"SUN", "MOON"}
 # ──────────────────────────────────────────────────────────────────────────────
 
 
-def get_objects(db_path, target_key=None, skip_existing=False):
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+def get_objects(target_key=None, skip_existing=False):
+    """Fetch objects from the live Postgres DB (via db_connect). This used
+    to read the legacy SQLite file directly, so any DSO added since would
+    silently never get processed here -- the write side (save_blurb, via
+    api_save.php) already went to Postgres, so read and write disagreed."""
+    conn = get_connection()
+    cur = conn.cursor()
     query = """
-        SELECT o.DSOKey, o.CommonName, o.ConstellationID, o.DistanceLY,
-               o.ObjectSize, o.SocialBlurb,
-               c.CatalogID AS PrimaryCatalog
+        SELECT o.DSOKey AS "DSOKey", o.CommonName AS "CommonName",
+               o.ConstellationID AS "ConstellationID", o.DistanceLY AS "DistanceLY",
+               o.ObjectSize AS "ObjectSize", o.SocialBlurb AS "SocialBlurb",
+               c.CatalogID AS "PrimaryCatalog"
         FROM Objects o
         LEFT JOIN CatalogIDs c ON c.DSOKey = o.DSOKey AND c.IsPrimary = 1
         ORDER BY o.DSOKey
     """
-    rows = conn.execute(query).fetchall()
+    cur.execute(query)
+    rows = cur.fetchall()
     conn.close()
 
     result = []
@@ -51,7 +59,7 @@ def get_objects(db_path, target_key=None, skip_existing=False):
         key = r["DSOKey"]
         if key in SKIP_KEYS:
             continue
-        if target_key and key != target_key:
+        if target_key and key.upper() != target_key.upper():
             continue
         if skip_existing and r["SocialBlurb"] and len(r["SocialBlurb"].strip()) > 20:
             continue
@@ -130,7 +138,7 @@ def main():
         else:
             target_key = arg
 
-    objects = get_objects(DB_PATH, target_key=target_key, skip_existing=skip_existing)
+    objects = get_objects(target_key=target_key, skip_existing=skip_existing)
 
     if not objects:
         print("No objects to process.")

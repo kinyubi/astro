@@ -199,6 +199,19 @@
     margin-top: 1px;
   }
 
+  .item .cat {
+    flex-shrink: 0;
+    width: 90px;
+    font-size: 11px;
+    color: var(--muted);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    padding: 3px 5px;
+    background: var(--bg);
+    margin-top: 1px;
+  }
+  .item.done .cat { opacity: 0.5; }
+
   .item .age {
     flex-shrink: 0;
     font-size: 11px;
@@ -328,6 +341,7 @@ function renderItem(t) {
     <div class="item ${t.IsDone ? 'done' : ''}" data-id="${t.TodoID}">
       <input type="checkbox" ${t.IsDone ? 'checked' : ''} onchange="toggleItem(${t.TodoID})" title="Mark completed">
       <div class="text" contenteditable="true" onblur="saveText(${t.TodoID}, this.innerText)">${escHtml(t.ItemText)}</div>
+      <input class="cat" list="category-options" value="${escAttr(t.Category)}" onblur="saveCategory(${t.TodoID}, this.value)" title="Category">
       <span class="age ${isStale(t.CreatedDate) ? 'stale' : ''}" title="Added ${escAttr(t.CreatedDate || '')}">${formatAge(t.CreatedDate)}</span>
       <select class="prio prio-${prio}" onchange="savePriority(${t.TodoID}, this.value)" title="Priority">
         <option value="High" ${prio === 'High' ? 'selected' : ''}>High</option>
@@ -372,6 +386,18 @@ async function savePriority(id, priority) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id, priority })
+  });
+  await loadTodos();
+}
+
+async function saveCategory(id, newCategory) {
+  newCategory = newCategory.trim();
+  const t = todos.find(x => x.TodoID === id);
+  if (!t || !newCategory || newCategory === t.Category) { render(); return; }
+  await fetch('api.php?action=update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, category: newCategory })
   });
   await loadTodos();
 }

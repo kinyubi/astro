@@ -18,43 +18,50 @@ Requires: pip install requests
 """
 
 import argparse
-import sqlite3
 import time
 import sys
 import requests
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # pythonscripts/, for db_connect
+from db_connect import get_connection  # noqa: E402
+
 # ── Configure ────────────────────────────────────────────────────────────────
-DB_PATH      = Path(r"C:\laragon7\www\astro\dsodb\astro.db")
 API_BASE_URL = "http://localhost/astro/public/admin"
 
 # Delay between API calls (seconds) — be kind to the Anthropic API
 DELAY_SECS = 3
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
-def get_objects(db_path: Path, dso_key_filter: str = None, empty_only: bool = False) -> list[dict]:
-    """Fetch objects from the DB with their primary CatalogID."""
-    con = sqlite3.connect(db_path)
-    con.row_factory = sqlite3.Row
-    cur = con.cursor()
+def get_objects(dso_key_filter: str = None, empty_only: bool = False) -> list[dict]:
+    """Fetch objects from the live Postgres DB (via db_connect) with their
+    primary CatalogID. This used to read a separate legacy SQLite copy that
+    nothing kept in sync, so any DSO added since was silently invisible to
+    this script."""
+    conn = get_connection()
+    cur = conn.cursor()
 
     if dso_key_filter:
         key = dso_key_filter.upper()
         # Accept either a DSOKey (NGC1952) or any CatalogID (M1, Taurus A, etc.)
         cur.execute("""
             SELECT
-                o.DSOKey, o.CommonName, o.ConstellationID, o.DistanceLY, o.ObjectSize,
-                c.CatalogID AS PrimaryCatalogID
+                o.DSOKey AS "DSOKey", o.CommonName AS "CommonName",
+                o.ConstellationID AS "ConstellationID", o.DistanceLY AS "DistanceLY",
+                o.ObjectSize AS "ObjectSize",
+                c.CatalogID AS "PrimaryCatalogID"
             FROM Objects o
             LEFT JOIN CatalogIDs c ON o.DSOKey = c.DSOKey AND c.IsPrimary = 1
-            WHERE o.DSOKey = ?
-               OR o.DSOKey = (SELECT DSOKey FROM CatalogIDs WHERE CatalogID = ?)
+            WHERE UPPER(o.DSOKey) = UPPER(?)
+               OR o.DSOKey = (SELECT DSOKey FROM CatalogIDs WHERE UPPER(CatalogID) = UPPER(?))
         """, (key, key))
     elif empty_only:
         cur.execute("""
             SELECT
-                o.DSOKey, o.CommonName, o.ConstellationID, o.DistanceLY, o.ObjectSize,
-                c.CatalogID AS PrimaryCatalogID
+                o.DSOKey AS "DSOKey", o.CommonName AS "CommonName",
+                o.ConstellationID AS "ConstellationID", o.DistanceLY AS "DistanceLY",
+                o.ObjectSize AS "ObjectSize",
+                c.CatalogID AS "PrimaryCatalogID"
             FROM Objects o
             LEFT JOIN CatalogIDs c ON o.DSOKey = c.DSOKey AND c.IsPrimary = 1
             WHERE o.ObjectTypeID IS NULL
@@ -63,15 +70,17 @@ def get_objects(db_path: Path, dso_key_filter: str = None, empty_only: bool = Fa
     else:
         cur.execute("""
             SELECT
-                o.DSOKey, o.CommonName, o.ConstellationID, o.DistanceLY, o.ObjectSize,
-                c.CatalogID AS PrimaryCatalogID
+                o.DSOKey AS "DSOKey", o.CommonName AS "CommonName",
+                o.ConstellationID AS "ConstellationID", o.DistanceLY AS "DistanceLY",
+                o.ObjectSize AS "ObjectSize",
+                c.CatalogID AS "PrimaryCatalogID"
             FROM Objects o
             LEFT JOIN CatalogIDs c ON o.DSOKey = c.DSOKey AND c.IsPrimary = 1
             ORDER BY o.DSOKey
         """)
 
     rows = [dict(r) for r in cur.fetchall()]
-    con.close()
+    conn.close()
     return rows
 
 
@@ -125,11 +134,7 @@ def main():
     parser.add_argument("--dry-run",     action="store_true", help="Show what would be processed without calling the API")
     args = parser.parse_args()
 
-    if not DB_PATH.exists():
-        print(f"ERROR: Database not found at {DB_PATH}", file=sys.stderr)
-        sys.exit(1)
-
-    objects = get_objects(DB_PATH, args.dso_key, args.empty_only)
+    objects = get_objects(args.dso_key, args.empty_only)
     if not objects:
         print("No objects found" + (f" matching '{args.dso_key}'" if args.dso_key else ""))
         sys.exit(0)

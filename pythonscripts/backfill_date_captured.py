@@ -16,27 +16,25 @@ is passed, in which case all fields are re-inferred for every row.
 
 Prints a preview before writing.
 
+Connects via db_connect (the live Postgres DB) -- this used to open the
+legacy SQLite file directly, which meant its updates never showed up on
+the live site (the app has read from Postgres since the migration).
+
 Usage:
-    python backfill_date_captured.py [path_to_astro.db] [--force]
+    python backfill_date_captured.py [--force]
 """
 
-import sqlite3
 import sys
 import os
 import re
+from pathlib import Path
 from collections import defaultdict
 
-DB_PATH    = r"C:\laragon7\www\astro\dsodb\astro.db"
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # pythonscripts/, for db_connect
+from db_connect import get_connection  # noqa: E402
+
 WORKS_ROOT = r"C:\Astronomy\MyWorks"
 FORCE      = '--force' in sys.argv
-
-args = [a for a in sys.argv[1:] if not a.startswith('--')]
-if args:
-    DB_PATH = args[0]
-
-if not os.path.exists(DB_PATH):
-    print(f"ERROR: Database not found at {DB_PATH}")
-    sys.exit(1)
 
 # ── Palette token → PaletteID mapping ────────────────────────────────────────
 PALETTE_TOKENS = {
@@ -155,33 +153,25 @@ def find_session_for_image(base_name, project_folders):
     return None
 
 # ── Load GalleryImages ────────────────────────────────────────────────────────
-conn = sqlite3.connect(DB_PATH)
-conn.row_factory = sqlite3.Row
+conn = get_connection()
 cur  = conn.cursor()
-
-# Verify new columns exist
-cur.execute("PRAGMA table_info(GalleryImages)")
-cols = {row[1] for row in cur.fetchall()}
-missing = [c for c in ('Equipment', 'IsMosaic') if c not in cols]
-if missing:
-    print(f"ERROR: Column(s) {missing} missing from GalleryImages.")
-    print("Run migrate_add_equipment_ismosaic.py first.")
-    sys.exit(1)
 
 if FORCE:
     cur.execute("""
-        SELECT gi.GalleryImageID, gi.DSOKey, gi.BaseName,
-               gi.DateCaptured, gi.Equipment, gi.IsMosaic, gi.PaletteID,
-               p.ProjectFolder
+        SELECT gi.GalleryImageID AS "GalleryImageID", gi.DSOKey AS "DSOKey", gi.BaseName AS "BaseName",
+               gi.DateCaptured AS "DateCaptured", gi.Equipment AS "Equipment",
+               gi.IsMosaic AS "IsMosaic", gi.PaletteID AS "PaletteID",
+               p.ProjectFolder AS "ProjectFolder"
         FROM GalleryImages gi
         JOIN Projects p ON gi.DSOKey = p.DSOKey
         ORDER BY gi.DSOKey, gi.BaseName
     """)
 else:
     cur.execute("""
-        SELECT gi.GalleryImageID, gi.DSOKey, gi.BaseName,
-               gi.DateCaptured, gi.Equipment, gi.IsMosaic, gi.PaletteID,
-               p.ProjectFolder
+        SELECT gi.GalleryImageID AS "GalleryImageID", gi.DSOKey AS "DSOKey", gi.BaseName AS "BaseName",
+               gi.DateCaptured AS "DateCaptured", gi.Equipment AS "Equipment",
+               gi.IsMosaic AS "IsMosaic", gi.PaletteID AS "PaletteID",
+               p.ProjectFolder AS "ProjectFolder"
         FROM GalleryImages gi
         JOIN Projects p ON gi.DSOKey = p.DSOKey
         WHERE gi.DateCaptured IS NULL OR gi.DateCaptured = ''
