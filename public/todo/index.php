@@ -75,9 +75,9 @@
     padding: 9px 12px;
     font-size: 14px;
   }
-  /* #new-category also matches .add-row input[type=text] above; that rule's
-     explicit flex-basis (338px) wins over plain "width" on a flex item,
-     so it must be overridden here by id, not just re-set by attribute. */
+  /* #new-category is now a <select>, not a text input -- .add-row select's
+     width:110px would otherwise apply; override by id for extra room since
+     "Photograph" is the longest option. */
   #new-category {
     flex: 0 0 150px;
   }
@@ -101,28 +101,6 @@
     font-size: 14px;
   }
   .add-row button:hover { filter: brightness(1.1); }
-
-  .filters {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 20px;
-  }
-  .chip {
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    padding: 4px 12px;
-    font-size: 12px;
-    color: var(--muted);
-    cursor: pointer;
-    background: var(--surface);
-    user-select: none;
-  }
-  .chip.active {
-    border-color: var(--accent);
-    color: var(--accent);
-    background: rgba(88,166,255,0.1);
-  }
 
   .toggle-completed {
     display: flex;
@@ -201,7 +179,7 @@
 
   .item .cat {
     flex-shrink: 0;
-    width: 90px;
+    width: 100px;
     font-size: 11px;
     color: var(--muted);
     border-radius: 4px;
@@ -246,8 +224,14 @@
 
   <div class="add-row">
     <input type="text" id="new-text" placeholder="Add an item&#8230;" autocomplete="off">
-    <input type="text" id="new-category" list="category-options" placeholder="Category" autocomplete="off" value="General">
-    <datalist id="category-options"></datalist>
+    <select id="new-category" title="Category">
+      <option value="Photograph" selected>Photograph</option>
+      <option value="Preprocess">Preprocess</option>
+      <option value="Process">Process</option>
+      <option value="Render">Render</option>
+      <option value="Post">Post</option>
+      <option value="Rework">Rework</option>
+    </select>
     <select id="new-priority">
       <option value="High">High</option>
       <option value="Medium" selected>Medium</option>
@@ -255,8 +239,6 @@
     </select>
     <button onclick="addItem()">+ Add</button>
   </div>
-
-  <div class="filters" id="filters"></div>
 
   <label class="toggle-completed">
     <input type="checkbox" id="show-completed" checked onchange="render()">
@@ -269,43 +251,33 @@
 
 <script>
 let todos = [];
-let categories = [];
-let activeFilter = 'All';
+
+// Fixed pipeline stages for the category dropdowns (add-row and per-item).
+// Order doubles as the intended workflow sequence.
+const CATEGORY_OPTIONS = ['Photograph', 'Preprocess', 'Process', 'Render', 'Post', 'Rework'];
 
 async function loadTodos() {
   const res = await fetch('api.php?action=list');
   const data = await res.json();
   todos = data.todos || [];
-  categories = data.categories || [];
-  renderFilters();
-  renderCategoryOptions();
   render();
 }
 
-function renderCategoryOptions() {
-  const dl = document.getElementById('category-options');
-  dl.innerHTML = categories.map(c => `<option value="${escHtml(c)}">`).join('');
-}
-
-function renderFilters() {
-  const el = document.getElementById('filters');
-  const all = ['All', ...categories];
-  el.innerHTML = all.map(c => `
-    <div class="chip ${c === activeFilter ? 'active' : ''}" onclick="setFilter('${escAttr(c)}')">${escHtml(c)}</div>
-  `).join('');
-}
-
-function setFilter(cat) {
-  activeFilter = cat;
-  renderFilters();
-  render();
+// <option> list for a category <select>: the six standard stages, plus
+// -- appended, not substituted -- the item's current value if it isn't
+// one of them, so a stray/legacy category (anything not yet migrated to
+// the standard set) still displays and can be picked back to intentionally
+// rather than silently vanishing or forcing a value change.
+function categoryOptionsHtml(current) {
+  const opts = CATEGORY_OPTIONS.includes(current) ? CATEGORY_OPTIONS : [...CATEGORY_OPTIONS, current];
+  return opts.map(c => `<option value="${escAttr(c)}" ${c === current ? 'selected' : ''}>${escHtml(c)}</option>`).join('');
 }
 
 function render() {
   const showCompleted = document.getElementById('show-completed').checked;
   const list = document.getElementById('list');
 
-  let visible = todos.filter(t => activeFilter === 'All' || t.Category === activeFilter);
+  let visible = todos;
   if (!showCompleted) visible = visible.filter(t => !t.IsDone);
 
   if (visible.length === 0) {
@@ -329,7 +301,7 @@ function render() {
 
   list.innerHTML = catNames.map(cat => `
     <div class="group">
-      ${activeFilter === 'All' ? `<div class="group-title">${escHtml(cat)}</div>` : ''}
+      <div class="group-title">${escHtml(cat)}</div>
       ${groups[cat].map(renderItem).join('')}
     </div>
   `).join('');
@@ -341,7 +313,7 @@ function renderItem(t) {
     <div class="item ${t.IsDone ? 'done' : ''}" data-id="${t.TodoID}">
       <input type="checkbox" ${t.IsDone ? 'checked' : ''} onchange="toggleItem(${t.TodoID})" title="Mark completed">
       <div class="text" contenteditable="true" onblur="saveText(${t.TodoID}, this.innerText)">${escHtml(t.ItemText)}</div>
-      <input class="cat" list="category-options" value="${escAttr(t.Category)}" onblur="saveCategory(${t.TodoID}, this.value)" title="Category">
+      <select class="cat" onchange="saveCategory(${t.TodoID}, this.value)" title="Category">${categoryOptionsHtml(t.Category)}</select>
       <span class="age ${isStale(t.CreatedDate) ? 'stale' : ''}" title="Added ${escAttr(t.CreatedDate || '')}">${formatAge(t.CreatedDate)}</span>
       <select class="prio prio-${prio}" onchange="savePriority(${t.TodoID}, this.value)" title="Priority">
         <option value="High" ${prio === 'High' ? 'selected' : ''}>High</option>
@@ -358,7 +330,7 @@ async function addItem() {
   const catEl = document.getElementById('new-category');
   const prioEl = document.getElementById('new-priority');
   const text = textEl.value.trim();
-  const category = catEl.value.trim() || 'General';
+  const category = catEl.value;
   const priority = prioEl.value;
   if (!text) return;
 
@@ -391,9 +363,8 @@ async function savePriority(id, priority) {
 }
 
 async function saveCategory(id, newCategory) {
-  newCategory = newCategory.trim();
   const t = todos.find(x => x.TodoID === id);
-  if (!t || !newCategory || newCategory === t.Category) { render(); return; }
+  if (!t || newCategory === t.Category) { render(); return; }
   await fetch('api.php?action=update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

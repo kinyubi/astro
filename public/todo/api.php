@@ -60,7 +60,7 @@ try {
 
         case 'add':
             $text = trim($body['item_text'] ?? '');
-            $category = trim($body['category'] ?? '') ?: 'General';
+            $category = trim($body['category'] ?? '') ?: 'Photograph';
             $priority = trim($body['priority'] ?? '') ?: 'Medium';
             if (!in_array($priority, ['High', 'Medium', 'Low'], true)) {
                 $priority = 'Medium';
@@ -117,7 +117,7 @@ try {
             }
             if (isset($body['category'])) {
                 $fields[] = 'Category = ?';
-                $params[] = trim($body['category']) ?: 'General';
+                $params[] = trim($body['category']) ?: 'Photograph';
             }
             if (isset($body['priority'])) {
                 $p = trim($body['priority']);
