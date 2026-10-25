@@ -18,6 +18,19 @@
 //
 // DateCaptured is always derived from SessionDir: first 8 chars = YYYYMMDD.
 //
+// Hidden images (IsHidden = 1) are still matched to their fav file and
+// have their date/equipment refreshed, but are never un-hidden or re-added.
+// Rows whose fav file is gone from public/images/fav are deleted. The
+// featured image and SortOrder are then re-normalised (gallery_helpers.php):
+// the current featured image is kept unless it was removed, new images go
+// to the end.
+//
+// Multiple Projects per DSO: every Project's folder is scanned and each
+// image gets the ProjectID of the folder it was actually found in (falling
+// back to the row's existing ProjectID, then to the DSO's only live
+// Project). An optional {"ProjectID": n} in the body limits the scan to
+// that one Project.
+//
 // Response (success):
 // {
 //   "success": true,
@@ -27,17 +40,35 @@
 //   "updated":           [ {GalleryImageID, BaseName, DateCaptured, ...} ],
 //   "warnings":          [ {GalleryImageID, BaseName, reason} ],
 //   "needs_session_dir": [ {BaseName, paletteId} ]   ← only in remote mode
+//   "misnamed":          [ {ProjectFolder, SessionDir, File, reason} ]
+//   "duplicatesRemoved": [ {GalleryImageID, BaseName, KeptID} ]
+//   "staleProjects":     [ {ProjectID, ProjectFolder} ]  ← folder missing on disk
 // }
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
 require_once __DIR__ . '/db_logger.php';
+require_once __DIR__ . '/gallery_helpers.php';
 
 header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
     echo json_encode(['error' => 'POST required']);
+    exit;
+}
+
+// ── Local-only guard ─────────────────────────────────────────────────────
+// Sync Folder needs WORKS_ROOT (the myWorks folder on disk). On the public VPS it
+// isn't reachable, so refuse explicitly (localOnly: true tells the admin UI
+// to show its "available only when run locally" dialog) instead of carrying
+// on and failing silently.
+if (!defined('WORKS_ROOT') || !is_dir(WORKS_ROOT)) {
+    http_response_code(409);
+    echo json_encode([
+        'error'     => 'Sync Folder is available only when the admin panel is run locally.',
+        'localOnly' => true,
+    ]);
     exit;
 }
 
@@ -105,11 +136,17 @@ function date_from_session_dir(string $session_dir): ?string {
 }
 
 // ── Walk WORKS_ROOT to map BaseName → session metadata ────────────────────
-function build_works_root_map(string $project_folder): array {
-    // Returns [ baseName => ['session'=>..., 'date'=>..., 'equipment'=>..., 'is_mosaic'=>...] ]
+function build_works_root_map(string $project_folder, int $project_id,
+                              string $dso_key, array &$misnamed): array {
+    // Returns [ baseName => ['session'=>..., 'date'=>..., 'equipment'=>...,
+    //                        'is_mosaic'=>..., 'project_id'=>..., 'project_folder'=>...] ]
+    // Fav files whose name doesn't start with the DSO key are collected in
+    // $misnamed: the public/images/fav scan matches on that prefix, so they
+    // can never be synced (e.g. a typo like 'ncg6960_...' for NGC6960).
     $proj_path = WORKS_ROOT . DIRECTORY_SEPARATOR . $project_folder;
     if (!is_dir($proj_path)) return [];
 
+    $prefix = strtolower($dso_key);
     $map = [];
     foreach (scandir($proj_path) as $session_dir) {
         if ($session_dir === '.' || $session_dir === '..') continue;
@@ -124,6 +161,15 @@ function build_works_root_map(string $project_folder): array {
         foreach (scandir($session_path) as $file) {
             if (!preg_match('/^(.+)_fav\.jpg$/i', $file, $fm)) continue;
             if (stripos($file, '_annotated') !== false) continue;
+            if (stripos($fm[1], $prefix) !== 0) {
+                $misnamed[] = [
+                    'ProjectFolder' => $project_folder,
+                    'SessionDir'    => $session_dir,
+                    'File'          => $file,
+                    'reason'        => "name doesn't start with '$prefix' -- Sync Folder can't match it to this DSO",
+                ];
+                continue;
+            }
             // Keyed lowercase: Windows filenames are case-insensitive, so the
             // same image can be cased differently here vs. the web fav/ scan
             // vs. the DB's stored BaseName. Matching must not care which.
@@ -132,6 +178,8 @@ function build_works_root_map(string $project_folder): array {
                 'date'       => $date,
                 'equipment'  => $equip,
                 'is_mosaic'  => $mosaic,
+                'project_id' => $project_id,
+                'project_folder' => $project_folder,
             ];
         }
     }
@@ -170,13 +218,11 @@ function find_fav_files_in_web(string $dso_key): array {
 try {
     $db = get_db();
 
-    // Get this DSO's Project(s). ProjectFolder now lives on Projects, not
-    // Objects, since a DSO can have more than one Project (e.g. a standard
-    // framing and a separate mosaic framing). If there's exactly one, use
-    // it. If there's more than one, the caller must specify which via
-    // {"ProjectID": n} in the POST body -- a proper per-project sync picker
-    // in the admin UI is planned for Phase 2 of DB_REWORK_PLAN.md.
-    $stmt = $db->prepare("SELECT ProjectID AS \"ProjectID\", ProjectFolder AS \"ProjectFolder\" FROM Projects WHERE DSOKey = ?");
+    // Get this DSO's Project(s). A DSO can have more than one Project
+    // (e.g. a standard framing and a separate mosaic framing); every one is
+    // scanned and each image is linked to the Project whose folder it was
+    // found in. An explicit {"ProjectID": n} restricts the scan to that one.
+    $stmt = $db->prepare("SELECT ProjectID AS \"ProjectID\", ProjectFolder AS \"ProjectFolder\" FROM Projects WHERE DSOKey = ? ORDER BY ProjectID");
     $stmt->execute([$dso_key]);
     $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -201,25 +247,14 @@ try {
         exit;
     }
 
-    if (count($projects) === 1) {
-        $project_id     = (int)$projects[0]['ProjectID'];
-        $project_folder = $projects[0]['ProjectFolder'];
-    } else {
-        $requested_id = isset($body['ProjectID']) ? (int)$body['ProjectID'] : null;
-        $match = null;
-        foreach ($projects as $p) {
-            if ((int)$p['ProjectID'] === $requested_id) { $match = $p; break; }
-        }
-        if (!$match) {
+    if (!empty($body['ProjectID'])) {
+        $requested_id = (int)$body['ProjectID'];
+        $projects = array_values(array_filter($projects, fn($p) => (int)$p['ProjectID'] === $requested_id));
+        if (!$projects) {
             http_response_code(400);
-            echo json_encode([
-                'error'    => "DSO $dso_key has multiple Projects -- specify which via ProjectID.",
-                'projects' => $projects,
-            ]);
+            echo json_encode(['error' => "ProjectID $requested_id doesn't belong to DSO $dso_key."]);
             exit;
         }
-        $project_id     = (int)$match['ProjectID'];
-        $project_folder = $match['ProjectFolder'];
     }
 
     // Everything from here on writes to GalleryImages (insert/update/delete
@@ -230,19 +265,35 @@ try {
     // not while still reporting "Sync failed" to the caller.
     $db->beginTransaction();
 
-    // ── Determine mode and build session map ──────────────────────────────
+    // ── Determine mode and build session map across all Projects ──────────
     $works_root_available = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
     $mode = $works_root_available ? 'local' : 'remote';
 
-    $works_map = []; // baseName → session metadata (populated in local mode)
-    if ($works_root_available && $project_folder) {
-        $proj_path = WORKS_ROOT . DIRECTORY_SEPARATOR . $project_folder;
-        if (is_dir($proj_path)) {
-            $works_map = build_works_root_map($project_folder);
+    $works_map      = []; // baseName → session metadata (populated in local mode)
+    $misnamed       = []; // fav files in a Project folder that can't match the DSO key
+    $stale_projects = []; // Projects whose ProjectFolder no longer exists on disk
+    $live_projects  = []; // Projects whose folder does exist
+    if ($works_root_available) {
+        foreach ($projects as $p) {
+            $folder = $p['ProjectFolder'];
+            if (!$folder || !is_dir(WORKS_ROOT . DIRECTORY_SEPARATOR . $folder)) {
+                $stale_projects[] = ['ProjectID' => (int)$p['ProjectID'], 'ProjectFolder' => $folder];
+                continue;
+            }
+            $live_projects[] = $p;
+            // First Project wins if the same BaseName somehow appears in two folders.
+            $works_map += build_works_root_map($folder, (int)$p['ProjectID'], $dso_key, $misnamed);
         }
-        // Note: if project folder doesn't exist locally we still fall through
-        // to the remote logic — no hard error, just no WORKS_ROOT data
+    } else {
+        $live_projects = $projects;
     }
+
+    // Fallback ProjectID for an image whose folder couldn't be determined:
+    // only unambiguous when the DSO has exactly one live Project.
+    $default_project = count($live_projects) === 1 ? $live_projects[0]
+                     : (count($projects) === 1 ? $projects[0] : null);
+    $default_project_id     = $default_project ? (int)$default_project['ProjectID'] : null;
+    $default_project_folder = $default_project ? $default_project['ProjectFolder'] : '';
 
     // ── Scan web fav directory ────────────────────────────────────────────
     $fav_files = find_fav_files_in_web($dso_key);
@@ -256,7 +307,9 @@ try {
             Equipment      AS \"Equipment\",
             PaletteID      AS \"PaletteID\",
             SessionDir     AS \"SessionDir\",
-            IsFeature      AS \"IsFeature\"
+            ProjectID      AS \"ProjectID\",
+            IsFeature      AS \"IsFeature\",
+            COALESCE(IsHidden, 0) AS \"IsHidden\"
         FROM GalleryImages
         WHERE DSOKey = ?
         ORDER BY SortOrder, GalleryImageID
@@ -265,16 +318,41 @@ try {
     // Keyed by lowercased BaseName -- see the case-insensitivity note on
     // build_works_root_map() above. $row still carries the DB's actual
     // original-case BaseName for anything that needs to display/report it.
-    $existing = [];
+    //
+    // Two rows with the same BaseName (case-insensitively) are duplicates of
+    // one image -- e.g. after a rename onto a name another row already had.
+    // Keep the featured one (else the oldest, lowest GalleryImageID) and
+    // delete the rest; reported as duplicatesRemoved. (The unique index from
+    // migrate_unique_gallery_basename.py prevents new ones.)
+    $existing           = [];
+    $duplicates_removed = [];
+    $del_dup = $db->prepare("DELETE FROM GalleryImages WHERE GalleryImageID = ?");
+    $rows_by_name = [];
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
-        $existing[strtolower($row['BaseName'])] = $row;
+        $rows_by_name[strtolower($row['BaseName'])][] = $row;
+    }
+    foreach ($rows_by_name as $key => $group) {
+        usort($group, function ($a, $b) {
+            $fa = (int)$a['IsFeature'] && !(int)$a['IsHidden'];
+            $fb = (int)$b['IsFeature'] && !(int)$b['IsHidden'];
+            if ($fa !== $fb) return $fa ? -1 : 1;
+            return (int)$a['GalleryImageID'] <=> (int)$b['GalleryImageID'];
+        });
+        $existing[$key] = $group[0];
+        foreach (array_slice($group, 1) as $dup) {
+            $del_dup->execute([(int)$dup['GalleryImageID']]);
+            $duplicates_removed[] = [
+                'GalleryImageID' => (int)$dup['GalleryImageID'],
+                'BaseName'       => $dup['BaseName'],
+                'KeptID'         => (int)$group[0]['GalleryImageID'],
+            ];
+        }
     }
 
-    // Check if any featured image currently exists
-    $has_feature = false;
-    foreach ($existing as $row) {
-        if ($row['IsFeature']) { $has_feature = true; break; }
-    }
+    // New rows are appended after everything else (1000+ always sorts after
+    // the normalised 0..n range); gallery_normalize() at the end renumbers
+    // them and decides which image is featured (keeps the current one).
+    $next_sort = 1000;
 
     $inserted          = [];
     $updated           = [];
@@ -309,6 +387,22 @@ try {
             $source      = 'hint';
         }
 
+        // ProjectID: the folder it was found in, else what the row already
+        // has, else the DSO's single live Project (NULL if ambiguous).
+        if (isset($works_map[$bn_key])) {
+            $project_id     = $works_map[$bn_key]['project_id'];
+            $project_folder = $works_map[$bn_key]['project_folder'];
+        } elseif (!empty($existing[$bn_key]['ProjectID'])) {
+            $project_id     = (int)$existing[$bn_key]['ProjectID'];
+            $project_folder = '';
+            foreach ($projects as $p) {
+                if ((int)$p['ProjectID'] === $project_id) { $project_folder = $p['ProjectFolder']; break; }
+            }
+        } else {
+            $project_id     = $default_project_id;
+            $project_folder = $default_project_folder;
+        }
+
         if ($session_dir === null) {
             // Can't resolve — ask the user (only for new or session-less rows)
             $needs_session_dir[] = [
@@ -317,9 +411,8 @@ try {
             ];
             // Still upsert with what we know (palette at minimum) if brand new
             if (!isset($existing[$bn_key])) {
-                $is_feature = (!$has_feature) ? 1 : 0;
-                if ($is_feature) $has_feature = true;
-                $sort = count($existing) + count($inserted);
+                $is_feature = 0;
+                $sort = $next_sort++;
                 $stmt = $db->prepare("
                     INSERT INTO GalleryImages
                         (DSOKey, BaseName, PaletteID, DateCaptured,
@@ -378,12 +471,12 @@ try {
                 'IsMosaic'       => $is_mosaic,
                 'PaletteID'      => $palette_id,
                 'SessionDir'     => $session_dir,
+                'IsHidden'       => (int)$existing[$bn_key]['IsHidden'],
             ];
         } else {
             // Insert new row
-            $is_feature = (!$has_feature) ? 1 : 0;
-            if ($is_feature) $has_feature = true;
-            $sort = count($existing) + count($inserted);
+            $is_feature = 0;
+            $sort = $next_sort++;
 
             $stmt = $db->prepare("
                 INSERT INTO GalleryImages
@@ -415,12 +508,10 @@ try {
     // (see notes above), so this comparison is already case-insensitive --
     // a file that's genuinely still on disk under different casing will not
     // be wrongly deleted here.
-    $removed_feature = false;
     foreach ($existing as $bn_key => $row) {
         if (!isset($disk_basenames[$bn_key])) {
             $del = $db->prepare("DELETE FROM GalleryImages WHERE GalleryImageID = ?");
             $del->execute([(int)$row['GalleryImageID']]);
-            if ($row['IsFeature']) $removed_feature = true;
             $warnings[] = [
                 'GalleryImageID' => (int)$row['GalleryImageID'],
                 'BaseName'       => $row['BaseName'],
@@ -429,35 +520,32 @@ try {
         }
     }
 
-    // If the featured image was removed, promote the first remaining DB row
-    if ($removed_feature) {
-        $stmt = $db->prepare("
-            SELECT GalleryImageID FROM GalleryImages
-            WHERE DSOKey = ?
-            ORDER BY SortOrder, GalleryImageID
-            LIMIT 1
-        ");
-        $stmt->execute([$dso_key]);
-        $next = $stmt->fetchColumn();
-        if ($next) {
-            $db->prepare("UPDATE GalleryImages SET IsFeature = 1 WHERE GalleryImageID = ?")
-               ->execute([$next]);
-        }
+    // Featured image / SortOrder rule (keeps the current featured image
+    // unless it was just removed; then the first visible one is promoted).
+    $images = gallery_normalize($db, $dso_key);
+    $feat_by_id = [];
+    foreach ($images as $img) $feat_by_id[$img['GalleryImageID']] = $img['IsFeature'];
+    foreach ($inserted as &$ins) {
+        $ins['IsFeature'] = $feat_by_id[(int)$ins['GalleryImageID']] ?? 0;
     }
+    unset($ins);
 
     $db->commit();
 
     echo json_encode([
         'success'           => true,
         'mode'              => $mode,
-        'projectFolder'     => $project_folder,
+        'projectFolder'     => implode(', ', array_column($live_projects, 'ProjectFolder')),
         'inserted'          => $inserted,
         'updated'           => $updated,
         'warnings'          => $warnings,
         'needs_session_dir' => $needs_session_dir,
+        'misnamed'          => $misnamed,
+        'duplicatesRemoved' => $duplicates_removed,
+        'staleProjects'     => $stale_projects,
     ]);
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     if (isset($db) && $db instanceof PDO && $db->inTransaction()) {
         $db->rollBack();
     }

@@ -1,0 +1,11 @@
+# PixInsight update repository
+Options -Indexes
+AddType application/xml .xri
+AddType application/zip .zip
+
+<IfModule mod_headers.c>
+  # Always revalidate the index so users see new releases immediately
+  <Files "updates.xri">
+    Header set Cache-Control "no-cache"
+  </Files>
+</IfModule>

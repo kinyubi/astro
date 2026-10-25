@@ -20,6 +20,14 @@
 // are excluded. 'sun'/'moon'/planets are skipped -- they never use the
 // Projects/GalleryImages pipeline.
 //
+// Also returns staleProjects: this DSO's existing Projects whose
+// ProjectFolder no longer exists on disk (e.g. the folder was renamed).
+// When one exists alongside an unregistered folder, the UI offers to
+// repoint that Project to the folder instead of creating a duplicate;
+// otherwise it offers to delete it (api_delete_project.php). Each stale
+// entry carries ObservationCount / ImageCount for that confirmation, and
+// liveProjects lists the Projects whose folders do exist.
+//
 // This is a convenience check, not a hard requirement: any failure here
 // returns needsProject: false (with an 'error' field for debugging)
 // rather than a non-200 response, so it can never block opening a DSO.
@@ -76,13 +84,38 @@ try {
         }
     }
 
+    // This DSO's own Projects whose folder is gone from disk, with what
+    // deleting each would affect (see api_delete_project.php).
+    $stmt = $db->prepare('SELECT ProjectID AS "ProjectID", ProjectFolder AS "ProjectFolder" FROM Projects WHERE DSOKey = ? ORDER BY ProjectID');
+    $stmt->execute([$dso_key]);
+    $stale = [];
+    $live  = [];
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $p) {
+        if ($p['ProjectFolder'] && is_dir(WORKS_ROOT . DIRECTORY_SEPARATOR . $p['ProjectFolder'])) {
+            $live[] = ['ProjectID' => (int)$p['ProjectID'], 'ProjectFolder' => $p['ProjectFolder']];
+        } else {
+            $stale[] = ['ProjectID' => (int)$p['ProjectID'], 'ProjectFolder' => $p['ProjectFolder']];
+        }
+    }
+    $obs_cnt = $db->prepare('SELECT COUNT(*) FROM Observations WHERE ProjectID = ?');
+    $img_cnt = $db->prepare('SELECT COUNT(*) FROM GalleryImages WHERE ProjectID = ?');
+    foreach ($stale as &$sp) {
+        $obs_cnt->execute([$sp['ProjectID']]);
+        $img_cnt->execute([$sp['ProjectID']]);
+        $sp['ObservationCount'] = (int)$obs_cnt->fetchColumn();
+        $sp['ImageCount']       = (int)$img_cnt->fetchColumn();
+    }
+    unset($sp);
+
     echo json_encode([
-        'needsProject' => count($candidates) > 0,
-        'mode'         => 'local',
-        'folders'      => $candidates,
+        'needsProject'  => count($candidates) > 0,
+        'mode'          => 'local',
+        'folders'       => $candidates,
+        'staleProjects' => $stale,
+        'liveProjects'  => $live,
     ]);
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     // Fail quiet -- see header note. Never a hard error for the caller.
     echo json_encode(['needsProject' => false, 'error' => $e->getMessage()]);
 }

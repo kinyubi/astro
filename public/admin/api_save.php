@@ -4,13 +4,29 @@
 //
 // Accepts POST with JSON body containing DSOKey + any Object fields.
 // Also handles:
-//   - CatalogIDs   (array of {CatalogID, IsPrimary})
-//   - GalleryImages (array of gallery image rows; omitted IDs are deleted)
+//   - CatalogIDs    (array of {CatalogID, IsPrimary}). With
+//                     "CatalogIDsComplete": true the array is the DSO's full
+//                     list: IDs no longer in it are deleted and IsPrimary is
+//                     updated. Without it, IDs are only ever added.
+//   - GalleryImages (array of gallery image rows). Existing rows (with a
+//                     GalleryImageID) are updated, new ones inserted. Rows
+//                     are NEVER deleted here -- images are hidden/unhidden
+//                     via api_gallery_image.php, and rows whose fav file is
+//                     gone are removed by Sync Folder. IsHidden is never
+//                     changed here. Featured/SortOrder are re-normalised
+//                     afterwards (gallery_helpers.php).
 //   - DSOLinks      (array of link rows; omitted IDs are deleted)
+//
+// New GalleryImages / DSOLinks rows may carry a client-side "_tmp" key;
+// the response maps it to the new database ID so the admin page (which
+// autosaves) never inserts the same new row twice:
+//   { success, DSOKey, newGalleryImageIds: {tmp: id}, newLinkIds: {tmp: id},
+//     gallery: [ {GalleryImageID, SortOrder, IsFeature, IsHidden}, ... ] }
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
 require_once __DIR__ . '/db_logger.php';
+require_once __DIR__ . '/gallery_helpers.php';
 
 header('Content-Type: application/json');
 
@@ -34,8 +50,13 @@ if (!$dso_key) {
     exit;
 }
 
+$new_gallery_ids = [];
+$new_link_ids    = [];
+$gallery_state   = null;
+
 try {
     $db = get_db();
+    $db->beginTransaction();
 
     // ── Objects table ─────────────────────────────────────────────────────────
 
@@ -81,6 +102,23 @@ try {
 
     // ── CatalogIDs ────────────────────────────────────────────────────────────
 
+    if (!empty($body['CatalogIDsComplete']) && isset($body['CatalogIDs']) && is_array($body['CatalogIDs'])) {
+        $keep = [];
+        foreach ($body['CatalogIDs'] as $entry) {
+            $cid = strtoupper(trim($entry['CatalogID'] ?? ''));
+            if ($cid) $keep[$cid] = (int)($entry['IsPrimary'] ?? 0);
+        }
+        if ($keep) {
+            $ph = implode(',', array_fill(0, count($keep), '?'));
+            $db->prepare("DELETE FROM CatalogIDs WHERE DSOKey = ? AND CatalogID NOT IN ($ph)")
+               ->execute(array_merge([$dso_key], array_keys($keep)));
+        } else {
+            $db->prepare("DELETE FROM CatalogIDs WHERE DSOKey = ?")->execute([$dso_key]);
+        }
+        $upd = $db->prepare("UPDATE CatalogIDs SET IsPrimary = ? WHERE CatalogID = ? AND DSOKey = ?");
+        foreach ($keep as $cid => $prim) $upd->execute([$prim, $cid, $dso_key]);
+    }
+
     if (!empty($body['CatalogIDs']) && is_array($body['CatalogIDs'])) {
         // "ON CONFLICT DO NOTHING" (no target column) is valid on both
         // SQLite 3.24+ and Postgres and mirrors SQLite's old "INSERT OR
@@ -102,78 +140,63 @@ try {
     }
 
     // ── GalleryImages ─────────────────────────────────────────────────────────
-    // Strategy: full replace for this DSOKey.
-    // Rows with a GalleryImageID are UPSERTed; rows without get INSERTed.
-    // Any GalleryImageID currently in the DB but absent from the payload is deleted.
+    // Update rows that have a GalleryImageID (scoped to this DSO, so a row
+    // Sync Folder deleted meanwhile is never resurrected), insert the rest.
+    // Never deletes and never touches IsHidden -- see header.
 
     if (array_key_exists('GalleryImages', $body) && is_array($body['GalleryImages'])) {
         $incoming = $body['GalleryImages'];
 
-        // Collect IDs present in the payload
-        $incoming_ids = array_filter(array_column($incoming, 'GalleryImageID'));
-
-        // Delete rows for this DSO that are no longer in the payload
-        if ($incoming_ids) {
-            $ph = implode(',', array_fill(0, count($incoming_ids), '?'));
-            $del_params = array_merge([$dso_key], array_values($incoming_ids));
-            $db->prepare("
-                DELETE FROM GalleryImages
-                WHERE DSOKey = ? AND GalleryImageID NOT IN ($ph)
-            ")->execute($del_params);
-        } else {
-            // No IDs at all — delete everything for this DSO and re-insert
-            $db->prepare("DELETE FROM GalleryImages WHERE DSOKey = ?")->execute([$dso_key]);
-        }
-
-        $upsert = $db->prepare("
-            INSERT INTO GalleryImages
-                (GalleryImageID, DSOKey, BaseName, Caption, PaletteID,
-                 DateCaptured, Copyright, IsOwn, Attribution,
-                 Equipment, ProjectID, SessionDir, SortOrder, IsFeature)
-            VALUES
-                (:id, :dso, :base, :caption, :palette,
-                 :date, :copyright, :isown, :attribution,
-                 :equipment, :projectid, :sessiondir, :sort, :feature)
-            ON CONFLICT(GalleryImageID) DO UPDATE SET
-                BaseName     = excluded.BaseName,
-                Caption      = excluded.Caption,
-                PaletteID    = excluded.PaletteID,
-                DateCaptured = excluded.DateCaptured,
-                Copyright    = excluded.Copyright,
-                IsOwn        = excluded.IsOwn,
-                Attribution  = excluded.Attribution,
-                Equipment    = excluded.Equipment,
-                ProjectID    = excluded.ProjectID,
-                SessionDir   = excluded.SessionDir,
-                SortOrder    = excluded.SortOrder,
-                IsFeature    = excluded.IsFeature
+        $update = $db->prepare("
+            UPDATE GalleryImages SET
+                BaseName     = :base,
+                Caption      = :caption,
+                PaletteID    = :palette,
+                DateCaptured = :date,
+                Copyright    = :copyright,
+                IsOwn        = :isown,
+                Attribution  = :attribution,
+                Equipment    = :equipment,
+                ProjectID    = :projectid,
+                SessionDir   = :sessiondir,
+                SortOrder    = :sort,
+                IsFeature    = :feature
+            WHERE GalleryImageID = :id AND DSOKey = :dso
         ");
 
         $insert_new = $db->prepare("
             INSERT INTO GalleryImages
                 (DSOKey, BaseName, Caption, PaletteID,
                  DateCaptured, Copyright, IsOwn, Attribution,
-                 Equipment, ProjectID, SessionDir, SortOrder, IsFeature)
+                 Equipment, ProjectID, SessionDir, SortOrder, IsFeature, IsHidden)
             VALUES
                 (:dso, :base, :caption, :palette,
                  :date, :copyright, :isown, :attribution,
-                 :equipment, :projectid, :sessiondir, :sort, :feature)
+                 :equipment, :projectid, :sessiondir, :sort, :feature, 0)
         ");
 
         // Resolve ProjectID for GalleryImages rows: use an explicit ProjectID
         // from the payload if given, otherwise fall back to this DSO's only
-        // Project when there's exactly one. A proper Project-picker UI for
-        // Gallery Images is planned (see DB_REWORK_PLAN.md Phase 2) -- until
-        // then, DSOs with multiple Projects (currently IC1805, NGC1499) must
-        // specify ProjectID explicitly or the image's project link is left NULL.
+        // Project when there's exactly one.
         $proj_stmt = $db->prepare("SELECT ProjectID FROM Projects WHERE DSOKey = ?");
         $proj_stmt->execute([$dso_key]);
         $dso_project_ids = $proj_stmt->fetchAll(PDO::FETCH_COLUMN);
         $default_project_id = count($dso_project_ids) === 1 ? $dso_project_ids[0] : null;
 
+        // Existing ProjectIDs, so an update without an explicit ProjectID
+        // keeps the link Sync Folder set rather than overwriting it.
+        $cur_proj = [];
+        $stmt = $db->prepare('SELECT GalleryImageID AS "id", ProjectID AS "pid" FROM GalleryImages WHERE DSOKey = ?');
+        $stmt->execute([$dso_key]);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $r) $cur_proj[(int)$r['id']] = $r['pid'];
+
         foreach ($incoming as $img) {
             $base = trim($img['BaseName'] ?? '');
             if (!$base) continue;
+            $id = !empty($img['GalleryImageID']) ? (int)$img['GalleryImageID'] : null;
+
+            $project_id = !empty($img['ProjectID']) ? (int)$img['ProjectID']
+                        : (($id && !empty($cur_proj[$id])) ? (int)$cur_proj[$id] : $default_project_id);
 
             $params = [
                 ':dso'         => $dso_key,
@@ -185,19 +208,23 @@ try {
                 ':isown'       => isset($img['IsOwn'])      ? (int)$img['IsOwn']      : 1,
                 ':attribution' => $img['Attribution']  ?? null,
                 ':equipment'   => $img['Equipment']    ?? null,
-                ':projectid'   => !empty($img['ProjectID']) ? (int)$img['ProjectID'] : $default_project_id,
+                ':projectid'   => $project_id,
                 ':sessiondir'  => $img['SessionDir']   ?? null,
-                ':sort'        => isset($img['SortOrder'])  ? (int)$img['SortOrder']  : 0,
+                ':sort'        => isset($img['SortOrder'])  ? (int)$img['SortOrder']  : 1000,
                 ':feature'     => isset($img['IsFeature'])  ? (int)$img['IsFeature']  : 0,
             ];
 
-            if (!empty($img['GalleryImageID'])) {
-                $params[':id'] = (int)$img['GalleryImageID'];
-                $upsert->execute($params);
+            if ($id) {
+                $params[':id'] = $id;
+                $update->execute($params);
             } else {
                 $insert_new->execute($params);
+                $new_id = db_last_insert_id($db, 'GalleryImages', 'GalleryImageID');
+                if (isset($img['_tmp'])) $new_gallery_ids[(string)$img['_tmp']] = $new_id;
             }
         }
+
+        $gallery_state = gallery_normalize($db, $dso_key);
     }
 
     // ── DSOLinks ──────────────────────────────────────────────────────────────
@@ -250,13 +277,36 @@ try {
                 $upsert->execute($params);
             } else {
                 $insert_new->execute($params);
+                $new_id = db_last_insert_id($db, 'DSOLinks', 'LinkID');
+                if (isset($lnk['_tmp'])) $new_link_ids[(string)$lnk['_tmp']] = $new_id;
             }
         }
     }
 
-    echo json_encode(['success' => true, 'DSOKey' => $dso_key]);
+    $db->commit();
 
-} catch (Exception $e) {
+    echo json_encode([
+        'success'            => true,
+        'DSOKey'             => $dso_key,
+        'newGalleryImageIds' => (object)$new_gallery_ids,
+        'newLinkIds'         => (object)$new_link_ids,
+        'gallery'            => $gallery_state,
+    ]);
+
+} catch (Throwable $e) {
+    if (isset($db) && $db instanceof PDO && $db->inTransaction()) $db->rollBack();
+    // Unique index ux_galleryimages_dso_basename (DSOKey, lower(BaseName)):
+    // say which name clashes instead of a raw SQLSTATE message.
+    $msg = $e->getMessage();
+    $is_dup_name = $e instanceof PDOException && (
+        stripos($msg, 'ux_galleryimages_dso_basename') !== false ||
+        (str_contains($msg, 'UNIQUE constraint failed') && stripos($msg, 'galleryimages') !== false)
+    );
+    if ($is_dup_name) {
+        http_response_code(409);
+        echo json_encode(['error' => 'Another gallery image of this DSO already has that Base Name -- each image needs a unique Base Name.']);
+        exit;
+    }
     http_response_code(500);
-    echo json_encode(['error' => $e->getMessage()]);
+    echo json_encode(['error' => $msg]);
 }

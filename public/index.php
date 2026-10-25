@@ -68,6 +68,7 @@ try {
         LEFT JOIN PaletteTreatments pt  ON gi.PaletteID      = pt.PaletteID
         LEFT JOIN CatalogIDs c          ON o.DSOKey          = c.DSOKey AND c.IsPrimary = 1
         LEFT JOIN Constellations con     ON o.ConstellationID = con.ConstellationID
+        WHERE COALESCE(gi.IsHidden, 0) = 0   -- hidden in DSO Admin
         ORDER BY o.CommonName, o.DSOKey, p.IsMosaic, gi.SortOrder, gi.GalleryImageID
     ");
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);

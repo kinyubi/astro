@@ -1,0 +1,11 @@
+{
+  "name": "backyard45",
+  "location": "Star, Idaho",
+  "latitude": 43.6921,
+  "longitude": -116.4935,
+  "timezone": "America/Boise",
+  "min_altitude": 45.0,
+  "az_min": 0.0,
+  "az_max": 360.0,
+  "geocoded_name": "Star, Ada County, Idaho, 83669, United States"
+}

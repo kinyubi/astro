@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xri version="1.0">
+   <description>
+      <p>Carl Baker's PixInsight script repository (astro.wiibopp.com).</p>
+      <p>Free scripts for astrophotography processing. Each script carries its own license in its header;
+         attribution is required and the scripts may not be included in software that is sold or offered
+         by subscription.</p>
+   </description>
+
+   <platform os="all" arch="noarch" version="1.8.9:1.9.99">
+      <package fileName="RemoveSmallStars-1.5.1.zip"
+               sha1="dfff0050b88748e1f0281cbc1e3e48d742e5198f"
+               type="script"
+               releaseDate="20261005">
+         <title>RemoveSmallStars 1.5.1</title>
+         <description>
+            <p>Removes stars smaller than a chosen pixel diameter from a non-linear (stretched) image while
+               leaving larger stars untouched, with a live, zoomable preview.</p>
+            <p>Works on a stars-only image or a full image, optionally recombining with a starless image
+               (screen or add). Also dims the kept stars, and can output a removed-star mask.</p>
+            <p>After installing, find it under Script &gt; Utilities &gt; RemoveSmallStars.</p>
+            <p>Copyright (c) 2026 Carl Baker. Free for non-commercial distribution with attribution; see the
+               license in the script header.</p>
+         </description>
+      </package>
+   </platform>
+</xri>

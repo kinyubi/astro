@@ -3,6 +3,13 @@ require_once __DIR__ . '/auth.php';
 // Always serve fresh — prevents stale JS/HTML after deployments
 header('Cache-Control: no-store, no-cache, must-revalidate');
 header('Pragma: no-cache');
+
+// Local mode = this PHP instance can see the myWorks folder on disk
+// (i.e. running under Laragon on Carl's machine, not the public VPS).
+// Same test the API endpoints use (api_sync_folder.php, api_check_project.php,
+// api_audit_observations.php). Features that need it show a dialog instead
+// of failing silently when this is false.
+$is_local_mode = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -172,6 +179,13 @@ header('Pragma: no-cache');
     padding: 12px; line-height: 1.4; display: none;
   }
   .gi-preview.missing img { display: none; }
+  .gi-dims {
+    position: absolute; right: 6px; bottom: 6px; padding: 1px 6px;
+    background: rgba(5,7,10,0.75); border-radius: 4px;
+    color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+  .gi-dims:empty, .gi-preview.missing .gi-dims { display: none; }
   .gi-preview.missing .gi-preview-empty { display: block; }
   .gi-preview.missing .gi-preview-empty { color: var(--danger); }
   .gi-card-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
@@ -182,6 +196,15 @@ header('Pragma: no-cache');
     display: flex; gap: 8px; align-items: center; margin-top: 10px;
     padding-top: 10px; border-top: 1px solid var(--border);
   }
+  .gi-hidden { margin-top: 14px; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; }
+  .gi-hidden summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+  .gi-hidden-list { display: grid; gap: 6px; margin-top: 8px; }
+  .gi-hidden-item { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+  .gi-hidden-item img { width: 48px; height: 60px; object-fit: contain; background: #05070a; border-radius: 4px; }
+  .gi-hidden-item .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .save-status { font-size: 12px; color: var(--muted); align-self: center; margin-right: 6px; white-space: nowrap; }
+  .save-status.saving { color: var(--accent); }
+  .save-status.error  { color: var(--danger); }
   .gi-attribution-row { display: none; }
   .gi-attribution-row.visible { display: contents; }
 
@@ -226,6 +249,20 @@ header('Pragma: no-cache');
     .gi-card-fields { grid-template-columns: 1fr; }
     .gi-card-actions { align-items: flex-start; flex-wrap: wrap; }
   }
+
+  /* ── Inline-editable Observation cells ── */
+  td.obs-edit { cursor: text; }
+  td.obs-edit:hover { outline: 1px dashed var(--border); outline-offset: -2px; }
+  td.obs-edit input { width: 100%; min-width: 60px; background: var(--bg); border: 1px solid var(--accent); border-radius: 3px; color: var(--text); font-size: 11px; padding: 1px 4px; font-family: inherit; }
+  td.obs-edit.saving { opacity: 0.5; }
+
+  /* ── Local-only dialog ── */
+  #local-only-dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; max-width: 440px; width: calc(100% - 32px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+  #local-only-dialog::backdrop { background: rgba(0,0,0,0.6); }
+  #local-only-dialog h3 { font-size: 16px; font-weight: 600; color: var(--warn); margin-bottom: 10px; }
+  #local-only-dialog p { font-size: 13px; margin-bottom: 10px; }
+  #local-only-dialog code { font-family: monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+  #local-only-dialog .dialog-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
 </style>
 </head>
 <body>
@@ -254,8 +291,8 @@ header('Pragma: no-cache');
       <!-- populated by JS -->
     </div>
     <div class="sidebar-footer">
-      <button class="btn-new" onclick="newObject()">+ New Object</button>
-      <button class="btn-new" style="margin-top:6px; background:var(--accent2);" onclick="quickAddDSO()">&#129302; Quick Add DSO</button>
+      <button class="btn-new" onclick="newObject()" title="Open a blank form to enter a new DSO's details yourself. For AI-assisted entry from just a catalog ID, use Quick Add DSO instead.">+ Add DSO Manually</button>
+      <button class="btn-new" style="margin-top:6px; background:var(--accent2);" onclick="quickAddDSO()" title="Create a new DSO by catalog ID (e.g. NGC1976) and let AI fill in its name, type, coordinates, size, distance, and blurb.">&#129302; Quick Add DSO</button>
     </div>
   </aside>
 
@@ -263,7 +300,7 @@ header('Pragma: no-cache');
   <main class="main" id="main-panel">
     <div class="empty-state" id="empty-state">
       <div class="icon">&#128301;</div>
-      <div>Select an object or create a new one</div>
+      <div>Select a DSO, or add a new one</div>
     </div>
 
     <!-- Object editor (hidden until an object is selected/created) -->
@@ -271,13 +308,14 @@ header('Pragma: no-cache');
 
       <div class="form-header">
         <div>
-          <div class="form-title" id="editor-title">New Object <span id="editor-subtitle"></span></div>
+          <div class="form-title" id="editor-title">New DSO <span id="editor-subtitle"></span></div>
         </div>
         <div class="form-actions">
-          <button class="btn warn" id="btn-ai" onclick="aiPopulate()">&#129302; AI Populate</button>
+          <button class="btn warn" id="btn-ai" onclick="aiPopulate()" title="Fill in this DSO's fields (name, type, coordinates, size, distance, blurb) using AI, based on the DSO Key / catalog ID above. Overwrites whatever is currently in those fields.">&#129302; AI Populate</button>
           <span id="solar-guard-note" style="display:none; color:var(--muted); font-size:11px; align-self:center; margin-right:8px;">Solar object &mdash; AI Populate &amp; Sync Folder use the dedicated solar pipeline instead</span>
-          <button class="btn success" onclick="saveObject()">&#128190; Save</button>
-          <button class="btn danger" id="btn-delete" onclick="deleteObject()" disabled>&#128465;&#65039; Delete Object</button>
+          <span id="save-status" class="save-status" title="Changes save automatically"></span>
+          <button class="btn success" id="btn-create" onclick="createObject()" style="display:none;" title="Create this new DSO. After that, every change saves automatically.">&#10133; Create DSO</button>
+          <button class="btn danger" id="btn-delete" onclick="deleteObject()" disabled title="Permanently delete this DSO from the database. Only works if it has no Project registered yet &mdash; remove the Project first. Files on disk are never touched.">&#128465;&#65039; Delete DSO</button>
         </div>
       </div>
 
@@ -363,11 +401,13 @@ header('Pragma: no-cache');
       <div class="section">
         <div class="section-header">
           Observation &amp; Project
-          <button class="btn" id="btn-add-project" style="font-size:11px; padding:3px 10px;" onclick="addProject()">+ Add Project</button>
+          <button class="btn" id="btn-add-project" style="font-size:11px; padding:3px 10px;" onclick="addProject()" title="Register a myWorks folder on disk as this DSO's Project. Needed once, the first time you image something new, before Sync Folder or Audit Observations will work.">+ Add Project</button>
+          <button class="btn" id="btn-audit-observations" style="font-size:11px; padding:3px 10px;" onclick="auditObservations()" title="Scan this DSO's myWorks folder for new or changed observation sessions and add/update them here">&#x21bb; Audit Observations</button>
         </div>
         <div class="section-body">
           <div id="projects-list" style="display:grid; gap:10px;"></div>
-          <div class="note" style="margin-top:4px;">Otherwise read-only &mdash; a full Project management UI is planned. A DSO can have more than one Project (e.g. a standard framing and a separate mosaic framing).</div>
+          <div id="obs-audit-result" style="display:none; margin-top:10px;"></div>
+          <div class="note" style="margin-top:4px;">&ldquo;+ Add Project&rdquo; registers a myWorks folder as this DSO's Project (needed once, the first time you image something new, before Sync Folder or Audit Observations will work). &ldquo;Audit Observations&rdquo; scans that folder on disk and adds/updates session rows below to match, and deletes any session row no longer backed by a folder on disk (keeping a 1-to-1 match between disk and database) &mdash; unless that row has hand-entered notes/conditions data, in which case it's kept and flagged in red for you to review instead. When running locally it also runs automatically each time you open a DSO. Filt, Integ and Notes can be edited by clicking them; #Exp comes from the folder name. Sync Folder (under Gallery Images) runs this automatically after syncing pictures, or click it here any time. Otherwise read-only &mdash; a full Project management UI is planned.</div>
           <div class="field" style="margin-top:12px;">
             <label>Notes</label>
             <textarea id="f_Notes" placeholder="Personal notes about this object, imaging sessions, equipment used, etc." autocomplete="off"></textarea>
@@ -404,7 +444,7 @@ header('Pragma: no-cache');
             <tbody id="cat-tbody">
             </tbody>
           </table>
-          <button class="btn-add-cat" onclick="addCatRow()">+ Add Catalog ID</button>
+          <button class="btn-add-cat" onclick="addCatRow()" title="Add another catalog identifier this DSO is known by (e.g. both M42 and NGC1976 for the same object)">+ Add Catalog ID</button>
         </div>
       </div>
 
@@ -412,12 +452,16 @@ header('Pragma: no-cache');
       <div class="section">
         <div class="section-header">
           Gallery Images
-          <button class="btn" id="btn-sync-folder" style="font-size:11px; padding:3px 10px;" onclick="syncFolder()">&#x21bb; Sync Folder</button>
-          <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="addGalleryImageCard()">+ Add Image</button>
+          <button class="btn" id="btn-sync-folder" style="font-size:11px; padding:3px 10px;" onclick="syncFolder()" title="Scan this DSO's Project folder for new/changed processed images (_fav files) and add or update their Gallery Image cards below. Also runs Audit Observations automatically afterward.">&#x21bb; Sync Folder</button>
+          <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="addGalleryImageCard()" title="Manually add a Gallery Image card for this DSO, without scanning disk">+ Add Image</button>
         </div>
         <div class="section-body">
           <div class="gi-list" id="gi-list"></div>
           <div id="gi-empty" style="color:var(--muted); font-size:12px; padding:4px 0; display:none;">No gallery images yet &mdash; click &ldquo;Sync Folder&rdquo; or &ldquo;+ Add Image&rdquo;.</div>
+          <details id="gi-hidden" class="gi-hidden" style="display:none;">
+            <summary>Hidden images (<span id="gi-hidden-count">0</span>) &mdash; not shown in the public gallery; Sync Folder leaves them hidden</summary>
+            <div id="gi-hidden-list" class="gi-hidden-list"></div>
+          </details>
           <div id="gi-sync-result" style="display:none; margin-top:10px;"></div>
         </div>
       </div>
@@ -426,7 +470,7 @@ header('Pragma: no-cache');
       <div class="section">
         <div class="section-header">
           DSO Links
-          <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="addLinkRow()">+ Add Link</button>
+          <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="addLinkRow()" title="Add a labeled external link for this DSO (e.g. a blog post, gallery page, or reference article)">+ Add Link</button>
         </div>
         <div class="section-body">
           <table class="lnk-table" id="lnk-table">
@@ -450,12 +494,55 @@ header('Pragma: no-cache');
 
 <div id="toast"></div>
 
+<dialog id="local-only-dialog">
+  <h3>&#x26A0; Available only when run locally</h3>
+  <p><strong id="local-only-action">This action</strong> needs direct access to the myWorks folder
+     (<code><?= htmlspecialchars(defined('WORKS_ROOT') ? WORKS_ROOT : 'C:\\Astronomy\\MyWorks') ?></code>),
+     which this server can't see.</p>
+  <p style="color:var(--muted);">Open the admin panel from your own machine (Laragon) to use it.</p>
+  <div class="dialog-actions">
+    <button class="btn primary" onclick="document.getElementById('local-only-dialog').close()">OK</button>
+  </div>
+</dialog>
+
 <script>
 // ──────────────────────────────────────────────
 // State
 // ──────────────────────────────────────────────
 let currentObject = null;
 let searchTimer   = null;
+
+// True when PHP can see WORKS_ROOT (see top of file). Sync Folder,
+// Add Project and Audit Observations only work in local mode.
+const LOCAL_MODE = <?= json_encode($is_local_mode) ?>;
+
+// Shows the "available only when run locally" dialog for actionName.
+function showLocalOnlyDialog(actionName) {
+  const dlg = document.getElementById('local-only-dialog');
+  document.getElementById('local-only-action').textContent = actionName;
+  if (typeof dlg.showModal === 'function') {
+    if (!dlg.open) dlg.showModal();
+  } else {
+    alert(actionName + ' is available only when the admin panel is run locally.');
+  }
+}
+
+// Guard for local-only actions: returns true if OK to proceed,
+// otherwise shows the dialog and returns false.
+// Observations the last audit kept even though no folder exists on disk
+// (they carry hand-entered data). Used to flag them in the table.
+// { dsoKey, folders: Set<lowercased ObservationFolder>, dates: Set<'YYYY-MM-DD'> }
+let obsHeldForReview = { dsoKey: null, folders: new Set(), dates: new Set() };
+
+// ObservationID -> observation row, rebuilt on every table render; used by
+// the inline editor.
+const obsById = new Map();
+
+function requireLocal(actionName) {
+  if (LOCAL_MODE) return true;
+  showLocalOnlyDialog(actionName);
+  return false;
+}
 let blurbWatchSnapshot = {};
 
 const BLURB_WATCH = ['CommonName', 'ObjectSize', 'ConstellationID'];
@@ -609,6 +696,16 @@ fetchList('');
 loadObjectTypes();
 loadConstellations();
 
+// ?load=<DSOKey> opens that DSO straight away (used by the Complete?
+// page's "Open in Admin" links).
+(async () => {
+  const key = new URLSearchParams(location.search).get('load');
+  if (!key) return;
+  const row = await fetchOneByKey(key.trim().toUpperCase());
+  if (row) openObject(row);
+  else toast('DSO ' + key + ' not found', 'err', 6000);
+})();
+
 // ──────────────────────────────────────────────
 // Load object into editor
 // ──────────────────────────────────────────────
@@ -622,42 +719,111 @@ loadConstellations();
 // loadObject(row) unchanged, since a broken convenience check must never
 // block opening a DSO.
 async function openObject(row) {
+  // Don't lose a pending autosave of the DSO we're leaving.
+  await flushSave();
+
   try {
     const res  = await apiFetch('api_check_project.php?DSOKey=' + encodeURIComponent(row.DSOKey));
     const data = await res.json();
+    let projectsChanged = false;
+
+    // Existing Projects of this DSO whose folder is gone from myWorks.
+    const stale = Array.isArray(data.staleProjects) ? [...data.staleProjects] : [];
+    const live  = Array.isArray(data.liveProjects)  ? [...data.liveProjects]  : [];
 
     if (data.needsProject && Array.isArray(data.folders) && data.folders.length) {
-      let projectAdded = false;
+      // A missing folder next to a new unregistered one is most likely a
+      // rename: offer to repoint the old Project first, so it keeps its
+      // history instead of turning into a duplicate.
       for (const folder of data.folders) {
-        const ok = confirm(
-          'DSO ' + row.DSOKey + ' has an unregistered myWorks folder:\n\n' +
-          folder + '\n\nCreate a Project for it now?'
-        );
-        if (!ok) continue;
+        let payload = null;
+        if (stale.length) {
+          const sp = stale[0];
+          const repoint = confirm(
+            'DSO ' + row.DSOKey + ' has an unregistered myWorks folder:\n\n' + folder +
+            '\n\nIts existing Project #' + sp.ProjectID + ' points to "' + sp.ProjectFolder +
+            '", which no longer exists on disk.\n\nRepoint that Project to "' + folder +
+            '" instead of creating a new one?'
+          );
+          if (repoint) {
+            payload = { DSOKey: row.DSOKey, ProjectFolder: folder, ReplaceProjectID: sp.ProjectID };
+            stale.shift();
+          }
+        }
+        if (!payload) {
+          const ok = confirm(
+            'DSO ' + row.DSOKey + ' has an unregistered myWorks folder:\n\n' +
+            folder + '\n\nCreate a new Project for it now?'
+          );
+          if (!ok) continue;
+          payload = { DSOKey: row.DSOKey, ProjectFolder: folder };
+        }
 
         const addRes  = await apiFetch('api_add_project.php', {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ DSOKey: row.DSOKey, ProjectFolder: folder }),
+          body: JSON.stringify(payload),
         });
         const addData = await addRes.json();
         if (addData.success) {
-          toast('Project added: ' + folder, 'ok');
-          projectAdded = true;
+          toast((addData.repointed ? 'Project repointed: ' : 'Project added: ') + folder, 'ok');
+          live.push({ ProjectID: addData.ProjectID, ProjectFolder: folder });
+          projectsChanged = true;
         } else {
           toast('Add Project failed: ' + (addData.error || 'unknown error'), 'err', 8000);
         }
       }
-      if (projectAdded) {
-        const fresh = await fetchOneByKey(row.DSOKey);
-        if (fresh) row = fresh;
+    }
+
+    // Any remaining Project whose folder is gone: offer to delete it.
+    for (const sp of stale) {
+      let where;
+      if (live.length === 1) {
+        where = 'moved to Project #' + live[0].ProjectID + ' (' + live[0].ProjectFolder + ')';
+      } else if (live.length > 1) {
+        where = 'moved to whichever Project folder holds their session folder';
+      } else {
+        where = 'kept on the DSO but no longer linked to a Project';
       }
+      const msg =
+        'Project #' + sp.ProjectID + ' of ' + row.DSOKey + ' points to folder:\n\n' +
+        (sp.ProjectFolder || '(none)') + '\n\nwhich is no longer in myWorks. Delete this Project?\n\n' +
+        '• ' + sp.ObservationCount + ' observation row(s) will be deleted' +
+        (live.length ? ' (Audit Observations rebuilds them from disk for the remaining Project)' : '') + '\n' +
+        '• ' + sp.ImageCount + ' gallery image(s) will be ' + where;
+      if (!confirm(msg)) continue;
+
+      const delRes  = await apiFetch('api_delete_project.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ DSOKey: row.DSOKey, ProjectID: sp.ProjectID }),
+      });
+      const delData = await delRes.json();
+      if (delData.success) {
+        toast('Project #' + sp.ProjectID + ' deleted', 'ok');
+        projectsChanged = true;
+      } else {
+        toast('Delete Project failed: ' + (delData.error || 'unknown error'), 'err', 8000);
+      }
+    }
+
+    if (projectsChanged) {
+      const fresh = await fetchOneByKey(row.DSOKey);
+      if (fresh) row = fresh;
     }
   } catch (e) {
     // Convenience check only -- fall through and display the DSO regardless.
     console.warn('Project check failed:', e);
   }
 
+  dismissObsAuditResult();
+  obsHeldForReview = { dsoKey: row.DSOKey, folders: new Set(), dates: new Set() };
   loadObject(row);
+
+  // Keep Observations in step with myWorks on disk: audit automatically
+  // every time a DSO is opened locally (silent unless it changes something
+  // or fails). Skipped when there's no Project yet -- nothing to audit.
+  if (LOCAL_MODE && Array.isArray(row.Projects) && row.Projects.length > 0) {
+    auditObservations({ silent: true });
+  }
 }
 
 function loadObject(row) {
@@ -691,14 +857,21 @@ function loadObject(row) {
   renderDSOLinks(row.DSOLinks || []);
   renderProjects(row.Projects || []);
   snapshotBlurbFields();
+  listFieldsSnapshot = listFieldsNow();
+  autosaveEnabled = true;
+  document.getElementById('btn-create').style.display = 'none';
+  setSaveStatus('idle');
 }
 
-function newObject() {
+async function newObject() {
+  await flushSave();
+  autosaveEnabled = false;
+  savePending = false;
   currentObject = null;
   document.querySelectorAll('.object-item').forEach(el => el.classList.remove('active'));
   showEditor();
   dismissSyncResult();
-  document.getElementById('editor-title').childNodes[0].textContent = 'New Object ';
+  document.getElementById('editor-title').childNodes[0].textContent = 'New DSO ';
   document.getElementById('editor-subtitle').textContent = '';
   const selectDefaults = { WantBetter: '0' };
   fields.forEach(f => {
@@ -719,6 +892,8 @@ function newObject() {
   renderDSOLinks([]);
   renderProjects([]);
   snapshotBlurbFields();
+  document.getElementById('btn-create').style.display = '';
+  setSaveStatus('idle');
 }
 
 function showEditor() {
@@ -745,10 +920,22 @@ async function quickAddDSO() {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dso_key: dsoKey }),
     });
-    const data = await res.json();
+    // Read as text first so a non-JSON server response (PHP fatal/warning
+    // page) shows what the server actually said instead of a bare
+    // "invalid JSON" parse error.
+    const raw = await res.text();
+    let data;
+    try {
+      data = JSON.parse(raw);
+    } catch (_) {
+      const snippet = raw.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300);
+      toast('Quick Add failed (HTTP ' + res.status + '): ' + (snippet || 'empty response'), 'err', 12000);
+      return;
+    }
 
     if (data.exists) {
       toast(dsoKey + ' already exists \u2014 opening it.', 'info');
+      await flushSave();
       await fetchList('');
       const row = await fetchOneByKey(dsoKey);
       if (row) loadObject(row);
@@ -761,6 +948,7 @@ async function quickAddDSO() {
     }
 
     toast((data.CommonName ? data.CommonName + ' (' + dsoKey + ')' : dsoKey) + ' added.', 'ok');
+    await flushSave();
     await fetchList('');
     const row = await fetchOneByKey(dsoKey);
     if (row) loadObject(row);
@@ -789,6 +977,17 @@ function renderObservationsTable(obs) {
     return '<div style="color:var(--muted); font-size:11px; padding:6px 0 2px;">No observations logged yet.</div>';
   }
   const rows = obs.map(o => {
+    obsById.set(Number(o.ObservationID), o);
+    const held = obsHeldForReview.dsoKey === (currentObject && currentObject.DSOKey) && (
+      (o.ObservationFolder && obsHeldForReview.folders.has(o.ObservationFolder.toLowerCase())) ||
+      (!o.ObservationFolder && obsHeldForReview.dates.has(o.ObservationDate))
+    );
+    const noFolder = !o.ObservationFolder;
+    const flagTitle = 'No matching folder in myWorks \u2014 kept because it has hand-entered data (Filter/Notes/etc).';
+    const folderCell = o.ObservationFolder
+      ? `<span${held ? ` style="color:var(--danger);" title="${escHtml(flagTitle)}"` : ` title="${escHtml(o.ObservationFolder)}"`}>${held ? '&#x26A0; ' : ''}${escHtml(o.ObservationFolder)}</span>`
+      : `<span style="color:var(--danger);" title="${escHtml(held ? flagTitle : 'No folder linked')}">&#x26A0; no folder</span>`;
+    const id = Number(o.ObservationID);
     const exp    = o.ExposureTimeSecs ? escHtml(String(o.ExposureTimeSecs)) + 's' : '&mdash;';
     const integ  = o.IntegrationMins ? parseFloat(o.IntegrationMins).toFixed(0) + 'm' : '&mdash;';
     const start  = o.StartTime ? escHtml(o.StartTime) : '&mdash;';
@@ -796,17 +995,16 @@ function renderObservationsTable(obs) {
     const notesFull = o.Notes || '';
     const notesShort = notesFull.length > 24 ? notesFull.slice(0, 24) + '\u2026' : notesFull;
     return `
-      <tr style="border-bottom:1px solid var(--border);">
+      <tr style="border-bottom:1px solid var(--border);${held || noFolder ? ' background:rgba(248,81,73,0.08);' : ''}">
         <td style="padding:3px 6px; white-space:nowrap;">${o.ObservationDate ? escHtml(o.ObservationDate) : '&mdash;'}</td>
-        <td style="padding:3px 6px; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(o.ObservationFolder || '')}">${o.ObservationFolder ? escHtml(o.ObservationFolder) : '&mdash;'}</td>
+        <td style="padding:3px 6px; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${folderCell}</td>
         <td style="padding:3px 6px; white-space:nowrap;">${start}</td>
         <td style="padding:3px 6px; white-space:nowrap;">${end}</td>
         <td style="padding:3px 6px; white-space:nowrap; text-align:right;">${exp}</td>
-        <td style="padding:3px 6px; white-space:nowrap;">${o.Filter ? escHtml(o.Filter) : '&mdash;'}</td>
+        <td class="obs-edit" data-id="${id}" data-field="Filter" title="Click to edit" style="padding:3px 6px; white-space:nowrap;">${o.Filter ? escHtml(o.Filter) : '&mdash;'}</td>
         <td style="padding:3px 6px; white-space:nowrap; text-align:right;">${o.TotalExposures ?? '&mdash;'}</td>
-        <td style="padding:3px 6px; white-space:nowrap; text-align:right;">${o.GoodLights ?? '&mdash;'}</td>
-        <td style="padding:3px 6px; white-space:nowrap; text-align:right;">${integ}</td>
-        <td style="padding:3px 6px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;" title="${escHtml(notesFull)}">${notesShort ? escHtml(notesShort) : '&mdash;'}</td>
+        <td class="obs-edit" data-id="${id}" data-field="IntegrationMins" title="Click to edit (minutes). Clear it to let the next audit recalculate." style="padding:3px 6px; white-space:nowrap; text-align:right;">${integ}</td>
+        <td class="obs-edit" data-id="${id}" data-field="Notes" title="${escHtml(notesFull ? notesFull + '\n\n' : '')}Click to edit" style="padding:3px 6px; max-width:160px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${notesShort ? escHtml(notesShort) : '&mdash;'}</td>
       </tr>`;
   }).join('');
   return `
@@ -821,7 +1019,6 @@ function renderObservationsTable(obs) {
             <th style="padding:3px 6px; font-weight:600; text-align:right;" title="Exposure Time (seconds)">Exp</th>
             <th style="padding:3px 6px; font-weight:600;" title="Filter">Filt</th>
             <th style="padding:3px 6px; font-weight:600; text-align:right;" title="Total Exposures">#Exp</th>
-            <th style="padding:3px 6px; font-weight:600; text-align:right;" title="Good Lights">Good</th>
             <th style="padding:3px 6px; font-weight:600; text-align:right;" title="Integration Time (minutes)">Integ</th>
             <th style="padding:3px 6px; font-weight:600;" title="Notes">Notes</th>
           </tr>
@@ -833,6 +1030,7 @@ function renderObservationsTable(obs) {
 }
 
 function renderProjects(projects) {
+  obsById.clear();
   const list = document.getElementById('projects-list');
   if (!projects || projects.length === 0) {
     list.innerHTML = '<div style="color:var(--muted); font-size:12px;">No project yet for this DSO.</div>';
@@ -858,6 +1056,86 @@ function renderProjects(projects) {
   }).join('');
 }
 
+// ──────────────────────────────────────────────
+// Inline editing of Observation Filter / Integ / Notes
+// (api_update_observation.php). #Exp stays read-only -- the audit resets it
+// from the folder name. An edited Integ is never overwritten by the audit;
+// clearing it lets the next audit recalculate it.
+// ──────────────────────────────────────────────
+document.getElementById('projects-list').addEventListener('click', e => {
+  const td = e.target.closest('td.obs-edit');
+  if (!td || td.querySelector('input')) return;
+  startObsEdit(td);
+});
+
+function startObsEdit(td) {
+  const id    = Number(td.dataset.id);
+  const field = td.dataset.field;
+  const o     = obsById.get(id);
+  if (!o) return;
+
+  const original = o[field] ?? '';
+  const input = document.createElement('input');
+  input.type  = 'text';
+  input.value = field === 'IntegrationMins' && original !== ''
+    ? String(parseFloat(original))
+    : String(original);
+  if (field === 'IntegrationMins') input.inputMode = 'decimal';
+  if (field === 'Notes') td.style.maxWidth = 'none';
+
+  const savedHtml = td.innerHTML;
+  td.innerHTML = '';
+  td.appendChild(input);
+  input.focus();
+  input.select();
+
+  let done = false;
+  const cancel = () => { if (done) return; done = true; td.innerHTML = savedHtml; td.style.maxWidth = ''; };
+  const commit = async () => {
+    if (done) return;
+    const val = input.value.trim();
+    const unchanged = field === 'IntegrationMins'
+      ? (val === '' ? original === '' || original === null : parseFloat(val) === parseFloat(original))
+      : val === String(original);
+    if (unchanged) { cancel(); return; }
+    if (field === 'IntegrationMins' && val !== '' && (isNaN(Number(val)) || Number(val) < 0)) {
+      toast('Integ must be a number of minutes (or blank).', 'err', 5000);
+      input.focus();
+      return;
+    }
+    done = true;
+    td.classList.add('saving');
+    input.disabled = true;
+    try {
+      const res  = await apiFetch('api_update_observation.php', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ObservationID: id, [field]: val }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || 'unknown error');
+      Object.assign(o, data.observation);
+      toast('Saved', 'ok', 1500);
+      // Re-fetch so project totals (Integration Time) reflect the edit.
+      const dsoKey = currentObject && currentObject.DSOKey;
+      const row = dsoKey ? await fetchOneByKey(dsoKey) : null;
+      if (row && currentObject && currentObject.DSOKey === dsoKey) {
+        currentObject.Projects = row.Projects;
+        renderProjects(row.Projects || []);
+      }
+    } catch (err) {
+      td.classList.remove('saving');
+      td.innerHTML = savedHtml;
+      toast('Save failed: ' + err.message, 'err', 8000);
+    }
+  };
+
+  input.addEventListener('keydown', ev => {
+    if (ev.key === 'Enter')  { ev.preventDefault(); commit(); }
+    if (ev.key === 'Escape') { ev.preventDefault(); cancel(); }
+  });
+  input.addEventListener('blur', commit);
+}
+
 // Creates a Projects row for the currently-loaded DSO -- the in-admin
 // equivalent of running pythonscripts/sync_projects.py for just this one
 // DSO. Nothing auto-detects new myWorks folders, so this (or that script)
@@ -865,9 +1143,10 @@ function renderProjects(projects) {
 // refuses with "No Project exists yet" until one does.
 async function addProject() {
   if (!currentObject || !currentObject.DSOKey) {
-    toast('Save this object first, then add a Project.', 'err');
+    toast('Create this DSO first, then add a Project.', 'err');
     return;
   }
+  if (!requireLocal('Add Project')) return;
   const folder = (prompt('myWorks folder name for this Project (e.g. ic342_hidden_galaxy):') || '').trim();
   if (!folder) return;
 
@@ -881,12 +1160,14 @@ async function addProject() {
     });
     const data = await res.json();
 
+    if (data.localOnly) { showLocalOnlyDialog('Add Project'); return; }
     if (!data.success) {
       toast('Add Project failed: ' + (data.error || 'unknown error'), 'err', 8000);
       return;
     }
 
     toast('Project added: ' + folder, 'ok');
+    await flushSave();
     const row = await fetchOneByKey(currentObject.DSOKey);
     if (row) loadObject(row);
 
@@ -895,6 +1176,188 @@ async function addProject() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// Scans this DSO's myWorks Project folder on disk and adds/updates
+// Observations rows to match (see pythonscripts/audit_observations.py,
+// which this just wraps -- api_audit_observations.php runs it scoped to
+// one Project and non-interactively). Safe to run any time: it never
+// deletes a row, only flags ones no longer found on disk ("orphaned"),
+// and it skips anything ambiguous rather than guessing. Called both from
+// this button directly and automatically at the end of Sync Folder.
+async function auditObservations({ silent = false } = {}) {
+  if (!currentObject || !currentObject.DSOKey) {
+    if (!silent) toast('Create this DSO first, then audit observations.', 'err');
+    return;
+  }
+  if (!LOCAL_MODE) {
+    if (!silent) showLocalOnlyDialog('Audit Observations');
+    return;
+  }
+  const dsoKey = currentObject.DSOKey;
+
+  const panel = document.getElementById('obs-audit-result');
+  const btn   = document.getElementById('btn-audit-observations');
+  if (btn) btn.disabled = true;
+  if (!silent) {
+    panel.style.display = '';
+    panel.innerHTML = '<span style="color:var(--muted); font-size:12px;">Scanning myWorks folder for observations&hellip;</span>';
+  }
+
+  try {
+    const res  = await apiFetch('api_audit_observations.php', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ DSOKey: dsoKey }),
+    });
+    const data = await res.json();
+
+    // User moved on to a different DSO while this was running -- don't
+    // paint this DSO's result over the one now on screen.
+    if (!currentObject || currentObject.DSOKey !== dsoKey) return;
+
+    if (data.localOnly) { showLocalOnlyDialog('Audit Observations'); return; }
+    if (data.error) {
+      const err = new Error(data.error);
+      err.rawOutput = data.output || null;  // audit_observations.py's raw stdout/stderr, when the wrapper captured it
+      throw err;
+    }
+
+    const created      = data.created ?? [];
+    const updated      = data.updated ?? [];
+    const deleted      = data.deleted ?? [];
+    const orphaned     = data.orphaned ?? [];
+    const legacy       = data.legacyNoFolder ?? [];
+    const ambiguous    = data.ambiguous ?? [];
+    const unrecognized = data.unrecognized ?? [];
+    const runErrors    = data.errors ?? [];   // per-Project failures when a DSO has several
+
+    obsHeldForReview = {
+      dsoKey,
+      folders: new Set(orphaned.map(o => (o.ObservationFolder || '').toLowerCase()).filter(Boolean)),
+      dates:   new Set(legacy.map(o => o.ObservationDate).filter(Boolean)),
+    };
+
+    const nothingChanged = created.length === 0 && updated.length === 0 && deleted.length === 0
+      && orphaned.length === 0 && legacy.length === 0 && ambiguous.length === 0 && unrecognized.length === 0;
+
+    // In silent (auto, post-Sync-Folder) mode, stay quiet unless there's
+    // actually something worth surfacing -- an automatic step shouldn't
+    // pop up a panel every time to say "nothing changed".
+    // Rows kept for review are flagged in the table itself, so on their own
+    // they don't warrant popping the panel open on every DSO open.
+    const silentWorthy = created.length || updated.length || deleted.length
+      || ambiguous.length || runErrors.length;
+    if (silent && !silentWorthy) {
+      if (orphaned.length || legacy.length) renderProjects(currentObject.Projects || []);
+      return;
+    }
+
+    panel.style.display = '';
+    let html = `<div style="font-size:12px; border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px; background:var(--bg);">`;
+    html += `<div style="font-weight:600; margin-bottom:8px;">Observation audit result</div>`;
+
+    if (nothingChanged && runErrors.length === 0) {
+      html += `<div style="color:var(--muted);">No changes &mdash; observations already match disk.</div>`;
+    }
+
+    if (runErrors.length > 0) {
+      html += `<div style="color:var(--danger); margin-bottom:4px;">&#x2716; Audit failed for ${runErrors.length} Project${runErrors.length > 1 ? 's' : ''}:</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      runErrors.forEach(r => { html += `<li>${escHtml(r.ProjectFolder || '')} &mdash; ${escHtml(r.error || 'unknown error')}</li>`; });
+      html += `</ul>`;
+    }
+
+    if (created.length > 0) {
+      html += `<div style="color:var(--accent2); margin-bottom:4px;">&#x2714; Logged ${created.length} new observation${created.length > 1 ? 's' : ''}:</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      created.forEach(c => { html += `<li>${escHtml(c.ObservationFolder)}</li>`; });
+      html += `</ul>`;
+    }
+
+    if (updated.length > 0) {
+      html += `<div style="color:var(--accent); margin-bottom:4px;">&#x21bb; Updated ${updated.length} observation${updated.length > 1 ? 's' : ''}:</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      updated.forEach(u => { html += `<li>${escHtml(u.Sub)}</li>`; });
+      html += `</ul>`;
+    }
+
+    if (ambiguous.length > 0) {
+      html += `<div style="color:var(--warn); margin-bottom:4px;">&#x26A0; ${ambiguous.length} ambiguous match${ambiguous.length > 1 ? 'es' : ''} &mdash; more than one existing observation shares the same night; fix by hand, then re-run:</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      ambiguous.forEach(a => { html += `<li>${escHtml(a.Sub)}</li>`; });
+      html += `</ul>`;
+    }
+
+    if (deleted.length > 0) {
+      html += `<div style="color:var(--danger); margin-bottom:4px;">&#x1F5D1; Deleted ${deleted.length} observation${deleted.length > 1 ? 's' : ''} no longer on disk:</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      deleted.forEach(d => { html += `<li>${escHtml(d.ObservationFolder || d.ObservationDate)}</li>`; });
+      html += `</ul>`;
+    }
+
+    // Held back rather than auto-deleted, because they carry hand-entered
+    // data (Filter/Notes/SeeingConditions/etc) that a disk re-sync can never
+    // regenerate -- see MANUAL_DATA_FIELDS in audit_observations.py.
+    if (orphaned.length > 0 || legacy.length > 0) {
+      const held = [...orphaned, ...legacy];
+      html += `<div style="color:var(--warn); margin-bottom:4px;">&#x26A0; ${held.length} observation${held.length > 1 ? 's' : ''} no longer on disk but kept for review (has manual notes/conditions data attached):</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      held.forEach(o => {
+        const label = o.ObservationFolder || o.ObservationDate;
+        const fields = (o.ManualFields || []).join(', ');
+        html += `<li>${escHtml(o.DSOKey)} ${escHtml(label)} &mdash; ${escHtml(fields)}</li>`;
+      });
+      html += `</ul>`;
+    }
+
+    if (unrecognized.length > 0) {
+      html += `<div style="color:var(--muted); margin-bottom:4px;">${unrecognized.length} subfolder${unrecognized.length > 1 ? 's' : ''} skipped (name didn't match a known pattern):</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      unrecognized.forEach(u => { html += `<li>${escHtml(u.Sub)}</li>`; });
+      html += `</ul>`;
+    }
+
+    html += `<button class="btn" style="font-size:11px; padding:2px 10px; margin-top:4px;" onclick="dismissObsAuditResult()">Dismiss</button>`;
+    html += `</div>`;
+    panel.innerHTML = html;
+
+    if (created.length > 0 || updated.length > 0 || deleted.length > 0) {
+      // Only the Projects/Observations section changed -- repaint just that,
+      // so a background audit never re-renders fields being edited.
+      const row = await fetchOneByKey(dsoKey);
+      if (row && currentObject && currentObject.DSOKey === dsoKey) {
+        currentObject.Projects = row.Projects || [];
+        renderProjects(currentObject.Projects);
+      }
+    } else if (orphaned.length || legacy.length) {
+      renderProjects(currentObject.Projects || []);  // repaint with review flags
+    }
+
+  } catch (e) {
+    // Failures are shown even for the automatic (silent) run -- a silent
+    // audit that quietly fails is exactly how stale rows went unnoticed.
+    if (currentObject && currentObject.DSOKey === dsoKey) {
+      panel.style.display = '';
+      let html = `<span style="color:var(--danger); font-size:12px;">Audit failed: ${escHtml(e.message)}</span>`;
+      // Surface the script's raw stdout/stderr (e.g. a Python traceback) when
+      // the wrapper captured one -- without this, a crash before the JSON
+      // print just shows the generic "did not return valid JSON" message
+      // with no way to see what actually broke.
+      if (e.rawOutput) {
+        html += `<pre style="margin-top:8px; padding:8px; background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); font-size:11px; white-space:pre-wrap; max-height:240px; overflow:auto;">${escHtml(e.rawOutput)}</pre>`;
+      }
+      panel.innerHTML = html;
+    }
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function dismissObsAuditResult() {
+  const p = document.getElementById('obs-audit-result');
+  p.style.display = 'none';
+  p.innerHTML = '';
 }
 
 // ──────────────────────────────────────────────
@@ -912,9 +1375,14 @@ function addCatRow(cat = {}) {
   tr.innerHTML = `
     <td><input type="text" placeholder="e.g. M42" value="${cat.CatalogID || ''}" class="cat-id" style="text-transform:uppercase" autocomplete="off"></td>
     <td style="text-align:center"><input type="checkbox" class="cat-primary" ${cat.IsPrimary ? 'checked' : ''}></td>
-    <td><button class="btn-icon" onclick="this.closest('tr').remove()" title="Remove">&#x2715;</button></td>
+    <td><button class="btn-icon" onclick="removeRowAndSave(this)" title="Remove">&#x2715;</button></td>
   `;
   tbody.appendChild(tr);
+}
+
+function removeRowAndSave(btn) {
+  btn.closest('tr').remove();
+  scheduleSave(0);
 }
 
 function getCatalogRows() {
@@ -925,11 +1393,98 @@ function getCatalogRows() {
 }
 
 // ──────────────────────────────────────────────
-// Save
+// Save -- automatic. Every edit in the editor schedules a save of the
+// whole DSO (debounced); there is no Save button. A brand-new DSO is
+// created once with "Create DSO", after which autosave takes over.
+// Gallery Hide/Unhide/Featured are separate immediate actions
+// (api_gallery_image.php). Observation cells save themselves.
 // ──────────────────────────────────────────────
+let autosaveEnabled = false;   // true while an existing DSO is loaded
+let saveTimer   = null;
+let savePending = false;
+let saveInFlight = null;
+let tmpKeyCounter = 0;
+let listFieldsSnapshot = '';   // sidebar-visible fields at last save
+
+function nextTmpKey(prefix) { return prefix + (++tmpKeyCounter); }
+
+function listFieldsNow() {
+  return ['CommonName', 'ConstellationID', 'WantBetter']
+    .map(f => (document.getElementById('f_' + f) || {}).value || '').join('|');
+}
+
+function setSaveStatus(state, detail) {
+  const el = document.getElementById('save-status');
+  if (!el) return;
+  el.className = 'save-status' + (state === 'saving' || state === 'pending' ? ' saving' : state === 'error' ? ' error' : '');
+  el.textContent = {
+    pending: 'Unsaved changes…',
+    saving:  'Saving…',
+    saved:   '✓ All changes saved',
+    error:   '⚠ Not saved — ' + (detail || 'error'),
+    idle:    '',
+  }[state] || '';
+}
+
+function scheduleSave(delay = 800) {
+  if (!autosaveEnabled) return;
+  savePending = true;
+  setSaveStatus('pending');
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(runSave, delay);
+}
+
+async function runSave() {
+  clearTimeout(saveTimer);
+  saveTimer = null;
+  if (saveInFlight) { await saveInFlight; }
+  if (!savePending) return;
+  savePending = false;
+  saveInFlight = saveObject(true).finally(() => { saveInFlight = null; });
+  await saveInFlight;
+}
+
+// Save anything pending right now (before switching DSO, running an
+// action that re-renders, etc.).
+async function flushSave() {
+  if (savePending || saveTimer) await runSave();
+  else if (saveInFlight) await saveInFlight;
+}
+
+async function saveNow() {
+  savePending = true;
+  await runSave();
+}
+
+async function createObject() {
+  await saveNow();
+}
+
+// Edits anywhere in the editor autosave, except areas that save themselves
+// or aren't DSO fields (observation cells, sync-result inputs, hidden list,
+// the Featured tick-box, the image Order field -- moveGalleryCard() saves
+// that once the field loses focus).
+const AUTOSAVE_SKIP = '#projects-list, #obs-audit-result, #gi-sync-result, #gi-hidden, .gi-isfeature, .gi-order-input, #f_DSOKey';
+function wireAutosave() {
+  const ed = document.getElementById('editor');
+  if (!ed) return;
+  ed.addEventListener('input',  e => { if (!e.target.closest(AUTOSAVE_SKIP)) scheduleSave(800); });
+  ed.addEventListener('change', e => { if (!e.target.closest(AUTOSAVE_SKIP)) scheduleSave(300); });
+}
+if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', wireAutosave);
+else wireAutosave();
+window.addEventListener('beforeunload', e => {
+  if (savePending || saveTimer || saveInFlight) {
+    runSave();
+    e.preventDefault();
+    e.returnValue = '';
+  }
+});
+
 async function saveObject(silent = false) {
   const dsoKey = document.getElementById('f_DSOKey').value.trim().toUpperCase();
-  if (!dsoKey) { toast('DSO Key is required', 'err'); return; }
+  if (!dsoKey) { toast('DSO Key is required', 'err'); setSaveStatus('error', 'DSO Key is required'); return; }
+  const isNew = !currentObject;
 
   const payload = { DSOKey: dsoKey };
   fields.filter(f => f !== 'DSOKey').forEach(f => {
@@ -942,22 +1497,55 @@ async function saveObject(silent = false) {
       payload[f] = v === '' ? null : v;
     }
   });
-  payload.CatalogIDs    = getCatalogRows();
-  payload.GalleryImages  = getGalleryImageRows();
-  payload.DSOLinks       = getDSOLinkRows();
+  payload.CatalogIDs         = getCatalogRows();
+  payload.CatalogIDsComplete = !isNew;   // full list -> removals/primary changes persist
+  payload.GalleryImages      = getGalleryImageRows();
+  payload.DSOLinks           = getDSOLinkRows();
 
+  setSaveStatus('saving');
   try {
     const res  = await apiFetch('api_save.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
     const data = await res.json();
-    if (data.success) {
-      if (!silent) toast('Saved successfully', 'ok');
-      snapshotBlurbFields();
-      const q = document.getElementById('search').value.trim();
-      await fetchList(q);
-    } else {
-      toast('Save failed: ' + (data.error || 'Unknown error'), 'err', 5000);
+    if (!data.success) {
+      setSaveStatus('error', data.error || 'unknown error');
+      toast('Save failed: ' + (data.error || 'Unknown error'), 'err', 6000);
+      return;
+    }
+
+    // Give new rows their database IDs so the next save updates them
+    // instead of inserting them again.
+    const gMap = data.newGalleryImageIds || {};
+    document.querySelectorAll('#gi-list .gi-card').forEach(card => {
+      if (!card.dataset.galleryImageId && card.dataset.tmp && gMap[card.dataset.tmp]) {
+        card.dataset.galleryImageId = gMap[card.dataset.tmp];
+        delete card.dataset.tmp;
+        const btn = card.querySelector('.gi-hide-btn');
+        if (btn) btn.textContent = 'Hide';
+      }
+    });
+    const lMap = data.newLinkIds || {};
+    document.querySelectorAll('#lnk-tbody tr').forEach(tr => {
+      if (!tr.dataset.linkId && tr.dataset.tmp && lMap[tr.dataset.tmp]) {
+        tr.dataset.linkId = lMap[tr.dataset.tmp];
+        delete tr.dataset.tmp;
+      }
+    });
+    if (data.gallery) applyGalleryState(data.gallery);
+
+    snapshotBlurbFields();
+    setSaveStatus(savePending ? 'pending' : 'saved');
+
+    if (isNew) {
+      if (!silent) toast(dsoKey + ' created', 'ok');
+      await fetchList(document.getElementById('search').value.trim());
+      const row = await fetchOneByKey(dsoKey);
+      if (row) loadObject(row);
+    } else if (listFieldsNow() !== listFieldsSnapshot) {
+      listFieldsSnapshot = listFieldsNow();
+      await fetchList(document.getElementById('search').value.trim());
     }
   } catch (e) {
+    setSaveStatus('error', e.message);
     toast('Network error: ' + e.message, 'err', 5000);
   }
 }
@@ -970,6 +1558,11 @@ async function deleteObject() {
   const key = currentObject.DSOKey;
   if (!confirm(`Permanently delete "${key}"?\n\nThis will remove the object and all its catalog IDs. This cannot be undone.`)) return;
 
+  // A pending autosave after the delete would re-create the DSO.
+  autosaveEnabled = false;
+  clearTimeout(saveTimer); saveTimer = null; savePending = false;
+  if (saveInFlight) await saveInFlight;
+
   try {
     const res  = await apiFetch('api_delete.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ DSOKey: key }) });
     const data = await res.json();
@@ -980,9 +1573,11 @@ async function deleteObject() {
       document.getElementById('empty-state').style.display  = '';
       await fetchList(document.getElementById('search').value.trim());
     } else {
+      autosaveEnabled = true;
       toast('Delete failed: ' + (data.error || 'Unknown error'), 'err', 5000);
     }
   } catch (e) {
+    autosaveEnabled = true;
     toast('Network error: ' + e.message, 'err', 5000);
   }
 }
@@ -1093,7 +1688,7 @@ async function aiPopulate() {
     }
 
     toast('Auto-saving&#8230;', 'info', 3000);
-    await saveObject(silent = true);
+    await saveNow();
     toast('AI filled ' + populated + ' field(s) and saved', 'ok', 5000);
 
   } catch (e) {
@@ -1134,7 +1729,8 @@ async function aiGenerateBlurb() {
 
     if (data.fields?.SocialBlurb) {
       document.getElementById('f_SocialBlurb').value = data.fields.SocialBlurb;
-      toast('Blurb generated &mdash; review and save', 'ok');
+      toast('Blurb generated &mdash; saved', 'ok');
+      scheduleSave(0);
     } else {
       toast('AI did not return a blurb', 'err');
     }
@@ -1149,11 +1745,13 @@ async function aiGenerateBlurb() {
 
 async function syncFolder(extraHints = {}) {
   const dsoKey = document.getElementById('f_DSOKey').value.trim();
-  if (!dsoKey) { toast('Save the DSO first before syncing.', 'err'); return; }
+  if (!dsoKey || !currentObject) { toast('Create the DSO first before syncing.', 'err'); return; }
+  await flushSave();   // so the re-render below doesn't drop unsaved edits
   if (isSolarObjectType(document.getElementById('f_ObjectTypeID').value)) {
     toast('Sync Folder is disabled for Sun/Moon \u2014 use the solar pipeline.', 'err');
     return;
   }
+  if (!requireLocal('Sync Folder')) return;
 
   const resultPanel = document.getElementById('gi-sync-result');
   resultPanel.style.display = '';
@@ -1166,15 +1764,23 @@ async function syncFolder(extraHints = {}) {
       body:    JSON.stringify({ DSOKey: dsoKey, sessionDirHints: extraHints }),
     });
     const data = await res.json();
+    if (data.localOnly) {
+      dismissSyncResult();
+      showLocalOnlyDialog('Sync Folder');
+      return;
+    }
     if (data.error) throw new Error(data.error);
 
     const { inserted, updated, warnings, needs_session_dir, projectFolder, mode } = data;
+    const misnamed      = data.misnamed || [];
+    const dupsRemoved   = data.duplicatesRemoved || [];
+    const staleProjects = data.staleProjects || [];
 
     let html = `<div style="font-size:12px; border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px; background:var(--bg);">`;
     const modeLabel = mode === 'local' ? '(local &mdash; WORKS_ROOT)' : '(remote &mdash; web images only)';
     html += `<div style="font-weight:600; margin-bottom:8px;">Sync result <span style="color:var(--muted); font-weight:400; font-size:11px;">${modeLabel}</span></div>`;
 
-    if (inserted.length === 0 && updated.length === 0 && warnings.length === 0 && (!needs_session_dir || needs_session_dir.length === 0)) {
+    if (inserted.length === 0 && updated.length === 0 && warnings.length === 0 && (!needs_session_dir || needs_session_dir.length === 0) && misnamed.length === 0 && staleProjects.length === 0 && dupsRemoved.length === 0) {
       html += `<div style="color:var(--muted);">No changes &mdash; already up to date.</div>`;
     }
 
@@ -1198,13 +1804,37 @@ async function syncFolder(extraHints = {}) {
     }
 
     if (warnings.length > 0) {
-      html += `<div style="color:var(--danger); margin-bottom:4px;">&#x26A0; ${warnings.length} image${warnings.length > 1 ? 's' : ''} not found in public/images/fav/:</div>`;
+      html += `<div style="color:var(--danger); margin-bottom:4px;">&#x2716; Deleted ${warnings.length} image${warnings.length > 1 ? 's' : ''} whose fav file is no longer in public/images/fav/:</div>`;
       html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
       warnings.forEach(w => {
-        html += `<li>${escHtml(w.BaseName)}
-          <button class="btn" style="font-size:10px; padding:1px 7px; margin-left:8px; border-color:var(--danger); color:var(--danger);"
-            onclick="confirmRemoveGalleryImage(${w.GalleryImageID}, '${escHtml(w.BaseName)}', this)">Remove</button>
-        </li>`;
+        html += `<li>${escHtml(w.BaseName)}</li>`;
+      });
+      html += `</ul>`;
+    }
+
+    if (dupsRemoved.length > 0) {
+      html += `<div style="color:var(--warn); margin-bottom:4px;">&#x2716; Removed ${dupsRemoved.length} duplicate gallery row${dupsRemoved.length > 1 ? 's' : ''} (same Base Name as another row):</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      dupsRemoved.forEach(d => {
+        html += `<li>${escHtml(d.BaseName)} &mdash; row #${escHtml(String(d.GalleryImageID))} deleted, kept #${escHtml(String(d.KeptID))}</li>`;
+      });
+      html += `</ul>`;
+    }
+
+    if (misnamed.length > 0) {
+      html += `<div style="color:var(--warn); margin-bottom:4px;">&#x26A0; ${misnamed.length} fav file${misnamed.length > 1 ? 's' : ''} in myWorks can't be synced &mdash; name doesn't start with ${escHtml(dsoKey.toLowerCase())}:</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      misnamed.forEach(m => {
+        html += `<li>${escHtml(m.ProjectFolder)}\\${escHtml(m.SessionDir)}\\<strong>${escHtml(m.File)}</strong></li>`;
+      });
+      html += `</ul>`;
+    }
+
+    if (staleProjects.length > 0) {
+      html += `<div style="color:var(--warn); margin-bottom:4px;">&#x26A0; Project folder${staleProjects.length > 1 ? 's' : ''} missing from myWorks (skipped):</div>`;
+      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
+      staleProjects.forEach(sp => {
+        html += `<li>Project #${escHtml(String(sp.ProjectID))} &mdash; ${escHtml(sp.ProjectFolder || '(none)')}</li>`;
       });
       html += `</ul>`;
     }
@@ -1228,13 +1858,22 @@ async function syncFolder(extraHints = {}) {
     html += `</div>`;
     resultPanel.innerHTML = html;
 
-    if (inserted.length > 0 || updated.length > 0) {
+    {
       const searchRes  = await apiFetch(`api_search.php?q=${encodeURIComponent(dsoKey)}`);
       const searchData = await searchRes.json();
       const row = Array.isArray(searchData)
         ? searchData.find(r => r.DSOKey === dsoKey)
         : null;
       if (row) renderGalleryImages(row.GalleryImages || []);
+    }
+
+    // Resyncing pictures is exactly when new observation sessions are
+    // likely to exist too, so audit them automatically here -- local mode
+    // only, since Audit Observations needs the same WORKS_ROOT access
+    // Sync Folder just used. Silent unless it actually finds something,
+    // so a routine sync doesn't pop up an empty "nothing changed" panel.
+    if (mode === 'local') {
+      auditObservations({ silent: true });
     }
 
   } catch (e) {
@@ -1252,27 +1891,6 @@ async function submitSessionDirHints() {
   });
   if (filled === 0) { toast('Enter at least one Session Directory first', 'err'); return; }
   await syncFolder(hints);
-}
-
-async function confirmRemoveGalleryImage(id, baseName, btn) {
-  if (!confirm(`Remove "${baseName}" from the gallery?\nThis cannot be undone.`)) return;
-  try {
-    const res  = await apiFetch('api_delete.php', {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ GalleryImageID: id }),
-    });
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
-    btn.closest('li').style.textDecoration = 'line-through';
-    btn.remove();
-    const card = document.querySelector(`.gi-card[data-gallery-image-id="${id}"]`);
-    if (card) card.remove();
-    updateGiEmpty();
-    toast(`Removed: ${baseName}`, 'ok');
-  } catch (e) {
-    toast('Delete failed: ' + e.message, 'err');
-  }
 }
 
 function dismissSyncResult() {
@@ -1317,12 +1935,33 @@ function galleryFavUrl(baseName) {
   return trimmed ? `/images/fav/${encodeURIComponent(trimmed)}_fav.jpg` : '';
 }
 
+// Pixel size + aspect ratio of a loaded image, e.g. "1080×1350 · 4:5".
+// Named when within 2% of a common ratio (fav is normally 4:5, full 9:16,
+// wall 16:9, but some favs are deliberately 1:1 or 5:4); otherwise the
+// raw w:h as a decimal.
+const COMMON_RATIOS = [[4,5],[1,1],[5,4],[9,16],[16,9],[3,4],[4,3],[2,3],[3,2]];
+function aspectLabel(w, h) {
+  if (!w || !h) return '';
+  const r = w / h;
+  for (const [a, b] of COMMON_RATIOS) {
+    if (Math.abs(r / (a / b) - 1) <= 0.02) return `${w}\u00d7${h} \u00b7 ${a}:${b}`;
+  }
+  return `${w}\u00d7${h} \u00b7 ${r.toFixed(2)}:1`;
+}
+
+function showGalleryDims(card) {
+  const img  = card.querySelector('.gi-preview-img');
+  const dims = card.querySelector('.gi-dims');
+  if (img && dims) dims.textContent = aspectLabel(img.naturalWidth, img.naturalHeight);
+}
+
 function updateGalleryPreview(card, baseName) {
   const preview = card.querySelector('.gi-preview');
   const img = card.querySelector('.gi-preview-img');
   const empty = card.querySelector('.gi-preview-empty');
   const url = galleryFavUrl(baseName);
 
+  card.querySelector('.gi-dims').textContent = '';
   preview.classList.remove('missing');
   if (!url) {
     img.removeAttribute('src');
@@ -1339,9 +1978,9 @@ function updateGalleryPreview(card, baseName) {
 
 function renderGalleryImages(images) {
   const list  = document.getElementById('gi-list');
-  const empty = document.getElementById('gi-empty');
   list.innerHTML = '';
-  images.forEach(img => addGalleryImageCard(img));
+  images.filter(img => !parseInt(img.IsHidden || 0)).forEach(img => addGalleryImageCard(img));
+  renderHiddenGalleryImages(images.filter(img => parseInt(img.IsHidden || 0)));
   updateGiEmpty();
 }
 
@@ -1380,6 +2019,7 @@ function addGalleryImageCard(img = {}) {
       <img class="gi-preview-img" ${favUrl ? `src="${escHtml(favUrl)}"` : ''} alt="${escHtml(baseName ? baseName + ' fav image' : '')}"
            loading="lazy" onerror="this.closest('.gi-preview').classList.add('missing')">
       <div class="gi-preview-empty">${favUrl ? 'Image not found' : 'Enter a base name to preview the fav image'}</div>
+      <span class="gi-dims"></span>
     </div>
     <div class="gi-card-fields">
       <div class="field">
@@ -1442,11 +2082,16 @@ function addGalleryImageCard(img = {}) {
       <label style="font-size:12px; color:var(--muted);">Order</label>
       <input type="number" class="gi-order-input" value="${sortOrder}" min="0" step="1"
              style="width:60px; font-size:12px; padding:3px 6px;" autocomplete="off"
-             onchange="this.closest('.gi-card').querySelector('.gi-sortorder').value = this.value">
-      <button class="btn" style="font-size:11px; padding:3px 10px; border-color:var(--danger); color:var(--danger);"
-              onclick="removeGalleryImageCard(this)">Remove</button>
+             title="Type a position (or use the arrows), then press Enter or click away to move the image there">
+      <button class="btn gi-hide-btn" style="font-size:11px; padding:3px 10px; border-color:var(--warn); color:var(--warn);"
+              onclick="hideOrRemoveGalleryCard(this)"
+              title="Hide this image from the public gallery. It stays in the database (and Sync Folder leaves it hidden); unhide it from the Hidden images list below.">${img.GalleryImageID ? 'Hide' : 'Remove'}</button>
     </div>
   `;
+
+  const previewImg = card.querySelector('.gi-preview-img');
+  previewImg.addEventListener('load', () => showGalleryDims(card));
+  if (previewImg.complete && previewImg.naturalWidth) showGalleryDims(card);
 
   card.querySelector('.gi-basename-input').addEventListener('input', function() {
     card.querySelector('.gi-basename').textContent = this.value || 'New Image';
@@ -1457,18 +2102,24 @@ function addGalleryImageCard(img = {}) {
   });
 
   card.querySelector('.gi-isfeature').addEventListener('change', function() {
-    card.classList.toggle('is-feature', this.checked);
-    const badge = card.querySelector('.gi-feature-badge');
-    if (this.checked) {
-      if (!badge) {
-        const span = document.createElement('span');
-        span.className = 'gi-feature-badge';
-        span.innerHTML = '&#9733; Featured';
-        card.querySelector('.gi-card-header').appendChild(span);
-      }
-    } else {
-      if (badge) badge.remove();
+    featureGalleryCard(card, this);
+  });
+
+  // Order is applied when the field loses focus (or on Enter), not on every
+  // keystroke/arrow click -- see moveGalleryCard(). Escape puts it back.
+  const orderInput = card.querySelector('.gi-order-input');
+  orderInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') { e.preventDefault(); this.blur(); }
+    else if (e.key === 'Escape') {
+      this.value = card.querySelector('.gi-sortorder').value;
+      this.blur();
     }
+  });
+  orderInput.addEventListener('blur', function() {
+    const was = parseInt(card.querySelector('.gi-sortorder').value);
+    const now = parseInt(this.value);
+    if (Number.isNaN(now) || now === was) { this.value = was; return; }
+    moveGalleryCard(card, now);
   });
 
   list.appendChild(card);
@@ -1480,14 +2131,165 @@ function toggleAttribution(sel) {
   row.classList.toggle('visible', sel.value === '0');
 }
 
-function removeGalleryImageCard(btn) {
-  btn.closest('.gi-card').remove();
-  updateGiEmpty();
+// ── Gallery image actions (immediate; api_gallery_image.php) ──────────
+
+// Saved card -> Hide. A new card that was never saved -> just drop it.
+async function hideOrRemoveGalleryCard(btn) {
+  const card = btn.closest('.gi-card');
+  if (!card.dataset.galleryImageId) {
+    await flushSave();                       // it may have just been saved
+  }
+  if (!card.dataset.galleryImageId) {
+    card.remove();
+    updateGiEmpty();
+    return;
+  }
+  await galleryAction(card.dataset.galleryImageId, 'hide');
+}
+
+async function unhideGalleryImage(id) {
+  await galleryAction(id, 'unhide');
+}
+
+// Featured is one-of-many: ticking a card makes it the featured image
+// (SortOrder 0, the others renumbered); unticking the featured one is
+// refused -- feature a different image instead.
+async function featureGalleryCard(card, cb) {
+  if (!cb.checked) {
+    cb.checked = true;
+    toast('To change the featured image, tick Featured on another image.', 'info', 4000);
+    return;
+  }
+  await flushSave();                         // a new card needs its ID first
+  if (!card.dataset.galleryImageId) {
+    cb.checked = false;
+    toast('Enter a Base Name first.', 'err');
+    return;
+  }
+  await galleryAction(card.dataset.galleryImageId, 'feature');
+}
+
+async function galleryAction(id, action) {
+  await flushSave();
+  const dsoKey = currentObject && currentObject.DSOKey;
+  try {
+    const res  = await apiFetch('api_gallery_image.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ GalleryImageID: parseInt(id), action }),
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'unknown error');
+
+    if (action === 'feature') {
+      applyGalleryState(data.images);
+    } else {
+      // hide/unhide move a card between lists -- re-render from the DB.
+      const fresh = dsoKey ? await fetchOneByKey(dsoKey) : null;
+      if (fresh && currentObject && currentObject.DSOKey === dsoKey) {
+        renderGalleryImages(fresh.GalleryImages || []);
+      }
+    }
+    const name = (data.images.find(i => String(i.GalleryImageID) === String(id)) || {}).BaseName || '';
+    const verb = { hide: 'Hidden', unhide: 'Unhidden', feature: 'Featured' }[action];
+    toast(verb + (name ? ': ' + name : '') + (data.promoted ? ' \u2014 ' + data.promoted + ' is now featured' : ''), 'ok', 4000);
+  } catch (e) {
+    toast(action + ' failed: ' + e.message, 'err', 6000);
+    const fresh = dsoKey ? await fetchOneByKey(dsoKey) : null;
+    if (fresh) renderGalleryImages(fresh.GalleryImages || []);
+  }
+}
+
+// Move a card to position `pos` among the visible images and renumber
+// everything, so no two images ever share an order number (a shared number
+// is what made the server's tie-break -- GalleryImageID -- put a "1" in
+// slot 2, or send a change straight back). Position 0 is the featured
+// image's slot: it's changed with the Featured tick-box, not here.
+function moveGalleryCard(card, pos) {
+  const list  = document.getElementById('gi-list');
+  const input = card.querySelector('.gi-order-input');
+  const cards = Array.from(list.querySelectorAll('.gi-card'));
+  const featured = cards.find(c => c.querySelector('.gi-isfeature').checked) || null;
+
+  if (card === featured) {
+    input.value = card.querySelector('.gi-sortorder').value;
+    toast('The featured image is always first. Tick Featured on another image to replace it.', 'info', 4000);
+    return;
+  }
+  const others = cards.filter(c => c !== card && c !== featured);
+  const first  = featured ? 1 : 0;
+  if (pos < first) {
+    if (featured) toast('Position 0 is the featured image — tick Featured to feature this one.', 'info', 4000);
+    pos = first;
+  }
+  const idx = Math.min(Math.max(pos - first, 0), others.length);
+  others.splice(idx, 0, card);
+  const ordered = featured ? [featured, ...others] : others;
+
+  ordered.forEach((c, i) => {
+    c.querySelector('.gi-order-input').value = i;
+    c.querySelector('.gi-sortorder').value   = i;
+    list.appendChild(c);
+  });
+  card.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  scheduleSave(0);
+}
+
+// Apply server-side SortOrder/IsFeature (after a save or feature action)
+// to the visible cards and put them in that order.
+function applyGalleryState(images) {
+  if (!Array.isArray(images)) return;
+  const list  = document.getElementById('gi-list');
+  const byId  = {};
+  images.forEach(i => { byId[String(i.GalleryImageID)] = i; });
+  const cards = Array.from(list.querySelectorAll('.gi-card'));
+  cards.forEach(card => {
+    const st = byId[card.dataset.galleryImageId];
+    if (!st) return;
+    const oi = card.querySelector('.gi-order-input');
+    if (document.activeElement !== oi) oi.value = st.SortOrder;
+    card.querySelector('.gi-sortorder').value   = st.SortOrder;
+    setCardFeatured(card, !!st.IsFeature);
+  });
+  const orderOf = c => { const st = byId[c.dataset.galleryImageId]; return st ? st.SortOrder : 1e6; };
+  const sorted  = [...cards].sort((a, b) => orderOf(a) - orderOf(b));
+  // Only move cards when the order actually changed -- moving the card
+  // being typed in would take focus away from it.
+  if (sorted.some((c, i) => c !== cards[i])) sorted.forEach(c => list.appendChild(c));
+}
+
+function setCardFeatured(card, on) {
+  card.classList.toggle('is-feature', on);
+  card.querySelector('.gi-isfeature').checked = on;
+  const badge = card.querySelector('.gi-feature-badge');
+  if (on && !badge) {
+    const span = document.createElement('span');
+    span.className = 'gi-feature-badge';
+    span.innerHTML = '&#9733; Featured';
+    card.querySelector('.gi-card-header').appendChild(span);
+  } else if (!on && badge) {
+    badge.remove();
+  }
+}
+
+function renderHiddenGalleryImages(images) {
+  const wrap = document.getElementById('gi-hidden');
+  const list = document.getElementById('gi-hidden-list');
+  document.getElementById('gi-hidden-count').textContent = images.length;
+  wrap.style.display = images.length ? '' : 'none';
+  list.innerHTML = images.map(img => {
+    const url = galleryFavUrl(img.BaseName);
+    return `<div class="gi-hidden-item">
+      <img src="${escHtml(url)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+      <span class="name" title="${escHtml(img.BaseName)}">${escHtml(img.BaseName)}${img.Caption ? ' &mdash; ' + escHtml(img.Caption) : ''}</span>
+      <button class="btn" style="font-size:11px; padding:3px 10px;" onclick="unhideGalleryImage(${parseInt(img.GalleryImageID)})">Unhide</button>
+    </div>`;
+  }).join('');
 }
 
 function getGalleryImageRows() {
-  return Array.from(document.querySelectorAll('.gi-card')).map(card => ({
+  return Array.from(document.querySelectorAll('#gi-list .gi-card')).map(card => ({
     GalleryImageID: card.dataset.galleryImageId || null,
+    _tmp:           card.dataset.galleryImageId ? undefined : (card.dataset.tmp || (card.dataset.tmp = nextTmpKey('g'))),
     BaseName:       card.querySelector('.gi-basename-input').value.trim(),
     Caption:        card.querySelector('.gi-caption').value.trim()        || null,
     PaletteID:      parseInt(card.querySelector('.gi-palette').value),
@@ -1498,7 +2300,7 @@ function getGalleryImageRows() {
     Equipment:      card.querySelector('.gi-equipment').value.trim()      || null,
     IsMosaic:       card.querySelector('.gi-ismosaic').checked ? 1 : 0,
     SessionDir:     card.querySelector('.gi-sessiondir').value.trim()     || null,
-    SortOrder:      parseInt(card.querySelector('.gi-order-input').value) || 0,
+    SortOrder:      parseInt(card.querySelector('.gi-sortorder').value) || 0,
     IsFeature:      card.querySelector('.gi-isfeature').checked ? 1 : 0,
   })).filter(r => r.BaseName);
 }
@@ -1524,7 +2326,7 @@ function addLinkRow(lnk = {}) {
                value="${escHtml(lnk.URL || '')}" autocomplete="off"></td>
     <td><input type="number" class="lnk-order" value="${lnk.SortOrder || 0}"
                min="0" step="1" style="width:54px;" autocomplete="off"></td>
-    <td><button class="btn-icon" onclick="this.closest('tr').remove()" title="Remove">&#x2715;</button></td>
+    <td><button class="btn-icon" onclick="removeRowAndSave(this)" title="Remove">&#x2715;</button></td>
   `;
   tbody.appendChild(tr);
 }
@@ -1532,10 +2334,11 @@ function addLinkRow(lnk = {}) {
 function getDSOLinkRows() {
   return Array.from(document.querySelectorAll('#lnk-tbody tr')).map(tr => ({
     LinkID:    tr.dataset.linkId || null,
+    _tmp:      tr.dataset.linkId ? undefined : (tr.dataset.tmp || (tr.dataset.tmp = nextTmpKey('l'))),
     Label:     tr.querySelector('.lnk-label').value.trim(),
     URL:       tr.querySelector('.lnk-url').value.trim(),
     SortOrder: parseInt(tr.querySelector('.lnk-order').value) || 0,
-  })).filter(r => r.Label && r.URL);
+  })).filter(r => r.LinkID || (r.Label && r.URL));   // a saved link being retyped is kept, not deleted
 }
 
 // ──────────────────────────────────────────────

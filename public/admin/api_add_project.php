@@ -3,6 +3,10 @@
 // api_add_project.php  —  Manually create a Projects row for a DSO
 //
 // Accepts POST: { "DSOKey": "IC342", "ProjectFolder": "ic342_hidden_galaxy" }
+//   or, to repoint an existing Project whose folder was renamed on disk:
+//         { "DSOKey": "IC342", "ProjectFolder": "...", "ReplaceProjectID": 12 }
+//   (only allowed when that Project belongs to the DSO and its current
+//   ProjectFolder no longer exists under WORKS_ROOT)
 //
 // This is the single-DSO, in-admin equivalent of pythonscripts/
 // sync_projects.py's job: nothing in the app auto-creates a Projects
@@ -31,9 +35,24 @@ if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     exit;
 }
 
+// ── Local-only guard ─────────────────────────────────────────────────────
+// Add Project needs WORKS_ROOT (the myWorks folder on disk). On the public VPS it
+// isn't reachable, so refuse explicitly (localOnly: true tells the admin UI
+// to show its "available only when run locally" dialog) instead of carrying
+// on and failing silently.
+if (!defined('WORKS_ROOT') || !is_dir(WORKS_ROOT)) {
+    http_response_code(409);
+    echo json_encode([
+        'error'     => 'Add Project is available only when the admin panel is run locally.',
+        'localOnly' => true,
+    ]);
+    exit;
+}
+
 $body           = json_decode(file_get_contents('php://input'), true);
 $dso_key        = trim($body['DSOKey'] ?? '');
 $project_folder = trim($body['ProjectFolder'] ?? '');
+$replace_id     = !empty($body['ReplaceProjectID']) ? (int)$body['ReplaceProjectID'] : null;
 
 if (!$dso_key) {
     http_response_code(400);
@@ -88,6 +107,40 @@ try {
         exit;
     }
 
+    if (!is_dir(WORKS_ROOT . DIRECTORY_SEPARATOR . $project_folder)) {
+        http_response_code(400);
+        echo json_encode(['error' => "Folder '$project_folder' doesn't exist under " . WORKS_ROOT . "."]);
+        exit;
+    }
+
+    // ── Repoint an existing (stale) Project instead of inserting ─────────
+    if ($replace_id !== null) {
+        $stmt = $db->prepare('SELECT DSOKey AS "DSOKey", ProjectFolder AS "ProjectFolder" FROM Projects WHERE ProjectID = ?');
+        $stmt->execute([$replace_id]);
+        $old = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$old || strcasecmp($old['DSOKey'], $dso_key) !== 0) {
+            http_response_code(400);
+            echo json_encode(['error' => "ProjectID $replace_id doesn't belong to DSO $dso_key."]);
+            exit;
+        }
+        if ($old['ProjectFolder'] && is_dir(WORKS_ROOT . DIRECTORY_SEPARATOR . $old['ProjectFolder'])) {
+            http_response_code(400);
+            echo json_encode(['error' => "Project $replace_id's folder '{$old['ProjectFolder']}' still exists on disk -- not repointing it."]);
+            exit;
+        }
+        $stmt = $db->prepare('UPDATE Projects SET ProjectFolder = ? WHERE ProjectID = ?');
+        $stmt->execute([$project_folder, $replace_id]);
+        echo json_encode([
+            'success'        => true,
+            'repointed'      => true,
+            'ProjectID'      => $replace_id,
+            'DSOKey'         => $dso_key,
+            'ProjectFolder'  => $project_folder,
+            'OldFolder'      => $old['ProjectFolder'],
+        ]);
+        exit;
+    }
+
     // ── Insert ─────────────────────────────────────────────────────────
     $stmt = $db->prepare('INSERT INTO Projects (DSOKey, ProjectFolder) VALUES (?, ?)');
     $stmt->execute([$dso_key, $project_folder]);
@@ -100,7 +153,7 @@ try {
         'ProjectFolder' => $project_folder,
     ]);
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
     http_response_code(500);
     echo json_encode(['error' => $e->getMessage()]);
 }

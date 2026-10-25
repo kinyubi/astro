@@ -9,6 +9,8 @@ $errors = [];
 $favBaseNames = [];
 $dbBaseNames  = [];
 $dbRows       = []; // baseName => DSOKey
+$dupGroups    = []; // "DSOKEY|basename_lower" => [ ['id'=>, 'baseName'=>, 'dsoKey'=>, 'hidden'=>], ... ]
+$catalogToDso = []; // UPPER(CatalogID) => DSOKey, for inferring a fav file's DSO
 
 // ── 1. Scan fav directory ─────────────────────────────────────────────────────
 if (!is_dir($favDir)) {
@@ -25,19 +27,42 @@ if (!is_dir($favDir)) {
 // ── 2. Query GalleryImages ────────────────────────────────────────────────────
 try {
     $db = get_db();
-    $stmt = $db->query("SELECT gi.BaseName AS \"BaseName\", gi.DSOKey AS \"DSOKey\", o.CommonName AS \"CommonName\"
+    $stmt = $db->query("SELECT gi.GalleryImageID AS \"GalleryImageID\", gi.BaseName AS \"BaseName\",
+                               gi.DSOKey AS \"DSOKey\", o.CommonName AS \"CommonName\",
+                               COALESCE(gi.IsHidden, 0) AS \"IsHidden\"
                         FROM GalleryImages gi
                         LEFT JOIN Objects o ON gi.DSOKey = o.DSOKey
-                        ORDER BY gi.DSOKey, gi.BaseName");
+                        ORDER BY gi.DSOKey, gi.BaseName, gi.GalleryImageID");
     foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $dbBaseNames[$row['BaseName']] = true;
         $dbRows[$row['BaseName']] = [
             'dsoKey'     => $row['DSOKey'],
             'commonName' => $row['CommonName'] ?? '',
         ];
+        $dupGroups[strtoupper($row['DSOKey']) . '|' . strtolower($row['BaseName'])][] = [
+            'id'       => (int)$row['GalleryImageID'],
+            'baseName' => $row['BaseName'],
+            'dsoKey'   => $row['DSOKey'],
+            'hidden'   => (int)$row['IsHidden'],
+        ];
     }
-} catch (Exception $e) {
+    $dupGroups = array_filter($dupGroups, fn($g) => count($g) > 1);
+
+    foreach ($db->query('SELECT CatalogID AS "CatalogID", DSOKey AS "DSOKey" FROM CatalogIDs')->fetchAll(PDO::FETCH_ASSOC) as $c) {
+        $catalogToDso[strtoupper($c['CatalogID'])] = $c['DSOKey'];
+    }
+    foreach ($db->query('SELECT DSOKey AS "DSOKey" FROM Objects')->fetchAll(PDO::FETCH_COLUMN) as $k) {
+        $catalogToDso[strtoupper($k)] = $k;
+    }
+} catch (Throwable $e) {
     $errors[] = "DB error: " . $e->getMessage();
+}
+
+// A fav file's DSO is its first underscore-separated token (ngc6992_..., sh2-103_...),
+// resolved through CatalogIDs in case the DSO is keyed under another catalog ID.
+function infer_dso_key(string $base, array $catalogToDso): array {
+    $token = strtoupper(explode('_', $base)[0]);
+    return isset($catalogToDso[$token]) ? [$catalogToDso[$token], true] : [$token, false];
 }
 
 // ── 3. Compute diffs ──────────────────────────────────────────────────────────
@@ -49,7 +74,7 @@ ksort($missingFromDb);
 $missingFavFile = array_diff_key($dbBaseNames, $favBaseNames);
 ksort($missingFavFile);
 
-$allClear = empty($missingFromDb) && empty($missingFavFile) && empty($errors);
+$allClear = empty($missingFromDb) && empty($missingFavFile) && empty($dupGroups) && empty($errors);
 $totalFav = count($favBaseNames);
 $totalDb  = count($dbBaseNames);
 ?>
@@ -222,22 +247,11 @@ $totalDb  = count($dbBaseNames);
           <?php else: ?>
             <?php foreach ($missingFromDb as $base => $_): ?>
               <?php
-                // Infer DSOKey: first token(s) before a likely session/date segment
-                // e.g. "ic1805_heart_20241108_sho" → try to match against known DB keys
-                // Simple heuristic: uppercase first segment(s) until we hit a digit-heavy token
-                $parts = explode('_', $base);
-                $keyParts = [];
-                foreach ($parts as $p) {
-                    if (preg_match('/^\d{4,}/', $p)) break; // hit a date/session number
-                    $keyParts[] = $p;
-                    // Stop after 2 parts — most DSO keys are 1–2 segments (e.g. "ic1805", "ngc7000")
-                    if (count($keyParts) >= 2) break;
-                }
-                $inferredKey = strtoupper(implode('', $keyParts));
+                [$inferredKey, $knownKey] = infer_dso_key($base, $catalogToDso);
               ?>
               <tr>
                 <td><span class="mono"><?= htmlspecialchars($base) ?></span></td>
-                <td><span class="name"><?= htmlspecialchars($inferredKey) ?></span></td>
+                <td><span class="name"><?= htmlspecialchars($inferredKey) ?></span><?php if (!$knownKey): ?> <span class="muted">(no such DSO)</span><?php endif; ?></td>
                 <td>
                   <a class="admin-link" href="<?= $adminUrl ?>?load=<?= urlencode($inferredKey) ?>" target="_blank">
                     Open in Admin →
@@ -279,6 +293,45 @@ $totalDb  = count($dbBaseNames);
                 <td><span class="muted"><?= htmlspecialchars($row['commonName']) ?></span></td>
                 <td>
                   <a class="admin-link" href="<?= $adminUrl ?>?load=<?= urlencode($row['dsoKey']) ?>" target="_blank">
+                    Open in Admin →
+                  </a>
+                </td>
+              </tr>
+            <?php endforeach; ?>
+          <?php endif; ?>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Section 3: duplicate BaseNames within one DSO -->
+    <div class="section">
+      <div class="section-header">
+        <h2>⧉ Duplicate GalleryImages rows (same Base Name, same DSO)</h2>
+        <span class="badge <?= count($dupGroups) ? 'badge-warn' : 'badge-ok' ?>">
+          <?= count($dupGroups) ?>
+        </span>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>BaseName</th>
+            <th>DSOKey</th>
+            <th>Rows</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php if (empty($dupGroups)): ?>
+            <tr class="empty-row"><td colspan="4">None — every image name is used once per DSO.</td></tr>
+          <?php else: ?>
+            <?php foreach ($dupGroups as $g): ?>
+              <tr>
+                <td><span class="mono"><?= htmlspecialchars($g[0]['baseName']) ?></span></td>
+                <td><span class="name"><?= htmlspecialchars($g[0]['dsoKey']) ?></span></td>
+                <td><span class="muted"><?= implode(', ', array_map(fn($r) => '#' . $r['id'] . ($r['hidden'] ? ' (hidden)' : ''), $g)) ?></span></td>
+                <td>
+                  <a class="admin-link" href="<?= $adminUrl ?>?load=<?= urlencode($g[0]['dsoKey']) ?>" target="_blank"
+                     title="Sync Folder on this DSO merges the duplicates">
                     Open in Admin →
                   </a>
                 </td>

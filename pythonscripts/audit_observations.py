@@ -29,14 +29,22 @@ For each top-level folder under MyWorks (expected to match a Projects.ProjectFol
         reflect manual curation later).
       - Create a new Observations row for any observation folder with no
         matching date in the DB at all.
-      - Report (never delete) any existing Observations row whose date wasn't
-        found among this run's disk folders: "orphaned" if it had a folder
-        recorded, "legacy, no ObservationFolder" (with its ObservationDate
-        shown, since that's all there is) if it never had one and none was
-        found to link it to this run either.
-      - Report (skip) any subfolder that doesn't match either observation
-        folder pattern or the lights_ folder pattern, so nothing is silently
-        ignored without you seeing it.
+      - DELETE any existing Observations row whose date wasn't found among
+        this run's disk folders -- "orphaned" if it had a folder recorded,
+        "legacy, no ObservationFolder" if it never had one -- to keep a real
+        1-to-1 correspondence between disk and DB. The one exception: a row
+        carrying manually-entered data this script can never rederive
+        (see MANUAL_DATA_FIELDS -- Filter/Notes/SeeingConditions/
+        Temperature/Humidity/NinaWorkflowName/MosaicPanel) is held back and
+        reported instead of deleted, since a future re-sync can't bring that
+        back the way it can TotalExposures/GoodLights/etc.
+      - Report (skip) any subfolder that starts with an 8-digit date but
+        still doesn't match either observation folder pattern, so a
+        malformed observation folder is never silently ignored. A subfolder
+        that doesn't even start with 8 digits (lights_ folders aside) isn't
+        an attempt at an observation folder at all -- e.g. "processed",
+        "masters", misc notes folders -- so those are skipped without being
+        reported.
 
 NOTHING IS WRITTEN until you confirm at the y/N prompt. All changes run in a
 single SQLite transaction -- rolls back cleanly on any error.
@@ -78,17 +86,33 @@ GoodLights-zero-falls-back-to-TotalExposures case.
 
 Usage:
     python audit_observations.py [path_to_astro.db] [--works-root PATH]
+
+Scoped, non-interactive mode (used by the admin UI's "Audit Observations"
+button -- see public/admin/api_audit_observations.php):
+
+    python audit_observations.py --project-folder=<folder> --json
+
+Restricts the scan to that one top-level folder instead of all of
+WORKS_ROOT, skips the printed report and the y/N prompt, applies the
+safe creates/updates immediately (ambiguous matches are still never
+auto-applied -- they're reported the same as always), and prints a single
+JSON object to stdout instead of the text report. Add --dry-run alongside
+--json to get the same JSON shape without writing anything, for testing.
 """
 
 import re
 import sys
 import os
+import json as jsonlib
 import datetime
 from pathlib import Path
 from db_connect import get_connection
 
 WORKS_ROOT = Path(r"C:\Astronomy\MyWorks")
 DB_PATH = Path(__file__).parent.parent / 'dsodb' / 'astro.db'
+PROJECT_FOLDER_FILTER = None  # --project-folder=NAME -- scope to one top-level folder
+JSON_MODE = False             # --json -- non-interactive, JSON output, used by the admin UI
+DRY_RUN = False               # --dry-run -- only meaningful with --json (see module docstring)
 
 # Parse remaining args (allow overriding DB path / works root for testing)
 args = sys.argv[1:]
@@ -96,12 +120,25 @@ for a in list(args):
     if a.startswith('--works-root='):
         WORKS_ROOT = Path(a.split('=', 1)[1])
         args.remove(a)
+    elif a.startswith('--project-folder='):
+        PROJECT_FOLDER_FILTER = a.split('=', 1)[1].strip()
+        args.remove(a)
+    elif a == '--json':
+        JSON_MODE = True
+        args.remove(a)
+    elif a == '--dry-run':
+        DRY_RUN = True
+        args.remove(a)
 if args:
     DB_PATH = Path(args[0])
 
-# Patterns from DB_REWORK_PLAN.md section 3
-OBS_FOLDER_WITH_COUNT = re.compile(r'^(\d{8})_(\d+)x(\d+)s_([A-Z0-9]+)$', re.IGNORECASE)
-OBS_FOLDER_DATE_EQUIP = re.compile(r'^(\d{8})_([A-Z0-9]+)$', re.IGNORECASE)
+# Patterns from DB_REWORK_PLAN.md section 3. The optional "_mosaic" marker
+# right before the equipment code (e.g. "20251102_207x60s_mosaic_S30") flags
+# a session shot as part of a mosaic -- it's a non-capturing token, not a
+# panel identifier, so it doesn't feed MosaicPanel or anything else; it just
+# needs to not break the match.
+OBS_FOLDER_WITH_COUNT = re.compile(r'^(\d{8})_(\d+)x(\d+)s(?:_mosaic)?_([A-Z0-9]+)$', re.IGNORECASE)
+OBS_FOLDER_DATE_EQUIP = re.compile(r'^(\d{8})_(?:mosaic_)?([A-Z0-9]+)$', re.IGNORECASE)
 LIGHTS_FOLDER = re.compile(r'^lights_([A-Z0-9]+)$', re.IGNORECASE)
 FIT_FILENAME_PATTERN = r'^.+_(\d+)\.0s_.*(\d{8})-(\d{6})\.fit' + chr(36)
 FIT_FILENAME = re.compile(FIT_FILENAME_PATTERN, re.IGNORECASE)
@@ -120,6 +157,25 @@ def calc_integration_mins(good_lights, total_exposures, exposure_secs):
     if total_exposures:
         return round(total_exposures * exposure_secs / 60.0, 1)
     return None
+
+
+# Fields that only ever get into an Observations row by hand (nothing this
+# script scans for on disk derives them) -- SeeingConditions/Temperature/
+# Humidity/NinaWorkflowName/Notes/MosaicPanel/Filter. A row with no matching
+# disk folder is normally safe to delete outright (everything else about it
+# -- TotalExposures, GoodLights, ExposureTimeSecs, StartTime/EndTime -- is
+# fully rederivable next time the folder shows up again), but one of these
+# fields means someone typed something in that a re-sync can never bring
+# back, so it's held out of auto-delete and reported for manual review
+# instead.
+MANUAL_DATA_FIELDS = ('Filter', 'Notes', 'SeeingConditions', 'Temperature',
+                       'Humidity', 'NinaWorkflowName', 'MosaicPanel')
+
+
+def manual_data_fields_present(row):
+    """Returns the subset of MANUAL_DATA_FIELDS that are actually set on
+    this Observations row (non-NULL, non-empty-string)."""
+    return [f for f in MANUAL_DATA_FIELDS if row.get(f) not in (None, '')]
 
 
 def parse_observation_folder(name):
@@ -224,14 +280,32 @@ def derive_observation_fields(obs_folder_name, lights_fit_cache, project_path):
     }
 
 
+def _fail(msg):
+    """Report a fatal error and exit, in whichever shape the caller expects."""
+    if JSON_MODE:
+        print(jsonlib.dumps({'error': msg}))
+    else:
+        print(f"ERROR: {msg}")
+    sys.exit(1)
+
+
 def main():
     if not WORKS_ROOT.is_dir():
-        print(f"ERROR: WORKS_ROOT not found: {WORKS_ROOT}")
-        sys.exit(1)
+        _fail(f"WORKS_ROOT not found: {WORKS_ROOT}")
     from db_connect import get_driver
     if get_driver() == 'sqlite' and not DB_PATH.exists():
-        print(f"ERROR: Database not found: {DB_PATH}")
-        sys.exit(1)
+        _fail(f"Database not found: {DB_PATH}")
+
+    if PROJECT_FOLDER_FILTER and not (WORKS_ROOT / PROJECT_FOLDER_FILTER).is_dir():
+        # Case-insensitive fallback -- Windows folder names are
+        # case-insensitive, so the caller's stored ProjectFolder casing
+        # may not match disk exactly (same concern as api_sync_folder.php).
+        match = next(
+            (d for d in os.listdir(WORKS_ROOT) if d.lower() == PROJECT_FOLDER_FILTER.lower()),
+            None
+        )
+        if not match:
+            _fail(f"Project folder not found under {WORKS_ROOT}: {PROJECT_FOLDER_FILTER}")
 
     conn = get_connection()
     cur = conn.cursor()
@@ -259,7 +333,18 @@ def main():
         if not top_path.is_dir():
             continue
 
+        if PROJECT_FOLDER_FILTER and top.lower() != PROJECT_FOLDER_FILTER.lower():
+            continue
+
+        # Same case-insensitive concern as api_sync_folder.php: the disk
+        # folder's casing may not match what's stored in ProjectFolder.
         project = projects_by_folder.get(top)
+        if not project:
+            project = next(
+                (p for p in projects_by_folder.values()
+                 if p['ProjectFolder'] and p['ProjectFolder'].lower() == top.lower()),
+                None
+            )
         if not project:
             unregistered_folders.append(top)
             continue
@@ -291,6 +376,14 @@ def main():
             FROM Observations WHERE ProjectID = ?
         """, (project_id,))
         all_existing = [dict(r) for r in cur.fetchall()]
+        # Postgres/psycopg2 returns ObservationDate as a native datetime.date
+        # (SQLite returned it as plain text) -- normalize to 'YYYY-MM-DD' text
+        # here so every date-string operation below (and JSON serialization
+        # of legacy_no_folder further down) works the same regardless of
+        # driver.
+        for r in all_existing:
+            if isinstance(r['ObservationDate'], (datetime.date, datetime.datetime)):
+                r['ObservationDate'] = r['ObservationDate'].strftime('%Y-%m-%d')
 
         # Current total integration time for this project, straight from the
         # DB, before anything this run does.
@@ -322,6 +415,16 @@ def main():
                 continue
             if LIGHTS_FOLDER.match(sub):
                 continue  # shared lights folder, not an observation folder itself
+
+            if not sub[:8].isdigit():
+                # Doesn't even start with an 8-digit date -- not an attempt
+                # at an observation folder at all (e.g. "processed",
+                # "masters", misc notes folders), so there's nothing to flag
+                # here. Only a folder that DOES start with 8 digits but still
+                # fails to parse below is worth reporting -- that one looks
+                # like it was meant to be an observation folder and got the
+                # naming wrong.
+                continue
 
             fields = derive_observation_fields(sub, lights_fit_cache, top_path)
             if not fields:
@@ -408,73 +511,149 @@ def main():
         for r in all_existing:
             if r['ObservationID'] in matched_observation_ids or r['ObservationID'] in ambiguous_ids_this_project:
                 continue
+            manual_fields = manual_data_fields_present(r)
             if r['ObservationFolder']:
-                orphaned.append((r['ObservationID'], dso_key, top, r['ObservationFolder']))
+                orphaned.append((r['ObservationID'], dso_key, top, r['ObservationFolder'], manual_fields))
             else:
-                legacy_no_folder.append((r['ObservationID'], r['ObservationDate'], dso_key, top))
+                legacy_no_folder.append((r['ObservationID'], r['ObservationDate'], dso_key, top, manual_fields))
 
         if project_touched:
             project_integration.append((dso_key, top, round(current_total, 1), round(current_total + projected_delta, 1)))
 
-    # Report
-    print("=" * 70)
-    print("Observation Folder Audit -- preview")
-    print("=" * 70)
+    # Enforce the 1-to-1 rule: an Observations row with no corresponding disk
+    # folder gets deleted, UNLESS it carries manually-entered data this
+    # script can never rederive (see MANUAL_DATA_FIELDS) -- those are held
+    # back and reported for manual review instead of being silently
+    # destroyed. Applies to both "orphaned" (had a folder, now gone) and
+    # "legacy, no ObservationFolder" (never had one) rows alike -- either
+    # way, no disk folder currently backs it.
+    orphaned_to_delete = [o for o in orphaned if not o[4]]
+    orphaned_kept       = [o for o in orphaned if o[4]]
+    legacy_to_delete    = [o for o in legacy_no_folder if not o[4]]
+    legacy_kept         = [o for o in legacy_no_folder if o[4]]
+    delete_ids = [o[0] for o in orphaned_to_delete] + [o[0] for o in legacy_to_delete]
 
-    print(f"\nUnregistered project folders ({len(unregistered_folders)}) -- no Projects row"
-          " matches this folder name; add the DSO/Project via admin first, then re-run:")
-    for f in unregistered_folders:
-        print(f"  {f}")
+    if not JSON_MODE:
+        # Report
+        print("=" * 70)
+        print("Observation Folder Audit -- preview")
+        print("=" * 70)
 
-    print(f"\nUnrecognized subfolders ({len(unrecognized_subfolders)}) -- didn't match either"
-          " observation-folder pattern or the lights_ pattern, skipped:")
-    for top, sub in unrecognized_subfolders:
-        print(f"  {top}/{sub}")
+        print(f"\nUnregistered project folders ({len(unregistered_folders)}) -- no Projects row"
+              " matches this folder name; add the DSO/Project via admin first, then re-run:")
+        for f in unregistered_folders:
+            print(f"  {f}")
 
-    print(f"\nLegacy Observations rows with no ObservationFolder set ({len(legacy_no_folder)})"
-          " -- pre-existing data this script won't try to auto-link:")
-    for obs_id, obs_date, dso_key, top in legacy_no_folder:
-        print(f"  {dso_key}  ({top})  observed {obs_date}")
+        print(f"\nUnrecognized subfolders ({len(unrecognized_subfolders)}) -- didn't match either"
+              " observation-folder pattern or the lights_ pattern, skipped:")
+        for top, sub in unrecognized_subfolders:
+            print(f"  {top}/{sub}")
 
-    print(f"\nAmbiguous matches ({len(ambiguous_matches)}) -- more than one existing"
-          " Observations row shares this date and equipment; skipped rather than guessing:")
-    for dso_key, top, sub, candidate_folders in ambiguous_matches:
-        print(f"  {dso_key}  {top}/{sub}  candidates={candidate_folders}")
+        print(f"\nLegacy Observations rows with no ObservationFolder set ({len(legacy_no_folder)}):")
+        for obs_id, obs_date, dso_key, top, manual_fields in legacy_to_delete:
+            print(f"  DELETE  {dso_key}  ({top})  observed {obs_date}  -- no disk folder ever linked")
+        for obs_id, obs_date, dso_key, top, manual_fields in legacy_kept:
+            print(f"  KEEP    {dso_key}  ({top})  observed {obs_date}  -- has {', '.join(manual_fields)}, review by hand")
 
-    print(f"\nOrphaned Observations rows ({len(orphaned)}) -- ObservationFolder no longer"
-          " found on disk (NOT deleted, just flagged):")
-    for obs_id, dso_key, top, folder in orphaned:
-        print(f"  {dso_key}  {top}/{folder}")
+        print(f"\nAmbiguous matches ({len(ambiguous_matches)}) -- more than one existing"
+              " Observations row shares this date and equipment; skipped rather than guessing:")
+        for dso_key, top, sub, candidate_folders in ambiguous_matches:
+            print(f"  {dso_key}  {top}/{sub}  candidates={candidate_folders}")
 
-    print(f"\nNew Observations rows to create ({len(to_create)}):")
-    for project_id, dso_key, top, fields in to_create:
-        mins = calc_integration_mins(fields['GoodLights'], fields['TotalExposures'], fields['ExposureTimeSecs'])
-        print(f"  {dso_key} ({top}/{fields['ObservationFolder']}): "
-              f"date={fields['ObservationDate']} equip={fields['EquipmentID']} "
-              f"exposures={fields['TotalExposures']} exp_secs={fields['ExposureTimeSecs']} "
-              f"good_lights={fields['GoodLights']} integration_mins={mins}")
+        print(f"\nOrphaned Observations rows ({len(orphaned)}) -- ObservationFolder no longer found on disk:")
+        for obs_id, dso_key, top, folder, manual_fields in orphaned_to_delete:
+            print(f"  DELETE  {dso_key}  {top}/{folder}")
+        for obs_id, dso_key, top, folder, manual_fields in orphaned_kept:
+            print(f"  KEEP    {dso_key}  {top}/{folder}  -- has {', '.join(manual_fields)}, review by hand")
 
-    print(f"\nExisting Observations rows to fill gaps in ({len(to_update)}):")
-    for obs_id, dso_key, top, sub, updates, projected_mins in to_update:
-        print(f"  {dso_key} ({top}/{sub}): {updates}  integration_mins={projected_mins}")
+        print(f"\nNew Observations rows to create ({len(to_create)}):")
+        for project_id, dso_key, top, fields in to_create:
+            mins = calc_integration_mins(fields['GoodLights'], fields['TotalExposures'], fields['ExposureTimeSecs'])
+            print(f"  {dso_key} ({top}/{fields['ObservationFolder']}): "
+                  f"date={fields['ObservationDate']} equip={fields['EquipmentID']} "
+                  f"exposures={fields['TotalExposures']} exp_secs={fields['ExposureTimeSecs']} "
+                  f"good_lights={fields['GoodLights']} integration_mins={mins}")
 
-    print(f"\nProjected Total Integration Time by project ({len(project_integration)} touched):")
-    for dso_key, top, current_total, projected_total in project_integration:
-        print(f"  {dso_key} ({top}): {current_total} min -> {projected_total} min")
+        print(f"\nExisting Observations rows to fill gaps in ({len(to_update)}):")
+        for obs_id, dso_key, top, sub, updates, projected_mins in to_update:
+            print(f"  {dso_key} ({top}/{sub}): {updates}  integration_mins={projected_mins}")
 
-    if not to_create and not to_update:
-        if ambiguous_matches:
-            print(f"\nNothing to auto-apply, but {len(ambiguous_matches)} ambiguous match(es)"
-                  " above need manual attention (e.g. fix a duplicate/stale ObservationFolder"
-                  " by hand, then re-run).")
+        print(f"\nProjected Total Integration Time by project ({len(project_integration)} touched):")
+        for dso_key, top, current_total, projected_total in project_integration:
+            print(f"  {dso_key} ({top}): {current_total} min -> {projected_total} min")
+
+    # Preview/JSON payload builders shared by every branch below -- 'orphaned'
+    # and 'legacyNoFolder' now mean specifically "kept back for manual review"
+    # (they carry manual data this script won't destroy); rows with nothing
+    # manual attached don't appear there any more, they're just gone.
+    def _orphaned_payload():
+        return [{'DSOKey': d, 'Top': t, 'ObservationFolder': f, 'ManualFields': mf}
+                 for _, d, t, f, mf in orphaned_kept]
+
+    def _legacy_payload():
+        return [{'DSOKey': d, 'Top': t, 'ObservationDate': od, 'ManualFields': mf}
+                 for _, od, d, t, mf in legacy_kept]
+
+    def _to_delete_payload():
+        return (
+            [{'DSOKey': d, 'Top': t, 'ObservationFolder': f, 'Reason': 'orphaned'}
+             for _, d, t, f, _ in orphaned_to_delete] +
+            [{'DSOKey': d, 'Top': t, 'ObservationDate': od, 'Reason': 'no-folder-ever-linked'}
+             for _, od, d, t, _ in legacy_to_delete]
+        )
+
+    if not to_create and not to_update and not delete_ids:
+        if JSON_MODE:
+            print(jsonlib.dumps({
+                'success': True,
+                'applied': False,
+                'created': [],
+                'updated': [],
+                'deleted': [],
+                'orphaned': _orphaned_payload(),
+                'ambiguous': [{'DSOKey': d, 'Top': t, 'Sub': s, 'Candidates': c} for d, t, s, c in ambiguous_matches],
+                'unrecognized': [{'Top': t, 'Sub': s} for t, s in unrecognized_subfolders],
+                'legacyNoFolder': _legacy_payload(),
+                'projectedIntegration': [
+                    {'DSOKey': d, 'Top': t, 'CurrentMins': c, 'ProjectedMins': p}
+                    for d, t, c, p in project_integration
+                ],
+            }))
         else:
-            print("\nNothing to create or update -- database already matches disk.")
+            if ambiguous_matches:
+                print(f"\nNothing to auto-apply, but {len(ambiguous_matches)} ambiguous match(es)"
+                      " above need manual attention (e.g. fix a duplicate/stale ObservationFolder"
+                      " by hand, then re-run).")
+            else:
+                print("\nNothing to create, update, or delete -- database already matches disk.")
         conn.close()
         return
 
-    answer = input("\nApply the creates/updates above in one transaction? [y/N] ").strip().lower()
-    if answer != 'y':
-        print("Aborted. No changes made.")
+    if not JSON_MODE:
+        print(f"\nThis will also DELETE {len(delete_ids)} Observations row(s) with no matching disk"
+              " folder (see DELETE lines above).")
+        answer = input("Apply the creates/updates/deletes above in one transaction? [y/N] ").strip().lower()
+        if answer != 'y':
+            print("Aborted. No changes made.")
+            conn.close()
+            return
+    elif DRY_RUN:
+        print(jsonlib.dumps({
+            'success': True,
+            'applied': False,
+            'dryRun': True,
+            'created': [{'DSOKey': d, 'Top': t, 'ObservationFolder': f['ObservationFolder']} for _, d, t, f in to_create],
+            'updated': [{'DSOKey': d, 'Top': t, 'Sub': s, 'Updates': u} for _, d, t, s, u, _ in to_update],
+            'toDelete': _to_delete_payload(),
+            'orphaned': _orphaned_payload(),
+            'ambiguous': [{'DSOKey': d, 'Top': t, 'Sub': s, 'Candidates': c} for d, t, s, c in ambiguous_matches],
+            'unrecognized': [{'Top': t, 'Sub': s} for t, s in unrecognized_subfolders],
+            'legacyNoFolder': _legacy_payload(),
+            'projectedIntegration': [
+                {'DSOKey': d, 'Top': t, 'CurrentMins': c, 'ProjectedMins': p}
+                for d, t, c, p in project_integration
+            ],
+        }))
         conn.close()
         return
 
@@ -497,6 +676,17 @@ def main():
             cur.execute(f"UPDATE Observations SET {set_clause} WHERE ObservationID = ?",
                         (*updates.values(), obs_id))
 
+        # Enforce the 1-to-1 rule: delete every Observations row with no
+        # corresponding disk folder and no manually-entered data attached
+        # (see MANUAL_DATA_FIELDS / delete_ids above). Cascades harmlessly to
+        # any ProcessingObservations rows for these (ON DELETE CASCADE).
+        deleted_count = 0
+        if delete_ids:
+            placeholders = ', '.join('?' for _ in delete_ids)
+            cur.execute(f"DELETE FROM Observations WHERE ObservationID IN ({placeholders})",
+                        tuple(delete_ids))
+            deleted_count = cur.rowcount
+
         # Post-update step, deliberately separate from the per-row inserts/updates
         # above: fill IntegrationMins wherever it's still blank. Never touches a
         # row that already has an IntegrationMins value -- that's what preserves
@@ -509,11 +699,11 @@ def main():
         cur.execute("""
             UPDATE Observations
             SET IntegrationMins = ROUND(
-                CASE
+                (CASE
                     WHEN GoodLights IS NOT NULL AND GoodLights > 0
                         THEN GoodLights * ExposureTimeSecs
                     ELSE TotalExposures * ExposureTimeSecs
-                END / 60.0, 1)
+                END / 60.0)::numeric, 1)
             WHERE IntegrationMins IS NULL
               AND ExposureTimeSecs IS NOT NULL
               AND (
@@ -524,11 +714,33 @@ def main():
         integration_filled = cur.rowcount
 
         conn.commit()
-        print(f"\nCOMMIT successful. Created {len(to_create)}, updated {len(to_update)}, "
-              f"IntegrationMins filled for {integration_filled} row(s).")
+
+        if JSON_MODE:
+            print(jsonlib.dumps({
+                'success': True,
+                'applied': True,
+                'created': [{'DSOKey': d, 'Top': t, 'ObservationFolder': f['ObservationFolder']} for _, d, t, f in to_create],
+                'updated': [{'DSOKey': d, 'Top': t, 'Sub': s, 'Updates': u} for _, d, t, s, u, _ in to_update],
+                'deleted': _to_delete_payload(),
+                'integrationFilled': integration_filled,
+                'orphaned': _orphaned_payload(),
+                'ambiguous': [{'DSOKey': d, 'Top': t, 'Sub': s, 'Candidates': c} for d, t, s, c in ambiguous_matches],
+                'unrecognized': [{'Top': t, 'Sub': s} for t, s in unrecognized_subfolders],
+                'legacyNoFolder': _legacy_payload(),
+                'projectedIntegration': [
+                    {'DSOKey': d, 'Top': t, 'CurrentMins': c, 'ProjectedMins': p}
+                    for d, t, c, p in project_integration
+                ],
+            }))
+        else:
+            print(f"\nCOMMIT successful. Created {len(to_create)}, updated {len(to_update)}, "
+                  f"deleted {deleted_count}, IntegrationMins filled for {integration_filled} row(s).")
     except Exception as e:
         conn.rollback()
-        print(f"\nERROR -- rolled back, no changes were kept: {e}")
+        if JSON_MODE:
+            print(jsonlib.dumps({'success': False, 'error': str(e)}))
+        else:
+            print(f"\nERROR -- rolled back, no changes were kept: {e}")
         sys.exit(1)
     finally:
         conn.close()

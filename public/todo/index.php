@@ -20,10 +20,18 @@
     --accent2:  #3fb950;
     --warn:     #d29922;
     --danger:   #f85149;
-    --text:     #c9d1d9;
-    --muted:    #8b949e;
+    --text:     #f1fbff;
+    --muted:    #a7b2be;
+    --field-text: #c8d6e4;
+    --placeholder: #6e7681;
     --radius:   6px;
     --font:     'Segoe UI', system-ui, sans-serif;
+    --equip-s30:  #bc8cff;
+    --equip-s50:  #58a6ff;
+    --equip-s50p: #f778ba;
+    --equip-s30-bg:  rgba(188,140,255,0.16);
+    --equip-s50-bg:  rgba(88,166,255,0.16);
+    --equip-s50p-bg: rgba(247,120,186,0.16);
   }
   * { box-sizing: border-box; }
   body {
@@ -49,40 +57,29 @@
     text-decoration: none;
   }
   header a:hover { color: var(--accent); }
-  .wrap { max-width: 900px; margin: 24px auto; padding: 0 16px 60px; }
+  .wrap { max-width: 1100px; margin: 24px auto; padding: 0 16px 60px; }
 
+  /* Same column widths as .item below, so the add-row lines up with the
+     list -- column 1 (checkbox) is left empty here, and the Add button
+     takes the age+delete columns at the end. */
   .add-row {
-    display: flex;
-    gap: 8px;
+    display: grid;
+    grid-template-columns: 18px 50px 110px minmax(140px, 1fr) 90px 110px 160px 110px 42px 24px;
+    column-gap: 10px;
     margin-bottom: 18px;
-    flex-wrap: wrap;
+    align-items: center;
   }
   .add-row input[type=text] {
-    flex: 1 1 338px;
+    width: 100%;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
     color: var(--text);
     padding: 9px 12px;
     font-size: 14px;
-  }
-  .add-row input[list] {
-    width: 60px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    color: var(--text);
-    padding: 9px 12px;
-    font-size: 14px;
-  }
-  /* #new-category is now a <select>, not a text input -- .add-row select's
-     width:110px would otherwise apply; override by id for extra room since
-     "Photograph" is the longest option. */
-  #new-category {
-    flex: 0 0 150px;
   }
   .add-row select {
-    width: 110px;
+    width: 100%;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: var(--radius);
@@ -90,7 +87,16 @@
     padding: 9px 8px;
     font-size: 14px;
   }
+  #new-priority { grid-column: 2; }
+  #new-dsokey { grid-column: 3; }
+  #new-commonname { grid-column: 4; }
+  #new-equipment { grid-column: 5; }
+  #new-sessiondate { grid-column: 6; }
+  #new-notes { grid-column: 7; }
+  #new-status { grid-column: 8; }
+
   .add-row button {
+    grid-column: 9 / 11;
     background: var(--accent2);
     border: none;
     border-radius: var(--radius);
@@ -99,6 +105,7 @@
     padding: 9px 18px;
     cursor: pointer;
     font-size: 14px;
+    white-space: nowrap;
   }
   .add-row button:hover { filter: brightness(1.1); }
 
@@ -124,15 +131,19 @@
   }
 
   .item {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
+    display: grid;
+    grid-template-columns: 18px 50px 110px minmax(140px, 1fr) 90px 110px 160px 110px 42px 24px;
+    align-items: start;
+    column-gap: 10px;
     padding: 8px 10px;
     border-radius: var(--radius);
     border: 1px solid var(--border);
     background: var(--surface);
     margin-bottom: 6px;
   }
+  .item.equip-S30  { background: var(--equip-s30-bg); }
+  .item.equip-S50  { background: var(--equip-s50-bg); }
+  .item.equip-S50P { background: var(--equip-s50p-bg); }
   .item input[type=checkbox] {
     margin-top: 3px;
     width: 16px;
@@ -141,30 +152,6 @@
     cursor: pointer;
     flex-shrink: 0;
   }
-  .item .text {
-    flex: 1;
-    font-size: 14px;
-    line-height: 1.4;
-    cursor: text;
-    outline: none;
-    word-break: break-word;
-  }
-  .item.done .text {
-    color: var(--muted);
-    text-decoration: line-through;
-  }
-  .item .del {
-    background: none;
-    border: none;
-    color: var(--muted);
-    cursor: pointer;
-    font-size: 16px;
-    line-height: 1;
-    padding: 2px 4px;
-    flex-shrink: 0;
-  }
-  .item .del:hover { color: var(--danger); }
-
   .item .prio {
     flex-shrink: 0;
     font-size: 11px;
@@ -176,10 +163,39 @@
     cursor: pointer;
     margin-top: 1px;
   }
+  .item .prio.prio-High    { color: var(--danger); border-color: var(--danger); }
+  .item .prio.prio-Medium  { color: var(--warn);   border-color: var(--warn); }
+  .item .prio.prio-Low     { color: var(--muted);  border-color: var(--border); }
+  .item.done .prio { opacity: 0.5; }
 
-  .item .cat {
+  .item .dsokey {
+    flex: 0 0 110px;
+    font-size: 13px;
+    line-height: 1.4;
+    cursor: text;
+    outline: none;
+    padding: 3px 4px;
+    border-radius: 4px;
+    color: var(--field-text);
+  }
+  .item .dsokey:focus { background: var(--bg); color: var(--text); }
+
+  .item .commonname {
+    flex: 1 1 200px;
+    font-size: 14px;
+    line-height: 1.4;
+    cursor: text;
+    outline: none;
+    word-break: break-word;
+    padding: 3px 4px;
+    border-radius: 4px;
+  }
+  .item .commonname:focus { background: var(--bg); }
+  .item.done .commonname { color: var(--muted); text-decoration: line-through; }
+
+  .item .equipment {
     flex-shrink: 0;
-    width: 100px;
+    width: 90px;
     font-size: 11px;
     color: var(--muted);
     border-radius: 4px;
@@ -188,7 +204,61 @@
     background: var(--bg);
     margin-top: 1px;
   }
-  .item.done .cat { opacity: 0.5; }
+  .item.done .equipment { opacity: 0.5; }
+
+  .legend {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    font-size: 11px;
+    color: var(--muted);
+    margin-bottom: 14px;
+  }
+  .legend span { display: flex; align-items: center; gap: 6px; }
+  .legend .swatch {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 2px;
+  }
+
+  .item .sessiondate {
+    flex: 0 0 110px;
+    font-size: 12px;
+    color: var(--field-text);
+    cursor: text;
+    outline: none;
+    padding: 3px 4px;
+    border-radius: 4px;
+  }
+  .item .sessiondate:focus { background: var(--bg); color: var(--text); }
+  .item .sessiondate:empty::before { content: attr(data-placeholder); color: var(--placeholder); }
+
+  .item .notes {
+    flex: 0 0 160px;
+    font-size: 12px;
+    color: var(--field-text);
+    cursor: text;
+    outline: none;
+    padding: 3px 4px;
+    border-radius: 4px;
+    word-break: break-word;
+  }
+  .item .notes:focus { background: var(--bg); color: var(--text); }
+  .item .notes:empty::before { content: attr(data-placeholder); color: var(--placeholder); }
+
+  .item .status {
+    flex-shrink: 0;
+    width: 110px;
+    font-size: 11px;
+    color: var(--muted);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    padding: 3px 5px;
+    background: var(--bg);
+    margin-top: 1px;
+  }
+  .item.done .status { opacity: 0.5; }
 
   .item .age {
     flex-shrink: 0;
@@ -199,10 +269,19 @@
   }
   .item .age.stale { color: var(--warn); }
   .item.done .age { opacity: 0.5; }
-  .item .prio.prio-High    { color: var(--danger); border-color: var(--danger); }
-  .item .prio.prio-Medium  { color: var(--warn);   border-color: var(--warn); }
-  .item .prio.prio-Low     { color: var(--muted);  border-color: var(--border); }
-  .item.done .prio { opacity: 0.5; }
+
+  .item .del {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 16px;
+    line-height: 1;
+    padding: 2px 4px;
+    flex-shrink: 0;
+    margin-left: auto;
+  }
+  .item .del:hover { color: var(--danger); }
 
   .empty {
     color: var(--muted);
@@ -223,20 +302,17 @@
 <div class="wrap">
 
   <div class="add-row">
-    <input type="text" id="new-text" placeholder="Add an item&#8230;" autocomplete="off">
-    <select id="new-category" title="Category">
-      <option value="Photograph" selected>Photograph</option>
-      <option value="Preprocess">Preprocess</option>
-      <option value="Process">Process</option>
-      <option value="Render">Render</option>
-      <option value="Post">Post</option>
-      <option value="Rework">Rework</option>
-    </select>
-    <select id="new-priority">
+    <select id="new-priority" title="Priority">
       <option value="High">High</option>
       <option value="Medium" selected>Medium</option>
       <option value="Low">Low</option>
     </select>
+    <input type="text" id="new-dsokey" placeholder="DSO Key" autocomplete="off">
+    <input type="text" id="new-commonname" placeholder="Common name&#8230;" autocomplete="off">
+    <select id="new-equipment" title="Equipment"></select>
+    <input type="text" id="new-sessiondate" placeholder="Session date" autocomplete="off">
+    <input type="text" id="new-notes" placeholder="Notes" autocomplete="off" maxlength="160">
+    <select id="new-status" title="Status"></select>
     <button onclick="addItem()">+ Add</button>
   </div>
 
@@ -245,6 +321,12 @@
     Show completed
   </label>
 
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--equip-s30-bg);border:1px solid var(--equip-s30)"></span>S30</span>
+    <span><span class="swatch" style="background:var(--equip-s50-bg);border:1px solid var(--equip-s50)"></span>S50</span>
+    <span><span class="swatch" style="background:var(--equip-s50p-bg);border:1px solid var(--equip-s50p)"></span>S50 Pro</span>
+  </div>
+
   <div id="list"></div>
 
 </div>
@@ -252,9 +334,21 @@
 <script>
 let todos = [];
 
-// Fixed pipeline stages for the category dropdowns (add-row and per-item).
+// Fixed pipeline stages for the Status dropdowns (add-row and per-item).
 // Order doubles as the intended workflow sequence.
-const CATEGORY_OPTIONS = ['Photograph', 'Preprocess', 'Process', 'Render', 'Post', 'Rework'];
+const STATUS_OPTIONS = ['Photograph', 'Download', 'Preprocess', 'Process', 'Render', 'Post', 'Rework'];
+
+// Notes is capped at 160 characters (matches the Notes VARCHAR(160) column).
+const NOTES_MAX_LEN = 160;
+
+// Equipment codes match the Equipment table's EquipmentID values
+// ('S30'/'S50'/'S50P') -- S50P displays as "S50 Pro".
+const EQUIPMENT_OPTIONS = [
+  { value: '',     label: '—' },
+  { value: 'S30',  label: 'S30' },
+  { value: 'S50',  label: 'S50' },
+  { value: 'S50P', label: 'S50 Pro' },
+];
 
 async function loadTodos() {
   const res = await fetch('api.php?action=list');
@@ -263,19 +357,60 @@ async function loadTodos() {
   render();
 }
 
-// <option> list for a category <select>: the six standard stages, plus
+// <option> list for a Status <select>: the six standard stages, plus
 // -- appended, not substituted -- the item's current value if it isn't
-// one of them, so a stray/legacy category (anything not yet migrated to
+// one of them, so a stray/legacy status (anything not yet migrated to
 // the standard set) still displays and can be picked back to intentionally
 // rather than silently vanishing or forcing a value change.
-function categoryOptionsHtml(current) {
-  const opts = CATEGORY_OPTIONS.includes(current) ? CATEGORY_OPTIONS : [...CATEGORY_OPTIONS, current];
+function statusOptionsHtml(current) {
+  const opts = STATUS_OPTIONS.includes(current) ? STATUS_OPTIONS : [...STATUS_OPTIONS, current];
   return opts.map(c => `<option value="${escAttr(c)}" ${c === current ? 'selected' : ''}>${escHtml(c)}</option>`).join('');
+}
+
+function equipmentOptionsHtml(current) {
+  current = current || '';
+  const known = EQUIPMENT_OPTIONS.some(o => o.value === current);
+  const opts = known ? EQUIPMENT_OPTIONS : [...EQUIPMENT_OPTIONS, { value: current, label: current }];
+  return opts.map(o => `<option value="${escAttr(o.value)}" ${o.value === current ? 'selected' : ''}>${escHtml(o.label)}</option>`).join('');
+}
+
+// Saving any field reloads the todos and calls render(), which rebuilds
+// the whole list via innerHTML -- that destroys whatever element currently
+// has focus (e.g. right after picking a new Equipment value, mid-Tab),
+// kicking focus back to the top of the page. Capture which field was
+// focused before the rebuild so it can be restored after, keeping Tab
+// flow intact.
+function captureFocus(list) {
+  const active = document.activeElement;
+  if (!active || !list.contains(active)) return null;
+  const itemEl = active.closest('.item');
+  if (!itemEl) return null;
+  let selector = null;
+  if (active.matches('input[type=checkbox]')) {
+    selector = 'input[type=checkbox]';
+  } else {
+    const cls = ['prio', 'dsokey', 'commonname', 'equipment', 'sessiondate', 'notes', 'status', 'del']
+      .find(c => active.classList.contains(c));
+    selector = cls ? '.' + cls : null;
+  }
+  if (!selector) return null;
+  return { id: itemEl.dataset.id, selector };
+}
+
+function restoreFocus(list, focus) {
+  if (!focus) return;
+  const itemEl = list.querySelector(`.item[data-id="${focus.id}"]`);
+  const field = itemEl && itemEl.querySelector(focus.selector);
+  if (field) field.focus();
 }
 
 function render() {
   const showCompleted = document.getElementById('show-completed').checked;
   const list = document.getElementById('list');
+  const focus = captureFocus(list);
+
+  document.getElementById('new-equipment').innerHTML = equipmentOptionsHtml('');
+  document.getElementById('new-status').innerHTML = statusOptionsHtml('Photograph');
 
   let visible = todos;
   if (!showCompleted) visible = visible.filter(t => !t.IsDone);
@@ -285,11 +420,11 @@ function render() {
     return;
   }
 
-  // Group by category, incomplete items first within each group, then by priority
+  // Group by status, incomplete items first within each group, then by priority
   const prioRank = { High: 0, Medium: 1, Low: 2 };
   const groups = {};
   visible.forEach(t => {
-    (groups[t.Category] ||= []).push(t);
+    (groups[t.Status] ||= []).push(t);
   });
   Object.values(groups).forEach(g => g.sort((a, b) =>
     (a.IsDone - b.IsDone) ||
@@ -297,51 +432,81 @@ function render() {
     (a.SortOrder - b.SortOrder)
   ));
 
-  const catNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+  // Groups appear in the same order as the Status dropdown (STATUS_OPTIONS),
+  // with any legacy/unrecognized status sorted alphabetically after those.
+  const groupNames = Object.keys(groups).sort((a, b) => {
+    const ai = STATUS_OPTIONS.indexOf(a);
+    const bi = STATUS_OPTIONS.indexOf(b);
+    if (ai === -1 && bi === -1) return a.localeCompare(b);
+    if (ai === -1) return 1;
+    if (bi === -1) return -1;
+    return ai - bi;
+  });
 
-  list.innerHTML = catNames.map(cat => `
+  list.innerHTML = groupNames.map(name => `
     <div class="group">
-      <div class="group-title">${escHtml(cat)}</div>
-      ${groups[cat].map(renderItem).join('')}
+      <div class="group-title">${escHtml(name)}</div>
+      ${groups[name].map(renderItem).join('')}
     </div>
   `).join('');
+
+  restoreFocus(list, focus);
 }
 
 function renderItem(t) {
   const prio = t.Priority || 'Medium';
+  const equipClass = t.Equipment || 'none';
   return `
-    <div class="item ${t.IsDone ? 'done' : ''}" data-id="${t.TodoID}">
+    <div class="item ${t.IsDone ? 'done' : ''} equip-${equipClass}" data-id="${t.TodoID}">
       <input type="checkbox" ${t.IsDone ? 'checked' : ''} onchange="toggleItem(${t.TodoID})" title="Mark completed">
-      <div class="text" contenteditable="true" onblur="saveText(${t.TodoID}, this.innerText)">${escHtml(t.ItemText)}</div>
-      <select class="cat" onchange="saveCategory(${t.TodoID}, this.value)" title="Category">${categoryOptionsHtml(t.Category)}</select>
-      <span class="age ${isStale(t.CreatedDate) ? 'stale' : ''}" title="Added ${escAttr(t.CreatedDate || '')}">${formatAge(t.CreatedDate)}</span>
       <select class="prio prio-${prio}" onchange="savePriority(${t.TodoID}, this.value)" title="Priority">
         <option value="High" ${prio === 'High' ? 'selected' : ''}>High</option>
         <option value="Medium" ${prio === 'Medium' ? 'selected' : ''}>Med</option>
         <option value="Low" ${prio === 'Low' ? 'selected' : ''}>Low</option>
       </select>
+      <div class="dsokey" contenteditable="true" title="DSO Key" onfocus="placeCaretAtStart(this)" onkeydown="handleEditableTab(event)" onblur="saveDsoKey(${t.TodoID}, this.innerText)">${escHtml(t.DSOKey)}</div>
+      <div class="commonname" contenteditable="true" title="Common name" onkeydown="handleEditableTab(event)" onblur="saveCommonName(${t.TodoID}, this.innerText)">${escHtml(t.CommonName)}</div>
+      <select class="equipment" onchange="saveEquipment(${t.TodoID}, this.value)" title="Equipment">${equipmentOptionsHtml(t.Equipment)}</select>
+      <div class="sessiondate" contenteditable="true" title="Session date" data-placeholder="Session date" onfocus="placeCaretAtStart(this)" onkeydown="handleEditableTab(event)" onblur="saveSessionDate(${t.TodoID}, this.innerText)">${escHtml(t.SessionDate)}</div>
+      <div class="notes" contenteditable="true" title="Notes (160 char max)" data-placeholder="Notes" onfocus="placeCaretAtStart(this)" onkeydown="handleEditableTab(event)" onblur="saveNotes(${t.TodoID}, this.innerText)">${escHtml(t.Notes)}</div>
+      <select class="status" onchange="saveStatus(${t.TodoID}, this.value)" title="Status">${statusOptionsHtml(t.Status)}</select>
+      <span class="age ${isStale(t.CreatedDate) ? 'stale' : ''}" title="Added ${escAttr(t.CreatedDate || '')}">${formatAge(t.CreatedDate)}</span>
       <button class="del" onclick="deleteItem(${t.TodoID})" title="Delete">&times;</button>
     </div>
   `;
 }
 
 async function addItem() {
-  const textEl = document.getElementById('new-text');
-  const catEl = document.getElementById('new-category');
-  const prioEl = document.getElementById('new-priority');
-  const text = textEl.value.trim();
-  const category = catEl.value;
-  const priority = prioEl.value;
-  if (!text) return;
+  const dsokeyEl = document.getElementById('new-dsokey');
+  const commonnameEl = document.getElementById('new-commonname');
+  const equipmentEl = document.getElementById('new-equipment');
+  const sessiondateEl = document.getElementById('new-sessiondate');
+  const notesEl = document.getElementById('new-notes');
+  const statusEl = document.getElementById('new-status');
+  const priorityEl = document.getElementById('new-priority');
+
+  const commonname = commonnameEl.value.trim();
+  if (!commonname) return;
 
   await fetch('api.php?action=add', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ item_text: text, category, priority })
+    body: JSON.stringify({
+      dsokey: dsokeyEl.value.trim(),
+      commonname,
+      equipment: equipmentEl.value,
+      sessiondate: sessiondateEl.value.trim(),
+      notes: notesEl.value.trim().slice(0, NOTES_MAX_LEN),
+      status: statusEl.value,
+      priority: priorityEl.value,
+    })
   });
-  textEl.value = '';
+  dsokeyEl.value = '';
+  commonnameEl.value = '';
+  sessiondateEl.value = '';
+  notesEl.value = '';
   await loadTodos();
-  textEl.focus();
+  dsokeyEl.focus();
 }
 
 async function toggleItem(id) {
@@ -362,27 +527,95 @@ async function savePriority(id, priority) {
   await loadTodos();
 }
 
-async function saveCategory(id, newCategory) {
+async function saveStatus(id, newStatus) {
   const t = todos.find(x => x.TodoID === id);
-  if (!t || newCategory === t.Category) { render(); return; }
+  if (!t || newStatus === t.Status) { return; }
   await fetch('api.php?action=update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, category: newCategory })
+    body: JSON.stringify({ id, status: newStatus })
   });
   await loadTodos();
 }
 
-async function saveText(id, newText) {
-  newText = newText.trim();
+async function saveEquipment(id, newEquipment) {
   const t = todos.find(x => x.TodoID === id);
-  if (!t || newText === t.ItemText || !newText) { render(); return; }
+  if (!t || newEquipment === (t.Equipment || '')) { return; }
   await fetch('api.php?action=update', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id, item_text: newText })
+    body: JSON.stringify({ id, equipment: newEquipment })
   });
   await loadTodos();
+}
+
+async function saveCommonName(id, newText) {
+  newText = newText.trim();
+  const t = todos.find(x => x.TodoID === id);
+  if (!t || newText === (t.CommonName || '') || !newText) { return; }
+  await fetch('api.php?action=update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, commonname: newText })
+  });
+  await loadTodos();
+}
+
+async function saveSessionDate(id, newText) {
+  newText = newText.trim();
+  const t = todos.find(x => x.TodoID === id);
+  if (!t || newText === (t.SessionDate || '')) { return; }
+  await fetch('api.php?action=update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, sessiondate: newText })
+  });
+  await loadTodos();
+}
+
+async function saveNotes(id, newText) {
+  newText = newText.trim().slice(0, NOTES_MAX_LEN);
+  const t = todos.find(x => x.TodoID === id);
+  if (!t || newText === (t.Notes || '')) { return; }
+  await fetch('api.php?action=update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, notes: newText })
+  });
+  await loadTodos();
+}
+
+// DSO Key -> Common Name autofill: only fills Common Name when it's
+// currently blank, and never overwrites a name that's already there.
+async function saveDsoKey(id, newKey) {
+  newKey = newKey.trim();
+  const t = todos.find(x => x.TodoID === id);
+  if (!t) return;
+  if (newKey === (t.DSOKey || '')) { return; }
+
+  const payload = { id, dsokey: newKey };
+
+  if (newKey && !(t.CommonName || '').trim()) {
+    const name = await lookupDsoName(newKey);
+    if (name) payload.commonname = name;
+  }
+
+  await fetch('api.php?action=update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  });
+  await loadTodos();
+}
+
+async function lookupDsoName(key) {
+  try {
+    const res = await fetch('api.php?action=lookup_dso&key=' + encodeURIComponent(key));
+    const data = await res.json();
+    return data.commonname || null;
+  } catch (e) {
+    return null;
+  }
 }
 
 async function deleteItem(id) {
@@ -396,9 +629,9 @@ async function deleteItem(id) {
 
 function daysSince(dateStr) {
   if (!dateStr) return null;
-  // Postgres/SQLite timestamps come back as 'YYYY-MM-DD HH:MM:SS' (no
-  // timezone) -- swap the space for 'T' so browsers parse it as local
-  // time instead of guessing/UTC-defaulting on the space-separated form.
+  // Postgres timestamps come back as 'YYYY-MM-DD HH:MM:SS' (no timezone)
+  // -- swap the space for 'T' so browsers parse it as local time instead
+  // of guessing/UTC-defaulting on the space-separated form.
   const d = new Date(dateStr.replace(' ', 'T'));
   if (isNaN(d)) return null;
   const ms = Date.now() - d.getTime();
@@ -426,10 +659,53 @@ function escHtml(s) {
   return d.innerHTML;
 }
 function escAttr(s) {
-  return String(s).replace(/'/g, "&#39;");
+  return String(s == null ? '' : s).replace(/'/g, "&#39;");
 }
 
-document.getElementById('new-text').addEventListener('keydown', e => {
+// Chrome/Firefox sometimes don't render a blinking caret when Tab (rather
+// than a click) focuses an EMPTY contenteditable div -- there's no content
+// for the browser to anchor the caret to. Forcing a collapsed selection at
+// the start on focus fixes it without inserting any actual content, so the
+// :empty-based placeholder styling (see CSS) still works correctly.
+function placeCaretAtStart(el) {
+  if (el.childNodes.length > 0) return; // has text already; browser handles it fine
+  const range = document.createRange();
+  range.selectNodeContents(el);
+  range.collapse(true);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+// Chrome has a long-standing bug where Tab reliably fails to move focus
+// from a contenteditable element directly into a <select> (exactly the
+// Common Name -> Equipment and Notes -> Status hops here) -- focus falls
+// back to <body> instead of the next field. Handle Tab ourselves on the
+// contenteditable fields so navigation works regardless of that bug.
+function handleEditableTab(e) {
+  if (e.key !== 'Tab') return;
+  e.preventDefault();
+  const focusable = Array.from(document.querySelectorAll(
+    'a[href], button, select, input, [contenteditable="true"]'
+  )).filter(el => el.offsetParent !== null);
+  const idx = focusable.indexOf(e.target);
+  if (idx === -1) return;
+  const next = focusable[e.shiftKey ? idx - 1 : idx + 1];
+  if (next) next.focus();
+}
+
+// DSO Key autofill also fires as soon as the add-row DSO Key field loses
+// focus, filling the add-row Common Name box if it's still empty.
+document.getElementById('new-dsokey').addEventListener('blur', async function () {
+  const key = this.value.trim();
+  const commonnameEl = document.getElementById('new-commonname');
+  if (key && !commonnameEl.value.trim()) {
+    const name = await lookupDsoName(key);
+    if (name) commonnameEl.value = name;
+  }
+});
+
+document.getElementById('new-commonname').addEventListener('keydown', e => {
   if (e.key === 'Enter') addItem();
 });
 

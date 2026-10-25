@@ -13,3 +13,8 @@ RewriteEngine On
 # /vis/all -> full DSO visibility report (Alignment Stars, Planets & Moon,
 # Visibility Dates included). Plain /vis defaults to the DSO table only.
 RewriteRule ^vis/all/?$ vis/index.php?all=1 [L,QSA]
+
+# /lightbox/<fragment>[/<type>] -> image lightbox for that DSO, e.g.
+# /lightbox/andro, /lightbox/m31/wall. Real files (api.php, img.php) pass through.
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^lightbox/([^/]+)(?:/(fav|full|wall|4k))?/?$ lightbox/index.php?q=$1&type=$2 [L,QSA]

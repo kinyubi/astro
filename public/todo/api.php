@@ -3,11 +3,12 @@
 // public/todo/api.php — To Do List API
 // No authentication — personal tool, not sensitive data.
 //
-// action=list    (GET)  -> { todos: [...], categories: [...] }
-// action=add     (POST) -> { id }            body: {item_text, category, priority?}
-// action=toggle  (POST) -> { id, is_done }   body: {id}
-// action=update  (POST) -> { id }            body: {id, item_text?, category?, priority?}
-// action=delete  (POST) -> { deleted }       body: {id}
+// action=list        (GET)  -> { todos: [...], statuses: [...] }
+// action=add         (POST) -> { id }            body: {dsokey?, commonname, equipment?, sessiondate?, notes?, status?, priority?}
+// action=toggle      (POST) -> { id, is_done }   body: {id}
+// action=update      (POST) -> { id }            body: {id, dsokey?, commonname?, equipment?, sessiondate?, notes?, status?, priority?}
+// action=delete      (POST) -> { deleted }       body: {id}
+// action=lookup_dso  (GET)  -> { commonname }    query: key
 // ============================================================
 
 require_once __DIR__ . '/../../shared/db.php';
@@ -23,7 +24,7 @@ try {
     switch ($action) {
 
         case 'list':
-            // LOWER(Category) instead of SQLite's "COLLATE NOCASE" -- NOCASE
+            // LOWER(Status) instead of SQLite's "COLLATE NOCASE" -- NOCASE
             // is a SQLite built-in collation name that doesn't exist in
             // Postgres; LOWER() gives the same case-insensitive ordering
             // on both engines without branching per driver.
@@ -35,8 +36,12 @@ try {
             $stmt = $db->query("
                 SELECT
                     TodoID        AS \"TodoID\",
-                    Category      AS \"Category\",
-                    ItemText      AS \"ItemText\",
+                    DSOKey        AS \"DSOKey\",
+                    CommonName    AS \"CommonName\",
+                    Equipment     AS \"Equipment\",
+                    SessionDate   AS \"SessionDate\",
+                    Notes         AS \"Notes\",
+                    Status        AS \"Status\",
                     IsDone        AS \"IsDone\",
                     Priority      AS \"Priority\",
                     SortOrder     AS \"SortOrder\",
@@ -46,32 +51,53 @@ try {
                 ORDER BY
                     IsDone ASC,
                     CASE Priority WHEN 'High' THEN 0 WHEN 'Medium' THEN 1 WHEN 'Low' THEN 2 ELSE 1 END ASC,
-                    LOWER(Category) ASC,
+                    LOWER(Status) ASC,
                     SortOrder ASC,
                     TodoID ASC
             ");
             $todos = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-            $cat_stmt = $db->query("SELECT DISTINCT Category AS \"Category\", LOWER(Category) AS cat_sort FROM Todos ORDER BY cat_sort ASC");
-            $categories = array_column($cat_stmt->fetchAll(PDO::FETCH_ASSOC), 'Category');
+            $status_stmt = $db->query("SELECT DISTINCT Status AS \"Status\", LOWER(Status) AS status_sort FROM Todos ORDER BY status_sort ASC");
+            $statuses = array_column($status_stmt->fetchAll(PDO::FETCH_ASSOC), 'Status');
 
-            echo json_encode(['todos' => $todos, 'categories' => $categories]);
+            echo json_encode(['todos' => $todos, 'statuses' => $statuses]);
+            break;
+
+        case 'lookup_dso':
+            $key = trim($_GET['key'] ?? '');
+            if ($key === '') {
+                echo json_encode(['commonname' => null]);
+                break;
+            }
+            // Case-insensitive: DSO keys are conventionally upper (IC1805),
+            // but don't force the caller to get casing exactly right.
+            $stmt = $db->prepare("SELECT CommonName AS \"CommonName\" FROM Objects WHERE UPPER(DSOKey) = UPPER(?)");
+            $stmt->execute([$key]);
+            $name = $stmt->fetchColumn();
+            echo json_encode(['commonname' => $name !== false ? $name : null]);
             break;
 
         case 'add':
-            $text = trim($body['item_text'] ?? '');
-            $category = trim($body['category'] ?? '') ?: 'Photograph';
+            $dsokey = trim($body['dsokey'] ?? '') ?: null;
+            $commonname = trim($body['commonname'] ?? '');
+            $equipment = trim($body['equipment'] ?? '') ?: null;
+            $sessiondate = trim($body['sessiondate'] ?? '') ?: null;
+            $notes = mb_substr(trim($body['notes'] ?? ''), 0, 160) ?: null;
+            $status = trim($body['status'] ?? '') ?: 'Photograph';
             $priority = trim($body['priority'] ?? '') ?: 'Medium';
             if (!in_array($priority, ['High', 'Medium', 'Low'], true)) {
                 $priority = 'Medium';
             }
-            if ($text === '') {
+            if ($equipment !== null && !in_array($equipment, ['S30', 'S50', 'S50P'], true)) {
+                $equipment = null;
+            }
+            if ($commonname === '') {
                 http_response_code(400);
-                echo json_encode(['error' => 'item_text is required']);
+                echo json_encode(['error' => 'commonname is required']);
                 break;
             }
-            $stmt = $db->prepare("INSERT INTO Todos (Category, ItemText, Priority) VALUES (?, ?, ?)");
-            $stmt->execute([$category, $text, $priority]);
+            $stmt = $db->prepare("INSERT INTO Todos (DSOKey, CommonName, Equipment, SessionDate, Notes, Status, Priority) VALUES (?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([$dsokey, $commonname, $equipment, $sessiondate, $notes, $status, $priority]);
             echo json_encode(['id' => db_last_insert_id($db, 'Todos', 'TodoID')]);
             break;
 
@@ -105,19 +131,41 @@ try {
             }
             $fields = [];
             $params = [];
-            if (isset($body['item_text'])) {
-                $t = trim($body['item_text']);
+            if (isset($body['dsokey'])) {
+                $fields[] = 'DSOKey = ?';
+                $params[] = trim($body['dsokey']) ?: null;
+            }
+            if (isset($body['commonname'])) {
+                $t = trim($body['commonname']);
                 if ($t === '') {
                     http_response_code(400);
-                    echo json_encode(['error' => 'item_text cannot be empty']);
+                    echo json_encode(['error' => 'commonname cannot be empty']);
                     break;
                 }
-                $fields[] = 'ItemText = ?';
+                $fields[] = 'CommonName = ?';
                 $params[] = $t;
             }
-            if (isset($body['category'])) {
-                $fields[] = 'Category = ?';
-                $params[] = trim($body['category']) ?: 'Photograph';
+            if (isset($body['equipment'])) {
+                $e = trim($body['equipment']);
+                if ($e !== '' && !in_array($e, ['S30', 'S50', 'S50P'], true)) {
+                    http_response_code(400);
+                    echo json_encode(['error' => 'equipment must be S30, S50, or S50P']);
+                    break;
+                }
+                $fields[] = 'Equipment = ?';
+                $params[] = $e ?: null;
+            }
+            if (isset($body['sessiondate'])) {
+                $fields[] = 'SessionDate = ?';
+                $params[] = trim($body['sessiondate']) ?: null;
+            }
+            if (isset($body['notes'])) {
+                $fields[] = 'Notes = ?';
+                $params[] = mb_substr(trim($body['notes']), 0, 160) ?: null;
+            }
+            if (isset($body['status'])) {
+                $fields[] = 'Status = ?';
+                $params[] = trim($body['status']) ?: 'Photograph';
             }
             if (isset($body['priority'])) {
                 $p = trim($body['priority']);

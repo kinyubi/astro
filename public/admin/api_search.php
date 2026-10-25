@@ -133,7 +133,8 @@ try {
                 p.IsMosaic        AS \"IsMosaic\",
                 gi.SessionDir     AS \"SessionDir\",
                 gi.SortOrder      AS \"SortOrder\",
-                gi.IsFeature      AS \"IsFeature\"
+                gi.IsFeature      AS \"IsFeature\",
+                COALESCE(gi.IsHidden, 0) AS \"IsHidden\"
             FROM GalleryImages gi
             LEFT JOIN PaletteTreatments pt ON gi.PaletteID = pt.PaletteID
             LEFT JOIN Projects p ON gi.ProjectID = p.ProjectID

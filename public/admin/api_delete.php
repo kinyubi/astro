@@ -33,11 +33,14 @@ if ($gallery_img_id) {
         $db = get_db();
         $stmt = $db->prepare('DELETE FROM GalleryImages WHERE GalleryImageID = ?');
         $stmt->execute([$gallery_img_id]);
-        if ($stmt->rowCount() === 0) {
-            http_response_code(404);
-            echo json_encode(['error' => "GalleryImage $gallery_img_id not found"]);
-            exit;
-        }
+        // Idempotent: Sync Folder already removes rows for fav files it can't
+        // find on disk (see api_sync_folder.php's "removed from DB" pass), but
+        // it still surfaces those rows in its "warnings" list with a Remove
+        // button so Carl can clear them from the results panel. By the time
+        // that button is clicked the row is usually already gone, so a
+        // rowCount of 0 here just means the housekeeping is already done --
+        // treat it as success rather than a 404, so confirming "Remove" always
+        // just quietly finishes the job instead of surfacing a delete error.
         echo json_encode(['success' => true, 'GalleryImageID' => $gallery_img_id]);
     } catch (Exception $e) {
         http_response_code(500);

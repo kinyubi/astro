@@ -11,6 +11,12 @@
 // existing ones.
 // ============================================================
 
+// config.php (not auth_api.php -- this endpoint is deliberately
+// unauthenticated for /vis) defines ANTHROPIC_MODEL. db_logger.php only
+// pulls in shared/config.php, which does NOT define it, so without this
+// line the AI call hits an undefined-constant fatal and PHP emits an
+// HTML error page instead of JSON.
+require_once __DIR__ . '/config.php';
 require_once __DIR__ . '/db_logger.php';
 
 header('Content-Type: application/json');
@@ -186,7 +192,10 @@ PROMPT;
         'CommonName' => $fields['CommonName'] ?? null,
     ]);
 
-} catch (Exception $e) {
+} catch (Throwable $e) {
+    // Throwable (not Exception) so PHP Errors -- undefined constants,
+    // type errors, etc. -- still come back as JSON rather than an HTML
+    // fatal-error page the caller can't parse.
     http_response_code(500);
     echo json_encode(['error' => $e->getMessage()]);
 }
