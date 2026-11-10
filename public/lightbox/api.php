@@ -4,7 +4,8 @@
 //
 //   GET  ?action=dsos                       all project folders + per-type counts
 //   GET  ?action=resolve&q=andro            titling.py-style fragment match
-//   GET  ?action=images&project=<folder>&type=fav[&annotated=1][&ignored=1]
+//   GET  ?action=images&project=<folder>&type=fav[&annotated=1][&hidden=1]
+//        hidden=1 includes IGNORE/bust sessions and GalleryImages.IsHidden images
 //   POST ?action=rate   JSON {project, session, file, rating (1-5|null), note}
 // ============================================================
 
@@ -30,10 +31,12 @@ try {
     switch ($action) {
 
     case 'dsos':
-        $names = lb_common_names(lb_try_db());
+        $db = lb_try_db();
+        $names = lb_common_names($db);
+        $hidden = lb_hidden_bases($db);
         $out = [];
         foreach (lb_project_dirs() as $folder) {
-            $c = lb_counts($folder);
+            $c = lb_counts($folder, $hidden);
             if ($c['sessions'] === 0 && count(lb_sessions($folder)) === 0) continue;
             $token = lb_token($folder);
             $out[] = [
@@ -57,10 +60,11 @@ try {
         }
         if (!in_array($type, LB_TYPES, true)) lb_out(['error' => "Unknown type: $type"], 400);
 
-        $res = lb_images($project, $type, !empty($_GET['annotated']), !empty($_GET['ignored']));
+        $db = lb_try_db();
+        $showHidden = !empty($_GET['hidden']) || !empty($_GET['ignored']);   // 'ignored' = old name
+        $res = lb_images($project, $type, !empty($_GET['annotated']), $showHidden, lb_hidden_bases($db));
         $token = lb_token($project);
 
-        $db = lb_try_db();
         $ratings = [];
         $ratingsError = null;
         if ($db) {

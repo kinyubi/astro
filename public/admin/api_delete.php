@@ -1,9 +1,20 @@
 <?php
 // ============================================================
-// api_delete.php  —  Delete a DSO object from the database
+// api_delete.php  —  Delete a DSO object (or one GalleryImages row)
 //
-// Accepts POST with JSON body: { "DSOKey": "NGC1234" }
-// Deletes from CatalogIDs first (FK child), then Objects.
+// POST { "DSOKey": "NGC1234" }                  -> delete the DSO
+// POST { "DSOKey": "NGC1234", "Confirm": true } -> delete it even if it
+//                                                  has Projects / images
+// POST { "GalleryImageID": 42 }                 -> delete one gallery row
+//
+// Projects.DSOKey and GalleryImages.DSOKey reference Objects with
+// ON DELETE RESTRICT (on purpose -- a stray delete must never wipe
+// imaging history). So a DSO with any of those is first answered with
+// 409 { needsConfirm: true, counts: {...} } and nothing is changed; the
+// admin shows the counts and re-sends with Confirm: true. Then, in one
+// transaction: GalleryImages, Projects (cascades to Observations,
+// ProcessingRuns, ProcessingObservations, Images), DSOLinks, CatalogIDs,
+// then Objects. Nothing on disk (myWorks or public/images) is touched.
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
@@ -26,6 +37,7 @@ if (!$body) {
 
 $dso_key        = trim($body['DSOKey']        ?? '');
 $gallery_img_id = isset($body['GalleryImageID']) ? (int)$body['GalleryImageID'] : null;
+$confirmed      = !empty($body['Confirm']);
 
 // ── Delete a single GalleryImages row ────────────────────────────────────────
 if ($gallery_img_id) {
@@ -39,10 +51,9 @@ if ($gallery_img_id) {
         // button so Carl can clear them from the results panel. By the time
         // that button is clicked the row is usually already gone, so a
         // rowCount of 0 here just means the housekeeping is already done --
-        // treat it as success rather than a 404, so confirming "Remove" always
-        // just quietly finishes the job instead of surfacing a delete error.
+        // treat it as success rather than a 404.
         echo json_encode(['success' => true, 'GalleryImageID' => $gallery_img_id]);
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
         http_response_code(500);
         echo json_encode(['error' => $e->getMessage()]);
     }
@@ -56,18 +67,42 @@ if (!$dso_key) {
     exit;
 }
 
+function count_of(PDO $db, string $sql, string $key): int {
+    $stmt = $db->prepare($sql);
+    $stmt->execute([$key]);
+    return (int)$stmt->fetchColumn();
+}
+
 try {
     $db = get_db();
 
+    $counts = [
+        'Projects'      => count_of($db, 'SELECT COUNT(*) FROM Projects WHERE DSOKey = ?', $dso_key),
+        'Observations'  => count_of($db, 'SELECT COUNT(*) FROM Observations o JOIN Projects p ON o.ProjectID = p.ProjectID WHERE p.DSOKey = ?', $dso_key),
+        'GalleryImages' => count_of($db, 'SELECT COUNT(*) FROM GalleryImages WHERE DSOKey = ?', $dso_key),
+        'DSOLinks'      => count_of($db, 'SELECT COUNT(*) FROM DSOLinks WHERE DSOKey = ?', $dso_key),
+        'CatalogIDs'    => count_of($db, 'SELECT COUNT(*) FROM CatalogIDs WHERE DSOKey = ?', $dso_key),
+    ];
+
+    if (!$confirmed && ($counts['Projects'] > 0 || $counts['GalleryImages'] > 0)) {
+        http_response_code(409);
+        echo json_encode(['needsConfirm' => true, 'DSOKey' => $dso_key, 'counts' => $counts]);
+        exit;
+    }
+
     $db->beginTransaction();
 
-    // Delete child rows first to satisfy FK constraints
-    $stmt = $db->prepare('DELETE FROM CatalogIDs WHERE DSOKey = :key');
-    $stmt->execute([':key' => $dso_key]);
+    // Children first: these two are ON DELETE RESTRICT against Objects.
+    // Deleting Projects cascades to Observations / ProcessingRuns /
+    // ProcessingObservations / Images.
+    $db->prepare('DELETE FROM GalleryImages WHERE DSOKey = ?')->execute([$dso_key]);
+    $db->prepare('DELETE FROM Projects      WHERE DSOKey = ?')->execute([$dso_key]);
+    // These cascade anyway; explicit so the order doesn't depend on FK setup.
+    $db->prepare('DELETE FROM DSOLinks      WHERE DSOKey = ?')->execute([$dso_key]);
+    $db->prepare('DELETE FROM CatalogIDs    WHERE DSOKey = ?')->execute([$dso_key]);
 
-    // Delete the object itself
-    $stmt = $db->prepare('DELETE FROM Objects WHERE DSOKey = :key');
-    $stmt->execute([':key' => $dso_key]);
+    $stmt = $db->prepare('DELETE FROM Objects WHERE DSOKey = ?');
+    $stmt->execute([$dso_key]);
 
     if ($stmt->rowCount() === 0) {
         $db->rollBack();
@@ -77,10 +112,10 @@ try {
     }
 
     $db->commit();
-    echo json_encode(['success' => true, 'DSOKey' => $dso_key]);
+    echo json_encode(['success' => true, 'DSOKey' => $dso_key, 'deleted' => $counts]);
 
-} catch (Exception $e) {
-    if (isset($db) && $db->inTransaction()) $db->rollBack();
+} catch (Throwable $e) {
+    if (isset($db) && $db instanceof PDO && $db->inTransaction()) $db->rollBack();
     http_response_code(500);
     echo json_encode(['error' => $e->getMessage()]);
 }

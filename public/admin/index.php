@@ -64,10 +64,20 @@ $is_local_mode = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
   .object-item .obj-key { font-weight: 600; font-size: 13px; color: var(--accent); }
   .object-item .obj-name { color: var(--text); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .object-item .obj-type { color: var(--muted); font-size: 11px; flex-shrink: 0; }
-  .object-item .completeness { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-  .completeness.full  { background: var(--accent2); }
-  .completeness.partial { background: var(--warn); }
-  .completeness.empty { background: var(--danger); }
+  /* Sidebar status columns: Priority (WantBetter star), then one dot per
+     telescope. gold = several unhidden palettes, green = unhidden images
+     (one palette), plum = images but all hidden, light gray = session
+     folder but no images, dark gray = no session folder. */
+  .status-cols { display: grid; grid-template-columns: repeat(4, 20px); align-items: center; justify-items: center; flex-shrink: 0; }
+  .status-cols-head { display: flex; justify-content: flex-end; padding: 4px 14px 4px; border-bottom: 1px solid var(--border); }
+  .status-cols-head .status-cols span { font-size: 9px; color: var(--muted); line-height: 1; }
+  .prio-star { color: #e3b341; font-size: 15px; line-height: 1; }
+  .eq-dot { display: block; width: 12px; height: 12px; border-radius: 50%; }
+  .eq-dot.multi    { background: #e3b341; }
+  .eq-dot.normal   { background: var(--accent2); }
+  .eq-dot.hidden   { background: #b07cc6; }
+  .eq-dot.none     { background: #8b949e; }
+  .eq-dot.nofolder { background: #3d444d; }
 
   .sidebar-footer { padding: 10px 14px; border-top: 1px solid var(--border); }
   .btn-new {
@@ -134,6 +144,9 @@ $is_local_mode = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
 
   /* notes — fixed 3-line height */
   #f_Notes { min-height: 62px; max-height: 62px; resize: none; }
+
+  /* object size -- starts one line tall, grows to show wrapped text (fitObjectSize) */
+  #f_ObjectSize { min-height: 0; resize: none; overflow: hidden; line-height: 1.4; }
 
   /* Catalog IDs mini-table */
   .cat-table { width: 100%; border-collapse: collapse; font-size: 12px; }
@@ -273,6 +286,7 @@ $is_local_mode = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
   <nav style="margin-left:auto; display:flex; gap:10px; align-items:center;">
     <a href="/vis/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Visibility</a>
     <a href="/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Slideshow</a>
+    <a href="/gallery-order/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'" title="Drag the Browse Gallery cards into the order you want">Gallery Order</a>
     <a href="/todo/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">To Do</a>
     <a href="/check-missing/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Complete?</a>
     <a href="logout.php" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Sign out</a>
@@ -286,6 +300,9 @@ $is_local_mode = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
     <div class="sidebar-search">
       <input type="text" id="search" placeholder="Search by catalog ID, name&#8230;" autocomplete="off">
       <div class="hint" id="search-hint">Type to search, or leave blank to list all</div>
+    </div>
+    <div class="status-cols-head" title="Priority star = Want Better Data. Dots per telescope: gold = several palettes, green = images, plum = images all hidden, light gray = session folder but no images, dark gray = no session folder">
+      <div class="status-cols"><span>&#9733;</span><span>S30</span><span>S50</span><span>Pro</span></div>
     </div>
     <div class="object-list" id="object-list">
       <!-- populated by JS -->
@@ -315,7 +332,7 @@ $is_local_mode = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
           <span id="solar-guard-note" style="display:none; color:var(--muted); font-size:11px; align-self:center; margin-right:8px;">Solar object &mdash; AI Populate &amp; Sync Folder use the dedicated solar pipeline instead</span>
           <span id="save-status" class="save-status" title="Changes save automatically"></span>
           <button class="btn success" id="btn-create" onclick="createObject()" style="display:none;" title="Create this new DSO. After that, every change saves automatically.">&#10133; Create DSO</button>
-          <button class="btn danger" id="btn-delete" onclick="deleteObject()" disabled title="Permanently delete this DSO from the database. Only works if it has no Project registered yet &mdash; remove the Project first. Files on disk are never touched.">&#128465;&#65039; Delete DSO</button>
+          <button class="btn danger" id="btn-delete" onclick="deleteObject()" disabled title="Permanently delete this DSO from the database, along with its Projects, observations, gallery image rows, links and catalog IDs (you're asked to confirm what will go). Files on disk are never touched.">&#128465;&#65039; Delete DSO</button>
         </div>
       </div>
 
@@ -378,7 +395,7 @@ $is_local_mode = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
           </div>
           <div class="field span-2">
             <label>Object Size</label>
-            <input type="text" id="f_ObjectSize" placeholder="e.g. 70 light-years across with an apparent diameter of 45-50 arcminutes, about 1.5&#215; the full moon" autocomplete="off">
+            <textarea id="f_ObjectSize" rows="1" placeholder="e.g. 70 light-years across with an apparent diameter of 45-50 arcminutes, about 1.5&#215; the full moon" autocomplete="off"></textarea>
             <div class="note">Physical size, angular size, and moon comparison in one plain-English sentence.</div>
           </div>
           <div class="field">
@@ -622,24 +639,118 @@ function renderList(rows) {
     div.className = 'object-item' + (currentObject?.DSOKey === row.DSOKey ? ' active' : '');
     div.dataset.key = row.DSOKey;
 
-    const filled = [row.RAHours, row.DecDegrees, row.Magnitude, row.ObjectSize, row.SocialBlurb].filter(v => v !== null && v !== '').length;
-    const cls    = filled >= 4 ? 'full' : filled >= 2 ? 'partial' : 'empty';
-
     div.innerHTML = `
       <div style="min-width:0; flex:1">
         <div class="obj-key">${row.DSOKey}</div>
         <div class="obj-name">${row.CommonName || '&mdash;'}</div>
       </div>
-      <div style="display:flex; align-items:center; gap:6px; flex-shrink:0">
-        <span class="obj-type">${row.ConstellationID || ''}</span>
-        <span class="completeness ${cls}" title="Field completeness"></span>
-      </div>
+      ${statusColsHtml(row)}
     `;
     div.addEventListener('click', () => openObject(row));
     ul.appendChild(div);
   });
   ul.scrollTop = scrollTop;
 }
+
+// ──────────────────────────────────────────────
+// Sidebar status columns (Priority + S30 / S50 / S50 Pro)
+// Built from data api_search.php already returns: Observations'
+// ObservationFolder (session dirs end _S30 / _S50 / _S50P) and
+// GalleryImages (Equipment, falling back to SessionDir's suffix).
+// ──────────────────────────────────────────────
+const EQUIP_CODES  = ['S30', 'S50', 'S50P'];
+const EQUIP_LABELS = { S30: 'S30', S50: 'S50', S50P: 'S50 Pro' };
+
+// 'S30', 's50p', 'Seestar S50 Pro' -> 'S30' / 'S50P'; anything else -> null
+function normEquip(v) {
+  if (!v) return null;
+  let t = String(v).toUpperCase().split('SEESTAR').join('').split(' ').join('');
+  if (t.endsWith('PRO')) t = t.slice(0, -3) + 'P';
+  return EQUIP_CODES.includes(t) ? t : null;
+}
+
+// Trailing equipment token of a session folder name, e.g. 20260904_S50P
+function equipFromDir(dir) {
+  const s = String(dir || '').trim();
+  const i = s.lastIndexOf('_');
+  return i < 0 ? null : normEquip(s.slice(i + 1));
+}
+
+// Same palette rule the Gallery Image cards use: PaletteID, or the
+// palette token in the BaseName when PaletteID is 0.
+function effectivePaletteId(g) {
+  const id = parseInt(g.PaletteID) || 0;
+  return id !== 0 ? id : paletteIdFromBaseName(g.BaseName || '');
+}
+
+function paletteNameById(id) {
+  const p = PALETTES.find(p => p.id === id);
+  return p ? p.name : 'Palette ' + id;
+}
+
+function equipmentStatus(row) {
+  const sessions = new Set();
+  (row.Projects || []).forEach(p => (p.Observations || []).forEach(o => {
+    const e = equipFromDir(o.ObservationFolder);
+    if (e) sessions.add(e);
+  }));
+  const imgs = {};
+  (row.GalleryImages || []).forEach(g => {
+    const e = normEquip(g.Equipment) || equipFromDir(g.SessionDir);
+    if (!e) return;
+    sessions.add(e);   // an image implies a session even if no Observation row yet
+    (imgs[e] = imgs[e] || []).push(g);
+  });
+  const out = {};
+  EQUIP_CODES.forEach(e => {
+    const label = EQUIP_LABELS[e];
+    if (!sessions.has(e)) { out[e] = { cls: 'nofolder', title: label + ': no session folder' }; return; }
+    const all  = imgs[e] || [];
+    const vis  = all.filter(g => !parseInt(g.IsHidden || 0));
+    const pals = [...new Set(vis.map(effectivePaletteId))].sort((a, b) => a - b);
+    const n = c => c + ' image' + (c === 1 ? '' : 's');
+    if (pals.length > 1) {
+      out[e] = { cls: 'multi',  title: label + ': ' + n(vis.length) + ' in ' + pals.length + ' palettes (' + pals.map(paletteNameById).join(', ') + ')' };
+    } else if (vis.length) {
+      out[e] = { cls: 'normal', title: label + ': ' + n(vis.length) + ' (' + paletteNameById(pals[0]) + ')' };
+    } else if (all.length) {
+      out[e] = { cls: 'hidden', title: label + ': ' + n(all.length) + ', all hidden' };
+    } else {
+      out[e] = { cls: 'none',   title: label + ': session folder, no gallery images' };
+    }
+  });
+  return out;
+}
+
+function statusColsHtml(row) {
+  const st   = equipmentStatus(row);
+  const want = row.WantBetter === true || parseInt(row.WantBetter) === 1;
+  const star = want ? '<span class="prio-star" title="Want better data (priority target)">&#9733;</span>' : '';
+  const dots = EQUIP_CODES.map(e => st[e]
+    ? '<span><span class="eq-dot ' + st[e].cls + '" title="' + escHtml(st[e].title) + '"></span></span>'
+    : '<span></span>').join('');
+  return '<div class="status-cols"><span>' + star + '</span>' + dots + '</div>';
+}
+
+// Repaint one sidebar row's status columns from a fresh api_search row.
+function refreshSidebarRow(row) {
+  if (!row || !row.DSOKey) return;
+  const item = document.querySelector('.object-item[data-key="' + CSS.escape(row.DSOKey) + '"]');
+  const cols = item && item.querySelector('.status-cols');
+  if (cols) cols.outerHTML = statusColsHtml(row);
+}
+
+async function refreshSidebarFor(dsoKey) {
+  if (!dsoKey) return;
+  try { refreshSidebarRow(await fetchOneByKey(dsoKey)); }
+  catch (e) { console.warn('Sidebar refresh failed:', e); }
+}
+
+// Fields of the gallery cards that affect the sidebar dots.
+function gallerySig(rows) {
+  return rows.map(r => [r.BaseName, r.PaletteID, r.Equipment, r.SessionDir].join('|')).join('\n');
+}
+let gallerySigSnapshot = '';
 
 // ──────────────────────────────────────────────
 // Load ObjectTypes dropdown from DB
@@ -730,6 +841,13 @@ async function openObject(row) {
     // Existing Projects of this DSO whose folder is gone from myWorks.
     const stale = Array.isArray(data.staleProjects) ? [...data.staleProjects] : [];
     const live  = Array.isArray(data.liveProjects)  ? [...data.liveProjects]  : [];
+
+    // Gallery images with no Project were just attached to the Project
+    // whose folder holds them (api_check_project.php) -- reload the DSO.
+    if (Array.isArray(data.orphansAttached) && data.orphansAttached.length) {
+      projectsChanged = true;
+      toast('Attached ' + data.orphansAttached.map(o => o.BaseName).join(', ') + ' to its Project folder', 'ok', 6000);
+    }
 
     if (data.needsProject && Array.isArray(data.folders) && data.folders.length) {
       // A missing folder next to a new unregistered one is most likely a
@@ -850,6 +968,7 @@ function loadObject(row) {
   // Populate formatted RA/Dec display fields
   setRADisplay(row.RAHours);
   setDecDisplay(row.DecDegrees);
+  fitObjectSize();
   loadObjectTypes(row.ObjectTypeID || '').then(updateSolarGuard);
 
   renderCatalogTable(row.CatalogIDs || []);
@@ -858,6 +977,8 @@ function loadObject(row) {
   renderProjects(row.Projects || []);
   snapshotBlurbFields();
   listFieldsSnapshot = listFieldsNow();
+  gallerySigSnapshot = gallerySig(getGalleryImageRows());
+  refreshSidebarRow(row);
   autosaveEnabled = true;
   document.getElementById('btn-create').style.display = 'none';
   setSaveStatus('idle');
@@ -883,6 +1004,7 @@ async function newObject() {
   // Clear formatted RA/Dec display fields
   setRADisplay(null);
   setDecDisplay(null);
+  fitObjectSize();
   document.getElementById('f_DSOKey').disabled = false;
   document.getElementById('btn-delete').disabled = true;
   loadObjectTypes('').then(updateSolarGuard);
@@ -1330,6 +1452,7 @@ async function auditObservations({ silent = false } = {}) {
         currentObject.Projects = row.Projects || [];
         renderProjects(currentObject.Projects);
       }
+      refreshSidebarRow(row);   // new/removed session folders change the dots
     } else if (orphaned.length || legacy.length) {
       renderProjects(currentObject.Projects || []);  // repaint with review flags
     }
@@ -1542,7 +1665,15 @@ async function saveObject(silent = false) {
       if (row) loadObject(row);
     } else if (listFieldsNow() !== listFieldsSnapshot) {
       listFieldsSnapshot = listFieldsNow();
+      gallerySigSnapshot = gallerySig(getGalleryImageRows());
       await fetchList(document.getElementById('search').value.trim());
+    } else {
+      // Equipment / palette / base-name edits change the sidebar dots.
+      const sig = gallerySig(getGalleryImageRows());
+      if (sig !== gallerySigSnapshot) {
+        gallerySigSnapshot = sig;
+        refreshSidebarFor(dsoKey);
+      }
     }
   } catch (e) {
     setSaveStatus('error', e.message);
@@ -1564,8 +1695,22 @@ async function deleteObject() {
   if (saveInFlight) await saveInFlight;
 
   try {
-    const res  = await apiFetch('api_delete.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ DSOKey: key }) });
-    const data = await res.json();
+    let res  = await apiFetch('api_delete.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ DSOKey: key }) });
+    let data = await res.json();
+
+    // DSO still has Projects / gallery images: show what goes with it.
+    if (data.needsConfirm) {
+      const c = data.counts || {};
+      const msg = key + ' still has:\n\n' +
+        '\u2022 ' + (c.Projects || 0) + ' Project(s) with ' + (c.Observations || 0) + ' observation row(s)\n' +
+        '\u2022 ' + (c.GalleryImages || 0) + ' gallery image row(s)\n' +
+        '\u2022 ' + (c.DSOLinks || 0) + ' link(s), ' + (c.CatalogIDs || 0) + ' catalog ID(s)\n\n' +
+        'Delete all of these database rows too? Files in myWorks and public/images are NOT touched.';
+      if (!confirm(msg)) { autosaveEnabled = true; return; }
+      res  = await apiFetch('api_delete.php', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ DSOKey: key, Confirm: true }) });
+      data = await res.json();
+    }
+
     if (data.success) {
       toast(key + ' deleted', 'ok');
       currentObject = null;
@@ -1677,6 +1822,7 @@ async function aiPopulate() {
     // text stays blank until the object is reselected.
     setRADisplay(document.getElementById('f_RAHours').value || null);
     setDecDisplay(document.getElementById('f_DecDegrees').value || null);
+    fitObjectSize();
 
     if (f.SocialBlurb) {
       document.getElementById('f_SocialBlurb').value = f.SocialBlurb;
@@ -1864,7 +2010,11 @@ async function syncFolder(extraHints = {}) {
       const row = Array.isArray(searchData)
         ? searchData.find(r => r.DSOKey === dsoKey)
         : null;
-      if (row) renderGalleryImages(row.GalleryImages || []);
+      if (row) {
+        renderGalleryImages(row.GalleryImages || []);
+        gallerySigSnapshot = gallerySig(getGalleryImageRows());
+        refreshSidebarRow(row);
+      }
     }
 
     // Resyncing pictures is exactly when new observation sessions are
@@ -2187,7 +2337,9 @@ async function galleryAction(id, action) {
       const fresh = dsoKey ? await fetchOneByKey(dsoKey) : null;
       if (fresh && currentObject && currentObject.DSOKey === dsoKey) {
         renderGalleryImages(fresh.GalleryImages || []);
+        gallerySigSnapshot = gallerySig(getGalleryImageRows());
       }
+      refreshSidebarRow(fresh);
     }
     const name = (data.images.find(i => String(i.GalleryImageID) === String(id)) || {}).BaseName || '';
     const verb = { hide: 'Hidden', unhide: 'Unhidden', feature: 'Featured' }[action];
@@ -2492,6 +2644,25 @@ function normalizeDecDisplay(input) {
 function escHtml(str) {
   return String(str).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
+
+// Object Size is a textarea so long text wraps instead of scrolling
+// sideways. It's sized to its content (one line when it fits), Enter is
+// blocked and pasted line breaks become spaces, so it stays one sentence.
+// Call fitObjectSize() after setting its value from code.
+function fitObjectSize() {
+  const el = document.getElementById('f_ObjectSize');
+  if (!el || !el.offsetParent) return;   // editor hidden -- nothing to measure
+  el.style.height = 'auto';
+  el.style.height = (el.scrollHeight + 2) + 'px';   // +2 = top/bottom border
+}
+document.getElementById('f_ObjectSize').addEventListener('keydown', e => {
+  if (e.key === 'Enter') e.preventDefault();
+});
+document.getElementById('f_ObjectSize').addEventListener('input', function () {
+  if (/[\r\n]/.test(this.value)) this.value = this.value.replace(/\s*[\r\n]+\s*/g, ' ');
+  fitObjectSize();
+});
+window.addEventListener('resize', fitObjectSize);
 
 document.getElementById('f_DSOKey').addEventListener('input', function () {
   const pos = this.selectionStart;

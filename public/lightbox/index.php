@@ -224,7 +224,7 @@ $init = [
   <nav class="types" id="types"></nav>
   <div class="opts">
     <label title="Show the _annotated versions (a)"><input type="checkbox" id="optAnn"> Annotated</label>
-    <label title="Include IGNORE / bust sessions (i)"><input type="checkbox" id="optIgn"> Ignored sessions</label>
+    <label title="Include IGNORE / bust sessions and images hidden in DSO Admin (h)"><input type="checkbox" id="optHid"> Show hidden</label>
     <label>Sort
       <select id="optSort">
         <option value="date">Oldest first</option>
@@ -245,7 +245,7 @@ $init = [
 <main class="grid" id="grid"></main>
 <div class="keys">
   <kbd>←</kbd> <kbd>→</kbd> DSO &nbsp; <kbd>↑</kbd> <kbd>↓</kbd> image type &nbsp; <kbd>/</kbd> search &nbsp;
-  <kbd>a</kbd> annotated &nbsp; <kbd>i</kbd> ignored sessions &nbsp;·&nbsp; in the viewer:
+  <kbd>a</kbd> annotated &nbsp; <kbd>h</kbd> show hidden &nbsp;·&nbsp; in the viewer:
   <kbd>←</kbd> <kbd>→</kbd> image &nbsp; <kbd>1</kbd>–<kbd>5</kbd> rate &nbsp; <kbd>0</kbd> clear &nbsp;
   <kbd>z</kbd> 100% &nbsp; <kbd>n</kbd> note &nbsp; <kbd>Esc</kbd> close
 </div>
@@ -292,7 +292,7 @@ const state = {
   folder: null,
   type: TYPES.includes(INIT.type) ? INIT.type : store.get('type', 'fav'),
   annotated: store.get('annotated', false),
-  ignored: store.get('ignored', false),
+  showHidden: store.get('showHidden', store.get('ignored', false)),
   sort: store.get('sort', 'date'),
   data: null,
   view: [],          // images in display order
@@ -419,7 +419,7 @@ function stepDso(delta) {
   let i = state.nav.findIndex(d => d.folder === state.folder);
   for (let n = 0; n < state.nav.length; n++) {
     i = (i + delta + state.nav.length) % state.nav.length;
-    if (state.nav[i].counts[state.type] > 0 || state.ignored) return loadDso(state.nav[i].folder);
+    if (state.nav[i].counts[state.type] > 0 || state.showHidden) return loadDso(state.nav[i].folder);
   }
 }
 function stepType(delta) {
@@ -465,10 +465,10 @@ $('optSize').addEventListener('input', e => {
   document.documentElement.style.setProperty('--tile', e.target.value + 'px');
 });
 $('optAnn').checked = state.annotated;
-$('optIgn').checked = state.ignored;
+$('optHid').checked = state.showHidden;
 $('optSort').value = state.sort;
 $('optAnn').addEventListener('change', e => { state.annotated = e.target.checked; store.set('annotated', state.annotated); load(); });
-$('optIgn').addEventListener('change', e => { state.ignored = e.target.checked; store.set('ignored', state.ignored); load(); });
+$('optHid').addEventListener('change', e => { state.showHidden = e.target.checked; store.set('showHidden', state.showHidden); load(); });
 $('optSort').addEventListener('change', e => { state.sort = e.target.value; store.set('sort', state.sort); render(); });
 
 // ── Loading & rendering ────────────────────────────────────
@@ -482,7 +482,7 @@ async function load() {
   $('grid').innerHTML = '<div class="empty">Loading…</div>';
   try {
     const data = await api({ action: 'images', project: state.folder, type: state.type,
-                             annotated: state.annotated ? 1 : 0, ignored: state.ignored ? 1 : 0 });
+                             annotated: state.annotated ? 1 : 0, hidden: state.showHidden ? 1 : 0 });
     if (id !== state.reqId) return;
     state.data = data;
     render();
@@ -515,7 +515,7 @@ function render() {
   $('sub').innerHTML = `<code>${esc(data.project)}</code> &nbsp; ${data.sessions.length} session${data.sessions.length === 1 ? '' : 's'}, ${withImg} with a ${esc(suffix)}`;
   const missing = data.sessions.filter(s => s.count === 0);
   $('missing').innerHTML = missing.length
-    ? 'No ' + esc(suffix) + ' in: ' + missing.map(s => `<span>${esc(s.session)}${s.ignored ? ' (ignored)' : ''}</span>`).join(', ')
+    ? 'No ' + esc(suffix) + ' in: ' + missing.map(s => `<span>${esc(s.session)}${s.ignored ? ' (ignored)' : ''}${s.hidden ? ` (${s.hidden} hidden)` : ''}</span>`).join(', ')
     : '';
 
   state.view = sortedImages();
@@ -538,6 +538,7 @@ function render() {
           ${img.palette ? `<span class="chip pal">${esc(img.palette)}</span>` : ''}
           ${img.onSite ? `<span class="chip site" title="Same file name is in public/images">on site</span>` : ''}
           ${img.ignored ? `<span class="chip ign">ignored</span>` : ''}
+          ${img.hidden ? `<span class="chip ign" title="Hidden in DSO Admin (GalleryImages.IsHidden)">hidden</span>` : ''}
         </div>
         <div class="row2">${[
           img.frames ? `${img.frames} × ${img.exposure}s` : '',
@@ -748,7 +749,7 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowDown') stepType(1);
   else if (e.key === '/') $('q').focus();
   else if (e.key === 'a') $('optAnn').click();
-  else if (e.key === 'i') $('optIgn').click();
+  else if (e.key === 'h') $('optHid').click();
   else return;
   e.preventDefault();
 });

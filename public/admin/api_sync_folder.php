@@ -532,6 +532,10 @@ try {
 
     $db->commit();
 
+    // Thumbs for new/visible images; drop thumbs of removed or hidden
+    // ones (thumb_helpers.php).
+    $thumbs = gallery_thumbs_sync($db, $dso_key);
+
     echo json_encode([
         'success'           => true,
         'mode'              => $mode,
@@ -543,6 +547,7 @@ try {
         'misnamed'          => $misnamed,
         'duplicatesRemoved' => $duplicates_removed,
         'staleProjects'     => $stale_projects,
+        'thumbs'            => $thumbs,
     ]);
 
 } catch (Throwable $e) {

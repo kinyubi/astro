@@ -83,6 +83,10 @@ try {
     $images = gallery_normalize($db, $dso_key, $feature_id);
     $db->commit();
 
+    // Thumb for every visible image (e.g. a just-unhidden one); a hidden
+    // image's thumb is removed (thumb_helpers.php).
+    $thumbs = gallery_thumbs_sync($db, $dso_key);
+
     $promoted = null;
     foreach ($images as $img) {
         if ($img['IsFeature'] && $img['GalleryImageID'] !== (int)$before_feature && $img['GalleryImageID'] !== $feature_id) {
@@ -95,6 +99,7 @@ try {
         'DSOKey'   => $dso_key,
         'images'   => $images,
         'promoted' => $promoted,
+        'thumbs'   => $thumbs,
     ]);
 
 } catch (Throwable $e) {

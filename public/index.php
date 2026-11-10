@@ -8,7 +8,13 @@ require_once __DIR__ . '/../shared/db.php';
 
 $extensions = ['jpg','jpeg','png','gif','webp'];
 
-// ── Slideshow images (still from filesystem) ──────────────────────────────────
+// ── Slideshow images ───────────────────────────────────────────────────────
+// Built from the gallery data below (after it's sorted), so the slideshow
+// follows the hand-ranked card order (Projects.GalleryRank), each card's
+// images in their DSO Admin order, and skips hidden images. The folder
+// scan here is only a fallback for when the database can't be reached.
+$fullImages = [];
+$wallImages = [];
 function gatherImages($dir, $prefix, $extensions) {
     $images = [];
     if (!is_dir($dir)) return $images;
@@ -23,8 +29,6 @@ function gatherImages($dir, $prefix, $extensions) {
     return array_values($images);
 }
 
-$fullImages = gatherImages(__DIR__ . '/images/annotated_full', 'images/annotated_full', $extensions);
-$wallImages = gatherImages(__DIR__ . '/images/annotated_wall', 'images/annotated_wall', $extensions);
 
 // ── Gallery data from GalleryImages + Objects DB ──────────────────────────────
 $galleryItems = [];
@@ -35,8 +39,12 @@ try {
     // Grouping key is now ProjectID, not DSOKey -- a DSO can have more than one
     // Project (e.g. a standard framing and a separate mosaic framing), and each
     // now gets its own gallery card. See DB_REWORK_PLAN.md.
-    $stmt = $db->query("
+    // Projects.GalleryRank = hand-picked card order (set on /gallery-order/).
+    // If the column doesn't exist yet (migration not run), fall back to
+    // NULL so the gallery still renders in alphabetical order.
+    $galleryQuery = "
         SELECT
+            {RANK} AS \"GalleryRank\",
             gi.GalleryImageID AS \"GalleryImageID\",
             gi.DSOKey         AS \"DSOKey\",
             gi.ProjectID      AS \"ProjectID\",
@@ -70,7 +78,12 @@ try {
         LEFT JOIN Constellations con     ON o.ConstellationID = con.ConstellationID
         WHERE COALESCE(gi.IsHidden, 0) = 0   -- hidden in DSO Admin
         ORDER BY o.CommonName, o.DSOKey, p.IsMosaic, gi.SortOrder, gi.GalleryImageID
-    ");
+    ";
+    try {
+        $stmt = $db->query(str_replace('{RANK}', 'p.GalleryRank', $galleryQuery));
+    } catch (PDOException $e) {
+        $stmt = $db->query(str_replace('{RANK}', 'NULL', $galleryQuery));
+    }
     $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     // Fetch DSOLinks keyed by DSOKey
@@ -102,6 +115,7 @@ try {
                 'dsoKey'      => $row['DSOKey'],
                 'displayName' => $displayName,
                 'isMosaic'    => (int)($row['IsMosaic'] ?? 0),
+                'rank'        => $row['GalleryRank'] !== null ? (int)$row['GalleryRank'] : null,
                 'info'        => [
                     'CommonName'       => $row['CommonName'],
                     'ConstellationID'  => $row['ConstellationID'],
@@ -132,6 +146,7 @@ try {
             'attribution'    => $row['Attribution'],
             'equipment'      => $row['Equipment'],
             'isFeature'      => (int)$row['IsFeature'],
+            'sortOrder'      => (int)($row['SortOrder'] ?? 0),
             'thumbPath'      => 'images/thumbs/' . $bn . '_thumb.jpg',
             'favPath'        => 'images/fav/'    . $bn . '_fav.jpg',
             'fullPath'       => 'images/annotated_full/' . $bn . '_full_annotated.jpg',
@@ -141,22 +156,39 @@ try {
         ];
     }
 
-    // Sort by display name, then non-mosaic before mosaic for the same DSO;
-    // ensure featured image is first within each card.
+    // Cards: hand-ranked ones first (GalleryRank, set on /gallery-order/),
+    // then unranked ones by display name, non-mosaic before mosaic.
+    // Images within a card: featured first, then the SortOrder set in DSO
+    // Admin, then GalleryImageID.
     uasort($byProject, function ($a, $b) {
+        if ($a['rank'] !== null || $b['rank'] !== null) {
+            if ($a['rank'] === null) return 1;
+            if ($b['rank'] === null) return -1;
+            if ($a['rank'] !== $b['rank']) return $a['rank'] - $b['rank'];
+        }
         $cmp = strcmp($a['displayName'], $b['displayName']);
         return $cmp !== 0 ? $cmp : ($a['isMosaic'] - $b['isMosaic']);
     });
     foreach ($byProject as &$dso) {
         usort($dso['images'], fn($a, $b) =>
-            $b['isFeature'] - $a['isFeature'] ?: $a['galleryImageID'] - $b['galleryImageID']
+            $b['isFeature'] - $a['isFeature']
+            ?: ($a['sortOrder'] - $b['sortOrder'] ?: $a['galleryImageID'] - $b['galleryImageID'])
         );
     }
     unset($dso);
 
     $galleryItems = array_values($byProject);
+
+    foreach ($galleryItems as $item) {
+        foreach ($item['images'] as $img) {
+            if (is_file(__DIR__ . '/' . $img['fullPath'])) $fullImages[] = $img['fullPath'];
+            if (is_file(__DIR__ . '/' . $img['wallPath'])) $wallImages[] = $img['wallPath'];
+        }
+    }
 } catch (Exception $e) {
-    // Fall back to empty gallery
+    // Fall back to empty gallery; slideshow falls back to the image folders
+    $fullImages = gatherImages(__DIR__ . '/images/annotated_full', 'images/annotated_full', $extensions);
+    $wallImages = gatherImages(__DIR__ . '/images/annotated_wall', 'images/annotated_wall', $extensions);
 }
 
 $fullJson    = json_encode($fullImages);
@@ -1050,7 +1082,6 @@ $solarJson = json_encode(array_values($solarObjects));
     const fullImages=<?php echo $fullJson;?>;
     const wallImages=<?php echo $wallJson;?>;
     const galleryData=<?php echo $galleryJson;?>;
-    const FULL_KEY='slideshow_full',WALL_KEY='slideshow_wall';
     let activeList=[],currentIndex=0,autoAdvanceTimer=null,isPaused=false;
     const AUTO_ADVANCE_DELAY=5000;
     const slideImg=document.getElementById('slide'),prevBtn=document.getElementById('prevBtn'),nextBtn=document.getElementById('nextBtn'),playPauseBtn=document.getElementById('playPauseBtn'),pauseIcon=document.getElementById('pauseIcon'),playIcon=document.getElementById('playIcon');
@@ -1558,9 +1589,11 @@ $solarJson = json_encode(array_values($solarObjects));
         }
     });
     
-    function shuffleArray(a){const r=a.slice();for(let i=r.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[r[i],r[j]]=[r[j],r[i]];}return r;}
-    function loadShuffled(k,o){if(!o||!o.length)return[];try{const s=sessionStorage.getItem(k);if(s){const p=JSON.parse(s);if(Array.isArray(p)&&p.length===o.length)return p;}}catch(e){}const sh=shuffleArray(o);try{sessionStorage.setItem(k,JSON.stringify(sh));}catch(e){}return sh;}
-    function chooseListByOrientation(){const isP=window.innerHeight>window.innerWidth;const cO=isP?fullImages:wallImages;const fO=isP?wallImages:fullImages;const cK=isP?FULL_KEY:WALL_KEY;const fK=isP?WALL_KEY:FULL_KEY;let list=loadShuffled(cK,cO);if(!list.length)list=loadShuffled(fK,fO);const pS=activeList.length?activeList[currentIndex]:null;activeList=list;if(pS){const idx=activeList.indexOf(pS);currentIndex=idx>=0?idx:0;}else{currentIndex=0;}updateControls();showImage();resetAutoAdvance();}
+    // Slideshow runs in the gallery's hand-ranked order (built server-side).
+    // slideBase() strips the _full/_wall suffix so rotating the device keeps
+    // showing the same picture in the other orientation.
+    function slideBase(p){const f=String(p).split('/').pop();return f.split('_full_annotated')[0].split('_wall_annotated')[0];}
+    function chooseListByOrientation(){const isP=window.innerHeight>window.innerWidth;let list=isP?fullImages:wallImages;if(!list.length)list=isP?wallImages:fullImages;const pS=activeList.length?slideBase(activeList[currentIndex]):null;activeList=list;if(pS){const idx=activeList.findIndex(p=>slideBase(p)===pS);currentIndex=idx>=0?idx:0;}else{currentIndex=0;}updateControls();showImage();resetAutoAdvance();}
     function showImage(){if(!activeList.length){slideImg.src='';slideImg.alt='No images available';return;}slideImg.src=activeList[currentIndex];slideImg.alt=`Image ${currentIndex+1} of ${activeList.length}`;}
     function nextImage(){if(activeList.length<2)return;currentIndex=(currentIndex+1)%activeList.length;showImage();resetAutoAdvance();}
     function prevImage(){if(activeList.length<2)return;currentIndex=(currentIndex-1+activeList.length)%activeList.length;showImage();resetAutoAdvance();}

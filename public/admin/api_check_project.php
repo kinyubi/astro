@@ -35,6 +35,7 @@
 
 require_once __DIR__ . '/auth_api.php';
 require_once __DIR__ . '/db_logger.php';
+require_once __DIR__ . '/gallery_helpers.php';
 
 header('Content-Type: application/json');
 
@@ -57,6 +58,11 @@ try {
     }
 
     $db = get_db();
+
+    // Gallery images with no Project (left over from a deleted Project row)
+    // are attached to the Project whose folder holds them -- the database
+    // follows myWorks. See gallery_attach_orphans() in gallery_helpers.php.
+    $orphans = gallery_attach_orphans($db, $dso_key, true);
 
     // This DSO's own key plus every CatalogID it's known under, uppercased.
     $stmt = $db->prepare('SELECT CatalogID FROM CatalogIDs WHERE DSOKey = ?');
@@ -113,6 +119,8 @@ try {
         'folders'       => $candidates,
         'staleProjects' => $stale,
         'liveProjects'  => $live,
+        'orphansAttached'   => $orphans['attached'],
+        'orphansUnresolved' => $orphans['unresolved'],
     ]);
 
 } catch (Throwable $e) {

@@ -285,6 +285,10 @@ try {
 
     $db->commit();
 
+    // Featured/BaseName/new rows may have changed: keep thumbs in step
+    // (thumb_helpers.php). Only when this save touched GalleryImages.
+    if ($gallery_state !== null) gallery_thumbs_sync($db, $dso_key);
+
     echo json_encode([
         'success'            => true,
         'DSOKey'             => $dso_key,

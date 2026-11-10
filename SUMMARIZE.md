@@ -578,3 +578,61 @@ Session opened with Carl reactivating the `astro_tunnel` WireGuard connection (1
 - **"Everything is 500ing" and "one specific query 500s" are different failure classes and shouldn't be diagnosed with the same fix** — the first pointed at environment (PDO driver), the second at a single SQL statement. Getting the actual response body (not just the console's generic 500 line) was the fastest way to distinguish permissions vs. driver vs. SQL-syntax causes across this session's two, unrelated bugs.
 - **`could not find driver` (PDO) always means a missing/disabled PDO extension, never a bad connection string or bad SQL** — worth immediately ruling in/out via `phpinfo.php` or `php -m` rather than re-checking grants or connection details when this exact message appears.
 - **When Claude has no shell/exec access to the user's machine, diagnosis has to route through artifacts the user can trigger themselves** (hitting an API URL directly, reading `phpinfo.php`) rather than Claude attempting to introspect remotely — worth defaulting to "ask for the raw response/output" earlier rather than iterating through hypotheses first.
+
+---
+
+## Session: 2026-11-02 (DSO Admin sidebar status dots; Gallery Order page; ranked slideshow)
+
+Note: entries for the Sept-Oct 2026 sessions (S50 Pro support, To Do List rewrite, Gallery IsHidden/autosave, web-image resizing, stale-Project handling, etc.) were never added here -- see the project's `claude/overview.md` and `claude/learnings.md` docs for those.
+
+### DSO Admin sidebar: equipment status dots replace "Field completeness"
+- The old dot counted 5 Objects fields (RAHours, DecDegrees, Magnitude, ObjectSize, SocialBlurb): 4-5 filled = green, 2-3 = amber, 0-1 = red. Removed, along with the constellation abbreviation.
+- New columns per sidebar row (header row above the list: star / S30 / S50 / Pro): Priority star when `Objects.WantBetter` = 1, then one 12x12 dot per telescope:
+  - gold = 2+ distinct palettes among unhidden images for that equipment
+  - green = unhidden images, one palette (any palette, not only Natural)
+  - plum = images exist but all hidden
+  - light gray = session folder for that equipment but no gallery images
+  - dark gray = no session folder for that equipment
+- Computed client-side in `public/admin/index.php` (`equipmentStatus()` / `statusColsHtml()`) from data `api_search.php` already returns: session folders = `Observations.ObservationFolder` trailing token `_S30`/`_S50`/`_S50P`; image equipment = `GalleryImages.Equipment` (normalised, so `s30`, `S50 Pro` etc. match), falling back to the `SessionDir` suffix. Palette = PaletteID, or the BaseName palette token when PaletteID is 0 (same rule as the gallery cards). A gallery image also counts as a session for its equipment.
+- Hover tooltips explain each dot. Dots refresh after autosave (when gallery Equipment/Palette/BaseName/SessionDir change), Hide/Unhide, Sync Folder, and Audit Observations (`refreshSidebarRow` / `refreshSidebarFor`).
+- New JS avoids regex literals (string ops instead) because of the edit_file corruption history with metacharacters.
+
+### Gallery Order page (hand-ranked public gallery)
+- New column `Projects.GalleryRank` (INTEGER, NULL = unranked), added by `dsodb/migrations/migrate_add_project_gallery_rank.py` (dry run by default, `-a/--apply`). **Run with --apply by Carl on 2026-11-02; verified via the API (59 cards, all unranked).**
+- Rank lives on Projects because the public gallery shows one card per Project (a DSO with a separate mosaic Project gets two cards).
+- `public/gallery-order/index.php` (auth via `admin/auth.php`): grid of large featured-image cards captioned with common name + DSO key, mosaic and image-count badges. HTML5 drag-and-drop (drop on left/right half of a card = before/after) plus a position box per card (type a number + Enter). Saves the whole order (ranks 1..n) on every move. "Sort A-Z" resets to alphabetical. Linked as "Gallery Order" in the DSO Admin header.
+- `public/admin/api_gallery_rank.php`: GET returns the cards (Projects with >= 1 unhidden image) in current order plus `unassigned` (count of visible images with no ProjectID -- can't be ranked; currently 2); POST `{order: [ProjectID, ...]}` sets GalleryRank = 1..n.
+
+### Public gallery + slideshow (`public/index.php`)
+- Cards: ranked first by GalleryRank, then unranked by display name, non-mosaic before mosaic. Query falls back to `NULL AS "GalleryRank"` if the column is missing.
+- **Bug fixed:** images within a card ignored DSO Admin's SortOrder (PHP usort re-sorted by featured, then GalleryImageID). Now featured, then SortOrder, then GalleryImageID.
+- **Slideshow** no longer scans `images/annotated_full` / `annotated_wall` and shuffles. It is built from the sorted gallery data, so it follows the hand-ranked card order, each card's images in SortOrder, and skips hidden images (before, hidden images still appeared because their files existed). Images missing an annotated file for an orientation are skipped. Rotating keeps the same image (matched by base name). The old folder scan remains only as a fallback when the DB query fails.
+
+### Status at end of session
+- All of the above is live locally. Still needs deploying to the VPS: `public/index.php`, `public/admin/index.php`, `public/admin/api_gallery_rank.php`, `public/gallery-order/index.php`.
+- Nothing ranked yet -- gallery and slideshow stay alphabetical until cards are dragged on Gallery Order.
+- Two visible gallery images have no Project (Sync Folder on their DSO assigns one).
+
+---
+
+## Session: 2026-11-09 (thumbs cleanup; admin keeps thumbs in step)
+
+### DECIDED -- do not revisit: one thumb per VISIBLE image, not just the featured one
+- `public/images/thumbs` holds one `<BaseName>_thumb.jpg` per **visible** GalleryImages row, so a DSO with 3 visible images has 3 thumbs. This is intentional.
+- Why: the public gallery (`public/index.php`) uses the featured image's thumb on the grid card AND every image's thumb in the modal filmstrip (`tImg.src = im.thumbPath || im.favPath`). Keeping only the featured thumb would make the filmstrip load full favs (~100-300 KB each vs ~10-20 KB thumbs). Also, `thumbPath` is set without a file_exists check, so a deleted thumb shows as a broken image, not a fav fallback.
+- Carl considered featured-only (2026-11-09) and decided the thumbs are small enough that keeping all visible ones is fine. **If "we only need the featured thumb" comes up again, stop and point back here.**
+
+### Admin thumb upkeep (`public/admin/thumb_helpers.php`, new)
+- `gallery_thumbs_sync(db, dsoKey)` runs after `api_gallery_image.php` (hide/unhide/feature), `api_save.php` (only when the save touched GalleryImages) and `api_sync_folder.php`. Required via `gallery_helpers.php`.
+- Builds a thumb (GD, fit 300x375 keeping the fav ratio, never enlarged, q70 progressive -- same rule as `titling.py`) for each visible image of the DSO when missing or older than its fav.
+- Deletes that DSO's thumbs (files starting `<dsokey>_`) whose BaseName isn't a visible GalleryImages row of any DSO: hidden images, old/renamed BaseNames, stray copies. Unhiding an image rebuilds its thumb from the fav.
+- Best effort; `api_gallery_image` and `api_sync_folder` return a `thumbs` {created, removed, failed} report.
+- The VPS admin shares the DB but has its own images folder: a hide done there cleans only the VPS thumbs.
+- `titling.py` unchanged -- it still writes a thumb whenever it copies a new/updated fav.
+
+### One-time cleanup (`C:\Astronomy\Apps\pythonScripts\cleanup_thumbs.py`, new)
+- Deletes thumbs that aren't `<BaseName>_thumb.jpg` for a visible row; lists visible images with no thumb. Dry run by default, `-a/--apply`, `-d/--dsokey`, `-r/--root`. Needs the tunnel (live DB).
+- **Run with --apply by Carl on 2026-11-09.** Removed the three hidden IC443 thumbs (#9 `ic443_jellyfish_nebula_S30`, #73 `ic443_jellyfish_S30`, #74 `ic443_jellyfish_hoo_S30`) and two stray copies (`c2025-A6_lemmon_comet_thumb (2).jpg`, `..._thumb_annotated (2).jpg` -- Windows copy-duplicates of the pre-`_S30` name, never referenced).
+
+### Status
+- Needs deploying to the VPS: `public/admin/thumb_helpers.php`, `gallery_helpers.php`, `api_gallery_image.php`, `api_save.php`, `api_sync_folder.php`.

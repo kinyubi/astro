@@ -10,7 +10,9 @@
 //
 // Only the session folder itself is scanned (not master/ or work/), the
 // same as titling.py. Sessions whose name contains "ignore" or "bust" are
-// flagged as ignored (titling.py skips them; the lightbox can show them).
+// flagged as ignored (titling.py skips them), and images whose base name
+// matches a GalleryImages row with IsHidden <> 0 are flagged as hidden.
+// Both are left out unless the page's "Show hidden" box is ticked.
 //
 // Fragment matching mirrors titling.py's resolve_input_path():
 //   1. exact folder name (case-insensitive)
@@ -174,10 +176,30 @@ function lb_sessions(string $project): array
 }
 
 /**
- * Count of plain (non-annotated) images per type in non-ignored sessions.
+ * Lowercased BaseNames of gallery images hidden in DSO Admin
+ * (GalleryImages.IsHidden <> 0), as a set: ['m31_hoo' => true, ...].
+ * Empty if the DB isn't reachable or the column doesn't exist yet.
+ */
+function lb_hidden_bases(?PDO $db): array
+{
+    if (!$db) return [];
+    try {
+        $rows = $db->query('SELECT BaseName AS "BaseName" FROM GalleryImages WHERE COALESCE(IsHidden, 0) <> 0')
+                   ->fetchAll(PDO::FETCH_COLUMN);
+    } catch (Throwable $e) {
+        return [];
+    }
+    $out = [];
+    foreach ($rows as $b) $out[strtolower(trim((string)$b))] = true;
+    return $out;
+}
+
+/**
+ * Count of plain (non-annotated) images per type in non-ignored sessions,
+ * leaving out images hidden in GalleryImages.
  * Cheap: directory listings only, no image headers read.
  */
-function lb_counts(string $project): array
+function lb_counts(string $project, array $hidden = []): array
 {
     $counts = array_fill_keys(LB_TYPES, 0);
     $sessions = 0;
@@ -186,14 +208,17 @@ function lb_counts(string $project): array
         $sessions++;
         foreach (@scandir(lb_join(lb_root(), $project, $s)) ?: [] as $f) {
             $c = lb_classify($f);
-            if ($c && !$c['annotated']) $counts[$c['type']]++;
+            if ($c && !$c['annotated'] && !isset($hidden[$c['base']])) $counts[$c['type']]++;
         }
     }
     return ['counts' => $counts, 'sessions' => $sessions];
 }
 
-/** Every image of one type across a project's sessions. */
-function lb_images(string $project, string $type, bool $annotated, bool $withIgnored): array
+/**
+ * Every image of one type across a project's sessions.
+ * $showHidden includes ignored sessions and images whose base name is in $hidden.
+ */
+function lb_images(string $project, string $type, bool $annotated, bool $showHidden, array $hidden = []): array
 {
     $root = lb_root();
     $siteRoot = realpath(__DIR__ . '/../images');
@@ -201,14 +226,17 @@ function lb_images(string $project, string $type, bool $annotated, bool $withIgn
     $sessions = [];
     foreach (lb_sessions($project) as $s) {
         $meta = lb_session_meta($s);
-        if ($meta['ignored'] && !$withIgnored) continue;
+        if ($meta['ignored'] && !$showHidden) continue;
         $found = 0;
+        $hiddenN = 0;
         $dir = lb_join($root, $project, $s);
         $files = @scandir($dir) ?: [];
         sort($files, SORT_STRING);
         foreach ($files as $f) {
             $c = lb_classify($f);
             if (!$c || $c['type'] !== $type || $c['annotated'] !== $annotated) continue;
+            $isHidden = isset($hidden[$c['base']]);
+            if ($isHidden && !$showHidden) { $hiddenN++; continue; }
             $path = lb_join($dir, $f);
             $size = @getimagesize($path);
             $siteDir = LB_SITE_DIRS[$type][$annotated ? 1 : 0];
@@ -216,6 +244,7 @@ function lb_images(string $project, string $type, bool $annotated, bool $withIgn
                 'file'    => $f,
                 'base'    => $c['base'],
                 'palette' => $c['palette'],
+                'hidden'  => $isHidden,
                 'width'   => $size[0] ?? null,
                 'height'  => $size[1] ?? null,
                 'bytes'   => @filesize($path) ?: null,
@@ -224,7 +253,7 @@ function lb_images(string $project, string $type, bool $annotated, bool $withIgn
             ];
             $found++;
         }
-        $sessions[] = $meta + ['count' => $found];
+        $sessions[] = $meta + ['count' => $found, 'hidden' => $hiddenN];
     }
     return ['images' => $images, 'sessions' => $sessions];
 }
