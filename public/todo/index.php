@@ -3,6 +3,25 @@
 // public/todo/index.php — simple standalone To Do List
 // No authentication — personal tool, not sensitive data.
 // ============================================================
+
+// Equipment choices come from the Equipment table (S30, S50, S50P, 8SE,
+// IP, UNK...): the Seestars first, then the rest alphabetically.
+require_once __DIR__ . '/../../shared/db.php';
+$equipment_ids = [];
+try {
+    $equipment_ids = get_db()->query('SELECT EquipmentID AS "id" FROM Equipment')->fetchAll(PDO::FETCH_COLUMN);
+} catch (Throwable $e) {
+    error_log('todo/index.php equipment: ' . $e->getMessage());
+}
+if (!$equipment_ids) $equipment_ids = ['S30', 'S50', 'S50P'];
+usort($equipment_ids, function ($a, $b) {
+    $order = ['S30' => 0, 'S50' => 1, 'S50P' => 2];
+    return [$order[strtoupper($a)] ?? 9, strtoupper($a)] <=> [$order[strtoupper($b)] ?? 9, strtoupper($b)];
+});
+$equipment_options = [['value' => '', 'label' => '—']];
+foreach ($equipment_ids as $id) {
+    $equipment_options[] = ['value' => $id, 'label' => strtoupper($id) === 'S50P' ? 'S50 Pro' : $id];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -341,14 +360,9 @@ const STATUS_OPTIONS = ['Photograph', 'Download', 'Preprocess', 'Process', 'Rend
 // Notes is capped at 160 characters (matches the Notes VARCHAR(160) column).
 const NOTES_MAX_LEN = 160;
 
-// Equipment codes match the Equipment table's EquipmentID values
-// ('S30'/'S50'/'S50P') -- S50P displays as "S50 Pro".
-const EQUIPMENT_OPTIONS = [
-  { value: '',     label: '—' },
-  { value: 'S30',  label: 'S30' },
-  { value: 'S50',  label: 'S50' },
-  { value: 'S50P', label: 'S50 Pro' },
-];
+// Equipment codes are the Equipment table's EquipmentID values (read by
+// the PHP at the top) -- S50P displays as "S50 Pro".
+const EQUIPMENT_OPTIONS = <?= json_encode($equipment_options) ?>;
 
 async function loadTodos() {
   const res = await fetch('api.php?action=list');

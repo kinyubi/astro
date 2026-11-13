@@ -10,6 +10,13 @@ Options +ExecCGI
 
 RewriteEngine On
 
+# Home page is the new gallery app. The old one-page site lives on at
+# /legacy/ (302, not 301, so browsers don't cache it while things settle).
+# Target is built from the request URL so it works at astro.app/ and at
+# localhost/astro/public/ alike.
+RewriteCond %{REQUEST_URI} ^(.*/)(index\.php)?$
+RewriteRule ^(index\.php)?$ %1slideshow/ [R=302,L]
+
 # /vis/all -> full DSO visibility report (Alignment Stars, Planets & Moon,
 # Visibility Dates included). Plain /vis defaults to the DSO table only.
 RewriteRule ^vis/all/?$ vis/index.php?all=1 [L,QSA]

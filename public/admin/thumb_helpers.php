@@ -5,7 +5,7 @@
 // The public gallery shows a thumb for every visible GalleryImages row
 // (grid card = the featured image's thumb, modal filmstrip = each
 // image's thumb), named images/thumbs/<BaseName>_thumb.jpg and made from
-// images/fav/<BaseName>_fav.jpg -- the same rule titling.py uses: fit
+// images/fav/<BaseName>_fav.jpg -- the same rule publish_images.py uses: fit
 // inside 300x375 keeping the fav's own ratio, never enlarged, JPEG
 // quality 70, progressive.
 //

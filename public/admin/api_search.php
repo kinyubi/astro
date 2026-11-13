@@ -130,7 +130,7 @@ try {
                 gi.Equipment      AS \"Equipment\",
                 gi.ProjectID      AS \"ProjectID\",
                 p.ProjectFolder   AS \"ProjectFolder\",
-                p.IsMosaic        AS \"IsMosaic\",
+                gi.IsMosaic       AS \"IsMosaic\",
                 gi.SessionDir     AS \"SessionDir\",
                 gi.SortOrder      AS \"SortOrder\",
                 gi.IsFeature      AS \"IsFeature\",
@@ -175,7 +175,6 @@ try {
                 p.ProjectID     AS \"ProjectID\",
                 p.DSOKey        AS \"DSOKey\",
                 p.ProjectFolder AS \"ProjectFolder\",
-                p.IsMosaic      AS \"IsMosaic\",
                 p.Notes         AS \"Notes\",
                 (SELECT MAX(ObservationDate) FROM Observations WHERE ProjectID = p.ProjectID) AS \"MostRecentObservation\",
                 (SELECT SUM(GoodLights) FROM Observations WHERE ProjectID = p.ProjectID) AS \"TotalLights\",
@@ -202,6 +201,7 @@ try {
                 o.TotalExposures    AS \"TotalExposures\",
                 o.GoodLights        AS \"GoodLights\",
                 o.IntegrationMins   AS \"IntegrationMins\",
+                o.IsMosaic          AS \"IsMosaic\",
                 o.Notes             AS \"Notes\"
             FROM Observations o
             JOIN Projects p ON o.ProjectID = p.ProjectID

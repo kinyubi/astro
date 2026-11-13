@@ -137,8 +137,20 @@ if args:
 # a session shot as part of a mosaic -- it's a non-capturing token, not a
 # panel identifier, so it doesn't feed MosaicPanel or anything else; it just
 # needs to not break the match.
-OBS_FOLDER_WITH_COUNT = re.compile(r'^(\d{8})_(\d+)x(\d+)s(?:_mosaic)?_([A-Z0-9]+)$', re.IGNORECASE)
-OBS_FOLDER_DATE_EQUIP = re.compile(r'^(\d{8})_(?:mosaic_)?([A-Z0-9]+)$', re.IGNORECASE)
+#
+# Observation folder names are <yyyymmdd>_[anything_]<EQUIPMENT>, e.g.
+#   20251102_207x60s_mosaic_S30    20260907_639x20s_AW_S50P
+#   20251110_60s_S30               20251114_S30
+#   20251206_waning_gibbous_moon_8SE
+# The LAST part must be a code from the Equipment table (S30, S50, S50P,
+# 6SE, 8SE...) -- anything else (moon, Crescent, IGNORE) means the folder
+# isn't counted, and it's reported with the reason instead of being
+# written with a bogus EquipmentID. A part like 207x60s (or 1102x10) gives
+# the shot count and exposure, 60s alone gives the exposure; every other
+# part (mosaic, AW, closeup, a description) is just ignored.
+COUNT_TOKEN = re.compile(r'^(\d+)x(\d+)s?$', re.IGNORECASE)
+SECS_TOKEN = re.compile(r'^(\d+)s$', re.IGNORECASE)
+KNOWN_EQUIPMENT = set()   # upper-case EquipmentIDs, filled from the Equipment table in main()
 LIGHTS_FOLDER = re.compile(r'^lights_([A-Z0-9]+)$', re.IGNORECASE)
 FIT_FILENAME_PATTERN = r'^.+_(\d+)\.0s_.*(\d{8})-(\d{6})\.fit' + chr(36)
 FIT_FILENAME = re.compile(FIT_FILENAME_PATTERN, re.IGNORECASE)
@@ -178,28 +190,48 @@ def manual_data_fields_present(row):
     return [f for f in MANUAL_DATA_FIELDS if row.get(f) not in (None, '')]
 
 
+def observation_folder_problem(name):
+    """Why a date-named folder can't be used as an observation folder, in
+    plain words, or None if it can."""
+    parts = name.split('_')
+    if len(parts) < 2 or not re.fullmatch(r'\d{8}', parts[0]):
+        return "name doesn't start with a yyyymmdd date and a part after it"
+    if parts[-1].upper() not in KNOWN_EQUIPMENT:
+        codes = ', '.join(sorted(KNOWN_EQUIPMENT)) or 'S30, S50, S50P'
+        return (f"name doesn't end with an equipment code ({codes}), so it isn't counted"
+                f" as an observation -- e.g. rename it {name}_S30")
+    return None
+
+
+def extra_words(name):
+    """How many parts of the name are neither the date, the equipment, the
+    shot count/exposure nor 'mosaic' (e.g. AW, closeup, a description)."""
+    middle = name.split('_')[1:-1]
+    return sum(1 for p in middle
+               if not (COUNT_TOKEN.match(p) or SECS_TOKEN.match(p) or p.lower() == 'mosaic'))
+
+
 def parse_observation_folder(name):
     """Returns a dict of what the folder name itself tells us, or None if it
-    doesn't match either known pattern."""
-    m = OBS_FOLDER_WITH_COUNT.match(name)
-    if m:
-        date_str, total_exp, exp_secs, equip = m.groups()
-        return {
-            'ObservationDate': date_str,
-            'EquipmentID': equip.upper(),
-            'TotalExposures': int(total_exp),
-            'ExposureTimeSecs': float(exp_secs),
-        }
-    m = OBS_FOLDER_DATE_EQUIP.match(name)
-    if m:
-        date_str, equip = m.groups()
-        return {
-            'ObservationDate': date_str,
-            'EquipmentID': equip.upper(),
-            'TotalExposures': None,
-            'ExposureTimeSecs': None,
-        }
-    return None
+    isn't a usable observation folder name (see observation_folder_problem)."""
+    if observation_folder_problem(name):
+        return None
+    parts = name.split('_')
+    total_exp = exp_secs = None
+    for p in parts[1:-1]:
+        m = COUNT_TOKEN.match(p)
+        if m:
+            total_exp, exp_secs = int(m.group(1)), float(m.group(2))
+            continue
+        m = SECS_TOKEN.match(p)
+        if m:
+            exp_secs = float(m.group(1))
+    return {
+        'ObservationDate': parts[0],
+        'EquipmentID': parts[-1].upper(),
+        'TotalExposures': total_exp,
+        'ExposureTimeSecs': exp_secs,
+    }
 
 
 def scan_lights_folder(lights_path):
@@ -310,6 +342,9 @@ def main():
     conn = get_connection()
     cur = conn.cursor()
 
+    cur.execute('SELECT EquipmentID AS "EquipmentID" FROM Equipment')
+    KNOWN_EQUIPMENT.update(str(r['EquipmentID']).strip().upper() for r in cur.fetchall() if r['EquipmentID'])
+
     cur.execute("""
         SELECT
             ProjectID     AS "ProjectID",
@@ -320,7 +355,7 @@ def main():
     projects_by_folder = {row['ProjectFolder']: dict(row) for row in cur.fetchall()}
 
     unregistered_folders = []
-    unrecognized_subfolders = []   # (top, sub) -- doesn't match any known pattern
+    unrecognized_subfolders = []   # (top, sub, reason) -- not counted as an observation
     legacy_no_folder = []          # existing Observations rows with ObservationFolder IS NULL
     ambiguous_matches = []         # (DSOKey, top, sub, [candidate ObservationFolders]) -- can't safely pick one
     to_create = []                 # (ProjectID, DSOKey, top, fields)
@@ -409,6 +444,24 @@ def main():
 
         matched_observation_ids = set()
 
+        # Two folders for the same night and equipment (e.g.
+        # 20260907_639x20s_S50P and 20260907_639x20s_AW_S50P -- the same
+        # data processed twice) are one observation: count the plainer name
+        # and report the other, so the night isn't counted twice.
+        same_night_as = {}
+        by_night = {}
+        for sub in sorted(os.listdir(top_path)):
+            if (top_path / sub).is_dir() and sub[:8].isdigit():
+                p = parse_observation_folder(sub)
+                if p:
+                    by_night.setdefault((p['ObservationDate'], p['EquipmentID']), []).append(sub)
+        for subs in by_night.values():
+            if len(subs) > 1:
+                keep = min(subs, key=lambda s: (extra_words(s), len(s), s))
+                for s in subs:
+                    if s != keep:
+                        same_night_as[s] = keep
+
         for sub in sorted(os.listdir(top_path)):
             sub_path = top_path / sub
             if not sub_path.is_dir():
@@ -426,9 +479,14 @@ def main():
                 # naming wrong.
                 continue
 
+            if sub in same_night_as:
+                unrecognized_subfolders.append(
+                    (top, sub, f"same night and equipment as {same_night_as[sub]}, which is counted instead"))
+                continue
+
             fields = derive_observation_fields(sub, lights_fit_cache, top_path)
             if not fields:
-                unrecognized_subfolders.append((top, sub))
+                unrecognized_subfolders.append((top, sub, observation_folder_problem(sub) or "name not recognized"))
                 continue
 
             candidates = existing_by_prefix.get(sub[:8], [])
@@ -508,8 +566,15 @@ def main():
         ambiguous_ids_this_project = {
             oid for (_, t, _, oids) in ambiguous_matches if t == top for oid in oids
         }
+        # A row whose folder is still on disk is never deleted, even when that
+        # folder isn't counted as an observation (e.g. its name has no
+        # equipment code yet, or it's an _IGNORE session) -- it's reported
+        # above under "not counted", and fixing the name brings it back.
+        still_on_disk = {s.lower() for s in os.listdir(top_path) if (top_path / s).is_dir()}
         for r in all_existing:
             if r['ObservationID'] in matched_observation_ids or r['ObservationID'] in ambiguous_ids_this_project:
+                continue
+            if r['ObservationFolder'] and r['ObservationFolder'].lower() in still_on_disk:
                 continue
             manual_fields = manual_data_fields_present(r)
             if r['ObservationFolder']:
@@ -544,10 +609,9 @@ def main():
         for f in unregistered_folders:
             print(f"  {f}")
 
-        print(f"\nUnrecognized subfolders ({len(unrecognized_subfolders)}) -- didn't match either"
-              " observation-folder pattern or the lights_ pattern, skipped:")
-        for top, sub in unrecognized_subfolders:
-            print(f"  {top}/{sub}")
+        print(f"\nFolders not counted as observations ({len(unrecognized_subfolders)}):")
+        for top, sub, why in unrecognized_subfolders:
+            print(f"  {top}/{sub} -- {why}")
 
         print(f"\nLegacy Observations rows with no ObservationFolder set ({len(legacy_no_folder)}):")
         for obs_id, obs_date, dso_key, top, manual_fields in legacy_to_delete:
@@ -612,7 +676,7 @@ def main():
                 'deleted': [],
                 'orphaned': _orphaned_payload(),
                 'ambiguous': [{'DSOKey': d, 'Top': t, 'Sub': s, 'Candidates': c} for d, t, s, c in ambiguous_matches],
-                'unrecognized': [{'Top': t, 'Sub': s} for t, s in unrecognized_subfolders],
+                'unrecognized': [{'Top': t, 'Sub': s, 'Reason': r} for t, s, r in unrecognized_subfolders],
                 'legacyNoFolder': _legacy_payload(),
                 'projectedIntegration': [
                     {'DSOKey': d, 'Top': t, 'CurrentMins': c, 'ProjectedMins': p}
@@ -647,7 +711,7 @@ def main():
             'toDelete': _to_delete_payload(),
             'orphaned': _orphaned_payload(),
             'ambiguous': [{'DSOKey': d, 'Top': t, 'Sub': s, 'Candidates': c} for d, t, s, c in ambiguous_matches],
-            'unrecognized': [{'Top': t, 'Sub': s} for t, s in unrecognized_subfolders],
+            'unrecognized': [{'Top': t, 'Sub': s, 'Reason': r} for t, s, r in unrecognized_subfolders],
             'legacyNoFolder': _legacy_payload(),
             'projectedIntegration': [
                 {'DSOKey': d, 'Top': t, 'CurrentMins': c, 'ProjectedMins': p}
@@ -725,7 +789,7 @@ def main():
                 'integrationFilled': integration_filled,
                 'orphaned': _orphaned_payload(),
                 'ambiguous': [{'DSOKey': d, 'Top': t, 'Sub': s, 'Candidates': c} for d, t, s, c in ambiguous_matches],
-                'unrecognized': [{'Top': t, 'Sub': s} for t, s in unrecognized_subfolders],
+                'unrecognized': [{'Top': t, 'Sub': s, 'Reason': r} for t, s, r in unrecognized_subfolders],
                 'legacyNoFolder': _legacy_payload(),
                 'projectedIntegration': [
                     {'DSOKey': d, 'Top': t, 'CurrentMins': c, 'ProjectedMins': p}

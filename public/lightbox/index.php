@@ -223,7 +223,6 @@ $init = [
   </div>
   <nav class="types" id="types"></nav>
   <div class="opts">
-    <label title="Show the _annotated versions (a)"><input type="checkbox" id="optAnn"> Annotated</label>
     <label title="Include IGNORE / bust sessions and images hidden in DSO Admin (h)"><input type="checkbox" id="optHid"> Show hidden</label>
     <label>Sort
       <select id="optSort">
@@ -245,7 +244,7 @@ $init = [
 <main class="grid" id="grid"></main>
 <div class="keys">
   <kbd>←</kbd> <kbd>→</kbd> DSO &nbsp; <kbd>↑</kbd> <kbd>↓</kbd> image type &nbsp; <kbd>/</kbd> search &nbsp;
-  <kbd>a</kbd> annotated &nbsp; <kbd>h</kbd> show hidden &nbsp;·&nbsp; in the viewer:
+  <kbd>h</kbd> show hidden &nbsp;·&nbsp; in the viewer:
   <kbd>←</kbd> <kbd>→</kbd> image &nbsp; <kbd>1</kbd>–<kbd>5</kbd> rate &nbsp; <kbd>0</kbd> clear &nbsp;
   <kbd>z</kbd> 100% &nbsp; <kbd>n</kbd> note &nbsp; <kbd>Esc</kbd> close
 </div>
@@ -291,7 +290,6 @@ const state = {
   nav: [],           // case-insensitive order — used for prev/next and the list
   folder: null,
   type: TYPES.includes(INIT.type) ? INIT.type : store.get('type', 'fav'),
-  annotated: store.get('annotated', false),
   showHidden: store.get('showHidden', store.get('ignored', false)),
   sort: store.get('sort', 'date'),
   data: null,
@@ -464,10 +462,8 @@ $('optSize').addEventListener('input', e => {
   store.set('tile', sizes);
   document.documentElement.style.setProperty('--tile', e.target.value + 'px');
 });
-$('optAnn').checked = state.annotated;
 $('optHid').checked = state.showHidden;
 $('optSort').value = state.sort;
-$('optAnn').addEventListener('change', e => { state.annotated = e.target.checked; store.set('annotated', state.annotated); load(); });
 $('optHid').addEventListener('change', e => { state.showHidden = e.target.checked; store.set('showHidden', state.showHidden); load(); });
 $('optSort').addEventListener('change', e => { state.sort = e.target.value; store.set('sort', state.sort); render(); });
 
@@ -482,7 +478,7 @@ async function load() {
   $('grid').innerHTML = '<div class="empty">Loading…</div>';
   try {
     const data = await api({ action: 'images', project: state.folder, type: state.type,
-                             annotated: state.annotated ? 1 : 0, hidden: state.showHidden ? 1 : 0 });
+                             hidden: state.showHidden ? 1 : 0 });
     if (id !== state.reqId) return;
     state.data = data;
     render();
@@ -511,7 +507,7 @@ function render() {
   $('banner').textContent = data.ratingsError || '';
 
   const withImg = data.sessions.filter(s => s.count > 0).length;
-  const suffix = `_${data.type}${state.annotated ? '_annotated' : ''}`;
+  const suffix = `_${data.type}`;
   $('sub').innerHTML = `<code>${esc(data.project)}</code> &nbsp; ${data.sessions.length} session${data.sessions.length === 1 ? '' : 's'}, ${withImg} with a ${esc(suffix)}`;
   const missing = data.sessions.filter(s => s.count === 0);
   $('missing').innerHTML = missing.length
@@ -748,7 +744,6 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'ArrowUp') stepType(-1);
   else if (e.key === 'ArrowDown') stepType(1);
   else if (e.key === '/') $('q').focus();
-  else if (e.key === 'a') $('optAnn').click();
   else if (e.key === 'h') $('optHid').click();
   else return;
   e.preventDefault();

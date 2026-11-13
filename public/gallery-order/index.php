@@ -262,7 +262,7 @@ function moveCard(from, to) {
 
 function sortAlphabetical() {
   if (!confirm('Put all ' + cards.length + ' cards back in alphabetical order?')) return;
-  cards.sort((a, b) => (a.DisplayName < b.DisplayName ? -1 : a.DisplayName > b.DisplayName ? 1 : a.IsMosaic - b.IsMosaic));
+  cards.sort((a, b) => (a.DisplayName < b.DisplayName ? -1 : a.DisplayName > b.DisplayName ? 1 : a.ProjectID - b.ProjectID));
   render();
   save();
 }

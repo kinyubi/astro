@@ -21,10 +21,9 @@ Projects row where:
   - myWorks\\<ProjectFolder with the trailing "_mosaic" removed> DOES exist
 
 and updates ProjectFolder to the version without the suffix. It does NOT
-touch IsMosaic, DSOKey, or anything else -- only the stale folder-name
-string. A project can legitimately still be IsMosaic=1 with a
-plain-named ProjectFolder now that both project types can share one
-folder.
+touch DSOKey or anything else -- only the stale folder-name string.
+(Projects no longer have an IsMosaic flag: mosaic is a property of each
+session, computed from the session folder name.)
 
 Rows whose ProjectFolder ends in "_mosaic" but where NEITHER the direct
 nor the stripped folder exists on disk are left alone and listed
@@ -62,8 +61,7 @@ def main():
     cur.execute("""
         SELECT ProjectID     AS "ProjectID",
                DSOKey        AS "DSOKey",
-               ProjectFolder AS "ProjectFolder",
-               IsMosaic      AS "IsMosaic"
+               ProjectFolder AS "ProjectFolder"
         FROM Projects
         ORDER BY ProjectID
     """)
@@ -103,8 +101,8 @@ def main():
 
     print("-- Planned fixes --")
     for row, new_folder in fixes:
-        print(f"  ProjectID {row['ProjectID']} (DSOKey={row['DSOKey']}, "
-              f"IsMosaic={row['IsMosaic']}): {row['ProjectFolder']!r} -> {new_folder!r}")
+        print(f"  ProjectID {row['ProjectID']} (DSOKey={row['DSOKey']}): "
+              f"{row['ProjectFolder']!r} -> {new_folder!r}")
 
     if not apply_changes:
         print()

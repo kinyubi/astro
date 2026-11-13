@@ -1993,15 +1993,14 @@ async function showDSOInfo(dsoKey) {
     } else {
       projects.forEach((p, idx) => {
         const integStr = p.TotalIntegrationMins ? (parseFloat(p.TotalIntegrationMins)/60).toFixed(1) + ' hrs' : '-';
-        const mosaicSuffix = p.IsMosaic ? ' - Mosaic' : '';
         const header = projects.length > 1
-          ? ('Project ' + (idx + 1) + ' of ' + projects.length + mosaicSuffix)
-          : ('Observation &amp; Project' + mosaicSuffix);
+          ? ('Project ' + (idx + 1) + ' of ' + projects.length)
+          : 'Observation &amp; Project';
         html += `<div class="modal-section">
           <div class="modal-section-header">${header}</div>
           <div class="modal-section-body">
             <div class="modal-field"><span class="modal-field-label">Project Folder</span><span class="modal-field-value">${fv(p.ProjectFolder)}</span></div>
-            <div class="modal-field"><span class="modal-field-label">Mosaic?</span><span class="modal-field-value">${p.IsMosaic ? 'Yes' : 'No'}</span></div>
+            <div class="modal-field"><span class="modal-field-label">Mosaic Sessions</span><span class="modal-field-value">${p.MosaicSessions ? p.MosaicSessions : 'None'}</span></div>
             <div class="modal-field"><span class="modal-field-label">Last Observed</span><span class="modal-field-value">${fv(p.MostRecentObservation)}</span></div>
             <div class="modal-field"><span class="modal-field-label">Total Lights</span><span class="modal-field-value">${fv(p.TotalLights)}</span></div>
             <div class="modal-field"><span class="modal-field-label">Integration Time</span><span class="modal-field-value">${integStr}</span></div>

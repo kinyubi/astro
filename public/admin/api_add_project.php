@@ -19,9 +19,9 @@
 // let a near-duplicate row through (see the case-insensitivity notes in
 // api_sync_folder.php for the same concern).
 //
-// IsMosaic is intentionally left out of the INSERT -- it has a DB-side
-// default (see DB_REWORK_PLAN.md), so this never sets it directly,
-// matching sync_projects.py's approach.
+// Projects have no IsMosaic: mosaic is a property of each session
+// (Observations/GalleryImages.IsMosaic, computed from the session folder
+// name -- see dsodb/migrations/migrate_mosaic_to_sessions.py).
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
@@ -79,12 +79,13 @@ try {
         exit;
     }
 
-    // Sun/Moon use a separate hardcoded pipeline (see the solar guard in
-    // api_sync_folder.php) and never go through Projects/GalleryImages, so
-    // a Project row for them would just be dead weight.
-    if ($object_type_id === 'SOLAR_SYSTEM') {
+    // The Sun, Moon and planets use the solar pipeline (images/solar) and
+    // never go through Projects/GalleryImages, so a Project row for them
+    // would just be dead weight. Comets are SOLAR_SYSTEM too, but they are
+    // ordinary gallery images with Projects, so this goes by the key.
+    if (in_array(strtolower($dso_key), ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'], true)) {
         http_response_code(400);
-        echo json_encode(['error' => "Projects aren't used for solar objects (Sun/Moon) -- they're handled by the solar pipeline."]);
+        echo json_encode(['error' => "Projects aren't used for the Sun, Moon and planets -- they're handled by the solar pipeline."]);
         exit;
     }
 

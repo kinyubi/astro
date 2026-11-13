@@ -15,6 +15,17 @@ require_once __DIR__ . '/../../shared/db.php';
 
 header('Content-Type: application/json');
 
+/**
+ * The Equipment table's spelling of $code (any case), or null if it isn't
+ * an EquipmentID there.
+ */
+function todo_equipment_id(PDO $db, string $code): ?string {
+    $stmt = $db->prepare('SELECT EquipmentID FROM Equipment WHERE UPPER(EquipmentID) = UPPER(?)');
+    $stmt->execute([$code]);
+    $id = $stmt->fetchColumn();
+    return $id !== false ? (string)$id : null;
+}
+
 try {
     $db = get_db();
 
@@ -88,8 +99,8 @@ try {
             if (!in_array($priority, ['High', 'Medium', 'Low'], true)) {
                 $priority = 'Medium';
             }
-            if ($equipment !== null && !in_array($equipment, ['S30', 'S50', 'S50P'], true)) {
-                $equipment = null;
+            if ($equipment !== null) {
+                $equipment = todo_equipment_id($db, $equipment);
             }
             if ($commonname === '') {
                 http_response_code(400);
@@ -147,10 +158,14 @@ try {
             }
             if (isset($body['equipment'])) {
                 $e = trim($body['equipment']);
-                if ($e !== '' && !in_array($e, ['S30', 'S50', 'S50P'], true)) {
-                    http_response_code(400);
-                    echo json_encode(['error' => 'equipment must be S30, S50, or S50P']);
-                    break;
+                if ($e !== '') {
+                    $known = todo_equipment_id($db, $e);
+                    if ($known === null) {
+                        http_response_code(400);
+                        echo json_encode(['error' => "equipment must be one of the codes in the Equipment table (not $e)"]);
+                        break;
+                    }
+                    $e = $known;
                 }
                 $fields[] = 'Equipment = ?';
                 $params[] = $e ?: null;

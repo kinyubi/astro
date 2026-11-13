@@ -4,6 +4,7 @@
 //
 // POST { "DSOKey": "IC1805" }                  -- audits EVERY Project of the DSO
 // POST { "DSOKey": "IC1805", "ProjectID": 7 }   -- audits just that one
+// add "dryRun": true to see what it would do without changing anything
 //
 // With more than one Project, the script is run once per ProjectFolder and
 // the results are merged (list fields concatenated, integrationFilled
@@ -71,7 +72,8 @@ if (!defined('WORKS_ROOT') || !is_dir(WORKS_ROOT)) {
 
 // Runs audit_observations.py for one ProjectFolder. Returns the decoded
 // JSON result, or ['error' => ..., 'output' => ...] on failure.
-function run_audit_for_folder(string $project_folder): array {
+function run_audit_for_folder(string $project_folder, bool $dry_run = false): array {
+    $dry = $dry_run ? ' --dry-run' : '';
     $projectRoot  = realpath(__DIR__ . '/../..');
     $pythonDir    = $projectRoot . DIRECTORY_SEPARATOR . 'pythonscripts';
     $pythonScript = $pythonDir . DIRECTORY_SEPARATOR . 'audit_observations.py';
@@ -88,8 +90,8 @@ function run_audit_for_folder(string $project_folder): array {
             return ['error' => "Python executable not found at: $pythonExe"];
         }
         $command = sprintf(
-            '"%s" "%s" --project-folder=%s --json 2>&1',
-            $pythonExe, $pythonScript, escapeshellarg($project_folder)
+            '"%s" "%s" --project-folder=%s --json%s 2>&1',
+            $pythonExe, $pythonScript, escapeshellarg($project_folder), $dry
         );
     } else {
         $venvDir        = $pythonDir . '/venv';
@@ -98,10 +100,10 @@ function run_audit_for_folder(string $project_folder): array {
             return ['error' => "Virtual environment not found at: $venvDir"];
         }
         $command = sprintf(
-            'bash -c "source %s && python %s --project-folder=%s --json" 2>&1',
+            'bash -c "source %s && python %s --project-folder=%s --json%s" 2>&1',
             escapeshellarg($activateScript),
             escapeshellarg($pythonScript),
-            escapeshellarg($project_folder)
+            escapeshellarg($project_folder), $dry
         );
     }
 
@@ -146,7 +148,8 @@ try {
         }
     }
 
-    $list_keys = ['created', 'updated', 'deleted', 'orphaned', 'ambiguous',
+    $dry_run   = !empty($body['dryRun']);
+    $list_keys = ['created', 'updated', 'deleted', 'toDelete', 'orphaned', 'ambiguous',
                   'unrecognized', 'legacyNoFolder', 'projectedIntegration'];
     $merged = array_fill_keys($list_keys, []);
     $merged['integrationFilled'] = 0;
@@ -160,7 +163,7 @@ try {
                          'error' => 'Project has no ProjectFolder set -- nothing to audit against on disk.'];
             continue;
         }
-        $r = run_audit_for_folder($folder);
+        $r = run_audit_for_folder($folder, $dry_run);
         if (isset($r['error']) && !($r['success'] ?? false)) {
             $errors[] = ['ProjectFolder' => $folder, 'error' => $r['error'], 'output' => $r['output'] ?? null];
             continue;
@@ -184,7 +187,7 @@ try {
         exit;
     }
 
-    echo json_encode(array_merge(['success' => true, 'applied' => true], $merged, ['errors' => $errors]));
+    echo json_encode(array_merge(['success' => true, 'applied' => !$dry_run], $merged, ['errors' => $errors]));
 
 } catch (Exception $e) {
     http_response_code(500);

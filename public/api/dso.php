@@ -3,8 +3,10 @@
  * DSO Lookup API
  *
  * Returns DSO-level fields plus a list of that DSO's Projects (each with
- * its own ProjectFolder/IsMosaic/MostRecentObservation/TotalLights/
- * TotalIntegrationMins) as JSON. A DSO can have more than one Project
+ * its own ProjectFolder/MostRecentObservation/TotalLights/
+ * TotalIntegrationMins/MosaicSessions) as JSON. Mosaic is a property of a
+ * session (Observations.IsMosaic, from the folder name), not of a Project;
+ * MosaicSessions counts a Project's mosaic sessions. A DSO can have more than one Project
  * (e.g. a standard framing and a separate mosaic framing) -- Project is
  * the top of the hierarchy, not Object; see DB_REWORK_PLAN.md.
  *
@@ -113,14 +115,14 @@ try {
         SELECT
             p.ProjectID      AS \"ProjectID\",
             p.ProjectFolder  AS \"ProjectFolder\",
-            p.IsMosaic       AS \"IsMosaic\",
             p.Notes AS \"ProjectNotes\",
             (SELECT MAX(ObservationDate) FROM Observations WHERE ProjectID = p.ProjectID) AS \"MostRecentObservation\",
             (SELECT SUM(GoodLights) FROM Observations WHERE ProjectID = p.ProjectID) AS \"TotalLights\",
-            (SELECT SUM(IntegrationMins) FROM Observations WHERE ProjectID = p.ProjectID) AS \"TotalIntegrationMins\"
+            (SELECT SUM(IntegrationMins) FROM Observations WHERE ProjectID = p.ProjectID) AS \"TotalIntegrationMins\",
+            (SELECT COUNT(*) FROM Observations WHERE ProjectID = p.ProjectID AND IsMosaic = 1) AS \"MosaicSessions\"
         FROM Projects p
         WHERE p.DSOKey = :dsokey
-        ORDER BY p.IsMosaic ASC, p.ProjectID ASC
+        ORDER BY p.ProjectID ASC
     ");
     $pstmt->execute([':dsokey' => $row['DSOKey']]);
     $projects = $pstmt->fetchAll(PDO::FETCH_ASSOC);
@@ -162,6 +164,7 @@ foreach (['RAHours', 'DecDegrees', 'Magnitude'] as $col) {
     }
 }
 foreach ($projects as &$p) {
+    $p['MosaicSessions'] = (int)($p['MosaicSessions'] ?? 0);
     foreach (['TotalLights', 'TotalIntegrationMins'] as $col) {
         if (isset($p[$col]) && $p[$col] !== null) {
             $p[$col] = (float) $p[$col];

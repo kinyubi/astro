@@ -68,13 +68,13 @@ try {
         SELECT
             p.ProjectID       AS \"ProjectID\",
             p.DSOKey          AS \"DSOKey\",
-            p.IsMosaic        AS \"IsMosaic\",
             p.GalleryRank     AS \"GalleryRank\",
             o.CommonName      AS \"CommonName\",
             gi.GalleryImageID AS \"GalleryImageID\",
             gi.BaseName       AS \"BaseName\",
             gi.IsFeature      AS \"IsFeature\",
-            gi.SortOrder      AS \"SortOrder\"
+            gi.SortOrder      AS \"SortOrder\",
+            gi.IsMosaic       AS \"IsMosaic\"
         FROM GalleryImages gi
         JOIN Projects p ON gi.ProjectID = p.ProjectID
         JOIN Objects  o ON gi.DSOKey    = o.DSOKey
@@ -90,7 +90,7 @@ try {
                 'DSOKey'      => $r['DSOKey'],
                 'CommonName'  => $r['CommonName'],
                 'DisplayName' => ($r['CommonName'] ?? $r['DSOKey']) . ' (' . $r['DSOKey'] . ')',
-                'IsMosaic'    => (int)($r['IsMosaic'] ?? 0),
+                'IsMosaic'    => 0,   // set below: the shown image's session
                 'GalleryRank' => $r['GalleryRank'] !== null ? (int)$r['GalleryRank'] : null,
                 'ImageCount'  => 0,
                 '_images'     => [],
@@ -102,6 +102,7 @@ try {
             'bn'   => $r['BaseName'],
             'feat' => (int)$r['IsFeature'],
             'sort' => (int)($r['SortOrder'] ?? 0),
+            'mos'  => (int)($r['IsMosaic'] ?? 0),
         ];
     }
 
@@ -112,12 +113,13 @@ try {
             $b['feat'] - $a['feat'] ?: ($a['sort'] - $b['sort'] ?: $a['id'] - $b['id'])
         );
         $c['BaseName'] = $c['_images'][0]['bn'];
+        $c['IsMosaic'] = $c['_images'][0]['mos'];   // badge: the shown image is a mosaic
         unset($c['_images']);
     }
     unset($c);
 
     // Current public order: ranked first (by rank), then unranked by
-    // display name, non-mosaic before mosaic.
+    // display name, then ProjectID.
     usort($cards, function ($a, $b) {
         $ra = $a['GalleryRank']; $rb = $b['GalleryRank'];
         if ($ra !== null || $rb !== null) {
@@ -126,7 +128,7 @@ try {
             if ($ra !== $rb) return $ra - $rb;
         }
         $cmp = strcmp($a['DisplayName'], $b['DisplayName']);
-        return $cmp !== 0 ? $cmp : ($a['IsMosaic'] - $b['IsMosaic']);
+        return $cmp !== 0 ? $cmp : ($a['ProjectID'] - $b['ProjectID']);
     });
 
     $unassigned_rows = $db->query(

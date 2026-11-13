@@ -100,25 +100,27 @@ def list_projects():
     cursor = conn.cursor()
     
     cursor.execute('''
-        SELECT p.ProjectFolder, o.CommonName, p.IsMosaic,
-               p.TotalGoodLights, ROUND(p.TotalIntegrationMins / 60.0, 2) as Hours,
+        SELECT p.ProjectFolder, o.CommonName,
+               (SELECT COUNT(*) FROM Observations WHERE ProjectID = p.ProjectID AND IsMosaic = 1) as MosaicSessions,
+               (SELECT SUM(GoodLights) FROM Observations WHERE ProjectID = p.ProjectID) as Lights,
+               ROUND(CAST((SELECT SUM(IntegrationMins) FROM Observations WHERE ProjectID = p.ProjectID) / 60.0 AS NUMERIC), 2) as Hours,
                (SELECT MAX(ObservationDate) FROM Observations WHERE ProjectID = p.ProjectID) as LastObs
         FROM Projects p
         JOIN Objects o ON p.DSOKey = o.DSOKey
-        ORDER BY p.TotalIntegrationMins DESC
+        ORDER BY Hours DESC NULLS LAST
     ''')
     
-    print(f"{'Project Folder':<45} {'Mosaic':<7} {'Lights':<8} {'Hours':<8} {'Last Obs':<12}")
+    print(f"{'Project Folder':<45} {'Mosaics':<8} {'Lights':<8} {'Hours':<8} {'Last Obs':<12}")
     print("-" * 85)
     
     for row in cursor.fetchall():
-        folder, name, is_mosaic, lights, hours, last_obs = row
+        folder, name, mosaic_sessions, lights, hours, last_obs = row
         folder = folder[:43]
-        mosaic = 'Yes' if is_mosaic else 'No'
+        mosaic = str(mosaic_sessions or 0)   # mosaic sessions (from folder names)
         lights = lights or 0
         hours = hours or 0
         last_obs = last_obs or 'Never'
-        print(f"{folder:<45} {mosaic:<7} {lights:<8} {hours:<8.2f} {last_obs:<12}")
+        print(f"{folder:<45} {mosaic:<8} {lights:<8} {float(hours):<8.2f} {str(last_obs):<12}")
     
     conn.close()
 

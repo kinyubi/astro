@@ -4,7 +4,7 @@
 //
 //   GET  ?action=dsos                       all project folders + per-type counts
 //   GET  ?action=resolve&q=andro            titling.py-style fragment match
-//   GET  ?action=images&project=<folder>&type=fav[&annotated=1][&hidden=1]
+//   GET  ?action=images&project=<folder>&type=fav[&hidden=1]
 //        hidden=1 includes IGNORE/bust sessions and GalleryImages.IsHidden images
 //   POST ?action=rate   JSON {project, session, file, rating (1-5|null), note}
 // ============================================================
@@ -62,7 +62,7 @@ try {
 
         $db = lb_try_db();
         $showHidden = !empty($_GET['hidden']) || !empty($_GET['ignored']);   // 'ignored' = old name
-        $res = lb_images($project, $type, !empty($_GET['annotated']), $showHidden, lb_hidden_bases($db));
+        $res = lb_images($project, $type, $showHidden, lb_hidden_bases($db));
         $token = lb_token($project);
 
         $ratings = [];

@@ -4,7 +4,7 @@
  * Provides options for slideshow or browsing DSO gallery
  */
 
-require_once __DIR__ . '/../shared/db.php';
+require_once __DIR__ . '/../../shared/db.php';
 
 $extensions = ['jpg','jpeg','png','gif','webp'];
 
@@ -49,7 +49,7 @@ try {
             gi.DSOKey         AS \"DSOKey\",
             gi.ProjectID      AS \"ProjectID\",
             p.ProjectFolder   AS \"ProjectFolder\",
-            p.IsMosaic        AS \"IsMosaic\",
+            gi.IsMosaic       AS \"IsMosaic\",
             gi.BaseName       AS \"BaseName\",
             gi.Caption        AS \"Caption\",
             gi.PaletteID      AS \"PaletteID\",
@@ -77,7 +77,7 @@ try {
         LEFT JOIN CatalogIDs c          ON o.DSOKey          = c.DSOKey AND c.IsPrimary = 1
         LEFT JOIN Constellations con     ON o.ConstellationID = con.ConstellationID
         WHERE COALESCE(gi.IsHidden, 0) = 0   -- hidden in DSO Admin
-        ORDER BY o.CommonName, o.DSOKey, p.IsMosaic, gi.SortOrder, gi.GalleryImageID
+        ORDER BY o.CommonName, o.DSOKey, gi.ProjectID, gi.SortOrder, gi.GalleryImageID
     ";
     try {
         $stmt = $db->query(str_replace('{RANK}', 'p.GalleryRank', $galleryQuery));
@@ -114,7 +114,7 @@ try {
                 'projectId'   => $row['ProjectID'] !== null ? (int)$row['ProjectID'] : null,
                 'dsoKey'      => $row['DSOKey'],
                 'displayName' => $displayName,
-                'isMosaic'    => (int)($row['IsMosaic'] ?? 0),
+                'isMosaic'    => 0,   // set below: the card's featured image's session
                 'rank'        => $row['GalleryRank'] !== null ? (int)$row['GalleryRank'] : null,
                 'info'        => [
                     'CommonName'       => $row['CommonName'],
@@ -132,8 +132,8 @@ try {
             ];
         }
         $bn = $row['BaseName'];
-        $wall4kPath          = 'images/wall4k/'          . $bn . '_4k.jpg';
-        $wall4kAnnotatedPath = 'images/annotated_wall4k/' . $bn . '_4k_annotated.jpg';
+        $wall4kPath          = '../images/wall4k/'          . $bn . '_4k.jpg';
+        $wall4kAnnotatedPath = '../images/annotated_wall4k/' . $bn . '_4k_annotated.jpg';
         $byProject[$groupKey]['images'][] = [
             'galleryImageID' => (int)$row['GalleryImageID'],
             'baseName'       => $bn,
@@ -146,18 +146,19 @@ try {
             'attribution'    => $row['Attribution'],
             'equipment'      => $row['Equipment'],
             'isFeature'      => (int)$row['IsFeature'],
+            'isMosaic'       => (int)($row['IsMosaic'] ?? 0),
             'sortOrder'      => (int)($row['SortOrder'] ?? 0),
-            'thumbPath'      => 'images/thumbs/' . $bn . '_thumb.jpg',
-            'favPath'        => 'images/fav/'    . $bn . '_fav.jpg',
-            'fullPath'       => 'images/annotated_full/' . $bn . '_full_annotated.jpg',
-            'wallPath'       => 'images/annotated_wall/' . $bn . '_wall_annotated.jpg',
-            'has4k'          => file_exists(__DIR__ . '/' . $wall4kPath),
-            'has4kAnnotated' => file_exists(__DIR__ . '/' . $wall4kAnnotatedPath),
+            'thumbPath'      => '../images/thumbs/' . $bn . '_thumb.jpg',
+            'favPath'        => '../images/fav/'    . $bn . '_fav.jpg',
+            'fullPath'       => '../images/annotated_full/' . $bn . '_full_annotated.jpg',
+            'wallPath'       => '../images/annotated_wall/' . $bn . '_wall_annotated.jpg',
+            'has4k'          => file_exists(__DIR__ . '/../' . $wall4kPath),
+            'has4kAnnotated' => file_exists(__DIR__ . '/../' . $wall4kAnnotatedPath),
         ];
     }
 
     // Cards: hand-ranked ones first (GalleryRank, set on /gallery-order/),
-    // then unranked ones by display name, non-mosaic before mosaic.
+    // then unranked ones by display name, then ProjectID.
     // Images within a card: featured first, then the SortOrder set in DSO
     // Admin, then GalleryImageID.
     uasort($byProject, function ($a, $b) {
@@ -167,13 +168,15 @@ try {
             if ($a['rank'] !== $b['rank']) return $a['rank'] - $b['rank'];
         }
         $cmp = strcmp($a['displayName'], $b['displayName']);
-        return $cmp !== 0 ? $cmp : ($a['isMosaic'] - $b['isMosaic']);
+        return $cmp !== 0 ? $cmp : (($a['projectId'] ?? 0) - ($b['projectId'] ?? 0));
     });
     foreach ($byProject as &$dso) {
         usort($dso['images'], fn($a, $b) =>
             $b['isFeature'] - $a['isFeature']
             ?: ($a['sortOrder'] - $b['sortOrder'] ?: $a['galleryImageID'] - $b['galleryImageID'])
         );
+        // Mosaic badge on the card: the featured image's session is a mosaic.
+        $dso['isMosaic'] = $dso['images'][0]['isMosaic'] ?? 0;
     }
     unset($dso);
 
@@ -181,14 +184,14 @@ try {
 
     foreach ($galleryItems as $item) {
         foreach ($item['images'] as $img) {
-            if (is_file(__DIR__ . '/' . $img['fullPath'])) $fullImages[] = $img['fullPath'];
-            if (is_file(__DIR__ . '/' . $img['wallPath'])) $wallImages[] = $img['wallPath'];
+            if (is_file(__DIR__ . '/../' . $img['fullPath'])) $fullImages[] = $img['fullPath'];
+            if (is_file(__DIR__ . '/../' . $img['wallPath'])) $wallImages[] = $img['wallPath'];
         }
     }
 } catch (Exception $e) {
     // Fall back to empty gallery; slideshow falls back to the image folders
-    $fullImages = gatherImages(__DIR__ . '/images/annotated_full', 'images/annotated_full', $extensions);
-    $wallImages = gatherImages(__DIR__ . '/images/annotated_wall', 'images/annotated_wall', $extensions);
+    $fullImages = gatherImages(__DIR__ . '/../images/annotated_full', '../images/annotated_full', $extensions);
+    $wallImages = gatherImages(__DIR__ . '/../images/annotated_wall', '../images/annotated_wall', $extensions);
 }
 
 $fullJson    = json_encode($fullImages);
@@ -197,7 +200,7 @@ $galleryJson = json_encode($galleryItems);
 
 // Solar system image scanning
 $solarObjects = [];
-$solarDir = __DIR__ . '/images/solar';
+$solarDir = __DIR__ . '/../images/solar';
 $solarObjectKeys = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
 if (is_dir($solarDir)) {
     // Order matters: longer suffixes must be checked first
@@ -231,12 +234,12 @@ if (is_dir($solarDir)) {
             $solarObjects[$objectKey] = ['object' => $objectKey, 'thumb' => null, 'shots' => []];
         }
         if ($sizeFound === 'thumb') {
-            $solarObjects[$objectKey]['thumb'] = 'images/solar/' . $f;
+            $solarObjects[$objectKey]['thumb'] = '../images/solar/' . $f;
         } else {
             if (!isset($solarObjects[$objectKey]['shots'][$baseName])) {
                 $solarObjects[$objectKey]['shots'][$baseName] = ['baseName' => $baseName, 'files' => []];
             }
-            $solarObjects[$objectKey]['shots'][$baseName]['files'][$sizeFound] = 'images/solar/' . $f;
+            $solarObjects[$objectKey]['shots'][$baseName]['files'][$sizeFound] = '../images/solar/' . $f;
         }
     }
 }
@@ -958,11 +961,11 @@ $solarJson = json_encode(array_values($solarObjects));
     </button>
     <div id="slideshow" aria-live="polite">
         <button id="prevBtn" class="arrow-btn arrow-left" aria-label="Previous image" type="button">
-            <img src="images/left-arrow.png" alt="Previous">
+            <img src="../images/left-arrow.png" alt="Previous">
         </button>
         <img id="slide" src="" alt="Slideshow image">
         <button id="nextBtn" class="arrow-btn arrow-right" aria-label="Next image" type="button">
-            <img src="images/right-arrow.png" alt="Next">
+            <img src="../images/right-arrow.png" alt="Next">
         </button>
         <button id="playPauseBtn" class="play-pause-btn" aria-label="Pause or resume slideshow" type="button">
             <svg id="pauseIcon" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"></path></svg>
@@ -1071,10 +1074,10 @@ $solarJson = json_encode(array_values($solarObjects));
         <img class="modal-image" id="solarModalImage" src="" alt="">
         <div class="solar-caption" id="solarCaption"></div>
         <button class="solar-arrow solar-arrow-left" id="solarPrev" onclick="navigateSolar(-1)" aria-label="Previous">
-            <img src="images/left-arrow.png" alt="Previous">
+            <img src="../images/left-arrow.png" alt="Previous">
         </button>
         <button class="solar-arrow solar-arrow-right" id="solarNext" onclick="navigateSolar(1)" aria-label="Next">
-            <img src="images/right-arrow.png" alt="Next">
+            <img src="../images/right-arrow.png" alt="Next">
         </button>
     </div>
 </div>
@@ -1342,14 +1345,14 @@ $solarJson = json_encode(array_values($solarObjects));
             if (!carousel.querySelector('.carousel-arrow-left')) {
                 const btnL = document.createElement('button');
                 btnL.className = 'carousel-arrow carousel-arrow-left';
-                btnL.innerHTML = `<img src="images/left-arrow.png" alt="Previous">`;
+                btnL.innerHTML = `<img src="../images/left-arrow.png" alt="Previous">`;
                 btnL.onclick = e => { e.stopPropagation(); navigateDSOCarousel(-1); };
                 carousel.appendChild(btnL);
             }
             if (!carousel.querySelector('.carousel-arrow-right')) {
                 const btnR = document.createElement('button');
                 btnR.className = 'carousel-arrow carousel-arrow-right';
-                btnR.innerHTML = `<img src="images/right-arrow.png" alt="Next">`;
+                btnR.innerHTML = `<img src="../images/right-arrow.png" alt="Next">`;
                 btnR.onclick = e => { e.stopPropagation(); navigateDSOCarousel(1); };
                 carousel.appendChild(btnR);
             }
@@ -1382,8 +1385,8 @@ $solarJson = json_encode(array_values($solarObjects));
             captionParts.push(`<span class="caption-date"><span class="caption-label">Date Taken:</span> ${d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'})}</span>`);
         }
 
-        // Mosaic tag (project-level now, not per-image)
-        if (item.isMosaic) captionParts.push(`<span class="caption-mosaic">Mosaic</span>`);
+        // Mosaic tag (per image: from its session folder name)
+        if (img.isMosaic) captionParts.push(`<span class="caption-mosaic">Mosaic</span>`);
 
         // Photographer & copyright
         const currentYear = new Date().getFullYear();

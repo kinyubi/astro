@@ -8,7 +8,7 @@
  *   1. The featured gallery image's thumb (GalleryImages, visible,
  *      IsFeature = 1) -> images/thumbs/<BaseName>_thumb.jpg, if on disk
  *   2. public/images/thumbs/        — any file named <dsokey>_... / <dsokey>.ext
- *   3. public/images/other_seestar/ — same naming (images not in our gallery)
+ *   3. public/images/other_thumbs/  — same naming (images not in our gallery)
  *   4. public/images/visibility/    — same naming
  *
  * File names must be the lowercase DSO key followed by '_' or '.', so
@@ -64,7 +64,7 @@ try {
 // 2-4. Folder scan by file-name prefix
 $searchDirs = [
     'images/thumbs'        => $publicDir . '/images/thumbs',
-    'images/other_seestar' => $publicDir . '/images/other_seestar',
+    'images/other_thumbs'  => $publicDir . '/images/other_thumbs',
     'images/visibility'    => $publicDir . '/images/visibility',
 ];
 

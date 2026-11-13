@@ -31,12 +31,12 @@ require_once __DIR__ . '/../../shared/db.php';
 
 const LB_TYPES = ['fav', 'full', 'wall', '4k'];
 
-// public/images subfolder for each type (plain / annotated), for the "on site" badge
+// public/images subfolder for each type, for the "on site" badge
 const LB_SITE_DIRS = [
-    'fav'  => ['fav',    'annotated_fav'],
-    'full' => ['full',   'annotated_full'],
-    'wall' => ['wall',   'annotated_wall'],
-    '4k'   => ['wall4k', 'annotated_wall4k'],
+    'fav'  => 'fav',
+    'full' => 'full',
+    'wall' => 'wall',
+    '4k'   => 'wall4k',
 ];
 
 const LB_PALETTES = ['sho', 'hoo', 'hso', 'hos'];
@@ -218,7 +218,7 @@ function lb_counts(string $project, array $hidden = []): array
  * Every image of one type across a project's sessions.
  * $showHidden includes ignored sessions and images whose base name is in $hidden.
  */
-function lb_images(string $project, string $type, bool $annotated, bool $showHidden, array $hidden = []): array
+function lb_images(string $project, string $type, bool $showHidden, array $hidden = []): array
 {
     $root = lb_root();
     $siteRoot = realpath(__DIR__ . '/../images');
@@ -234,12 +234,13 @@ function lb_images(string $project, string $type, bool $annotated, bool $showHid
         sort($files, SORT_STRING);
         foreach ($files as $f) {
             $c = lb_classify($f);
-            if (!$c || $c['type'] !== $type || $c['annotated'] !== $annotated) continue;
+            // Old _annotated renders still sit in some sessions; they're never shown.
+            if (!$c || $c['type'] !== $type || $c['annotated']) continue;
             $isHidden = isset($hidden[$c['base']]);
             if ($isHidden && !$showHidden) { $hiddenN++; continue; }
             $path = lb_join($dir, $f);
             $size = @getimagesize($path);
-            $siteDir = LB_SITE_DIRS[$type][$annotated ? 1 : 0];
+            $siteDir = LB_SITE_DIRS[$type];
             $images[] = $meta + [
                 'file'    => $f,
                 'base'    => $c['base'],

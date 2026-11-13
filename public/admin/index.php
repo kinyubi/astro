@@ -276,6 +276,17 @@ $is_local_mode = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
   #local-only-dialog p { font-size: 13px; margin-bottom: 10px; }
   #local-only-dialog code { font-family: monospace; font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
   #local-only-dialog .dialog-actions { display: flex; justify-content: flex-end; margin-top: 16px; }
+
+  /* ── Sync All report ── */
+  #sync-all-dialog { background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 22px; width: min(820px, calc(100% - 32px)); max-height: calc(100vh - 60px); box-shadow: 0 10px 30px rgba(0,0,0,0.5); }
+  #sync-all-dialog::backdrop { background: rgba(0,0,0,0.6); }
+  #sync-all-dialog h3 { font-size: 16px; font-weight: 600; margin-bottom: 10px; }
+  #sync-all-body { font-size: 12px; overflow-y: auto; max-height: calc(100vh - 200px); }
+  #sync-all-body h4 { font-size: 13px; margin: 12px 0 4px; }
+  #sync-all-body ul { margin: 0 0 6px 18px; padding: 0; }
+  #sync-all-body li { margin: 1px 0; word-break: break-all; }
+  #sync-all-body .muted { color: var(--muted); }
+  #sync-all-dialog .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 </style>
 </head>
 <body>
@@ -310,6 +321,7 @@ $is_local_mode = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
     <div class="sidebar-footer">
       <button class="btn-new" onclick="newObject()" title="Open a blank form to enter a new DSO's details yourself. For AI-assisted entry from just a catalog ID, use Quick Add DSO instead.">+ Add DSO Manually</button>
       <button class="btn-new" style="margin-top:6px; background:var(--accent2);" onclick="quickAddDSO()" title="Create a new DSO by catalog ID (e.g. NGC1976) and let AI fill in its name, type, coordinates, size, distance, and blurb.">&#129302; Quick Add DSO</button>
+      <button class="btn-new" style="margin-top:6px; background:var(--surface); color:var(--text); border:1px solid var(--border);" onclick="syncAll()" title="Run Sync Folder for every DSO with a Project, and list anything in MyWorks that hasn't been published to the website. Rows whose _full is gone are only listed; you confirm before they're deleted.">&#x21bb; Sync All Galleries</button>
     </div>
   </aside>
 
@@ -519,6 +531,15 @@ $is_local_mode = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
   <p style="color:var(--muted);">Open the admin panel from your own machine (Laragon) to use it.</p>
   <div class="dialog-actions">
     <button class="btn primary" onclick="document.getElementById('local-only-dialog').close()">OK</button>
+  </div>
+</dialog>
+
+<dialog id="sync-all-dialog">
+  <h3>&#x21bb; Sync All Galleries</h3>
+  <div id="sync-all-body"></div>
+  <div class="dialog-actions">
+    <button class="btn danger" id="sync-all-delete" style="display:none;" onclick="syncAll(true)"></button>
+    <button class="btn primary" onclick="document.getElementById('sync-all-dialog').close()">Close</button>
   </div>
 </dialog>
 
@@ -785,6 +806,14 @@ function isSolarObjectType(typeId) {
   return typeId === 'SOLAR_SYSTEM';
 }
 
+// The Sun, Moon and planets: their images go through the solar pipeline
+// (images/solar), not Sync Folder. Comets are SOLAR_SYSTEM too but are
+// ordinary gallery images, so this goes by the DSO key, not the type.
+const SOLAR_PIPELINE_KEYS = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
+function usesSolarPipeline() {
+  return SOLAR_PIPELINE_KEYS.includes(document.getElementById('f_DSOKey').value.trim().toLowerCase());
+}
+
 function updateSolarGuard() {
   const typeId = document.getElementById('f_ObjectTypeID').value;
   const solar  = isSolarObjectType(typeId);
@@ -794,8 +823,9 @@ function updateSolarGuard() {
   aiBtn.title = solar ? 'Not available for Sun/Moon \u2014 handled by the solar pipeline.' : '';
 
   const syncBtn = document.getElementById('btn-sync-folder');
-  syncBtn.disabled = solar;
-  syncBtn.title = solar ? 'Not available for Sun/Moon \u2014 handled by the solar pipeline.' : '';
+  const solarPipeline = usesSolarPipeline();
+  syncBtn.disabled = solarPipeline;
+  syncBtn.title = solarPipeline ? 'Not available for the Sun, Moon and planets \u2014 handled by the solar pipeline.' : '';
 
   const note = document.getElementById('solar-guard-note');
   if (note) note.style.display = solar ? '' : 'none';
@@ -1118,7 +1148,7 @@ function renderObservationsTable(obs) {
     const notesShort = notesFull.length > 24 ? notesFull.slice(0, 24) + '\u2026' : notesFull;
     return `
       <tr style="border-bottom:1px solid var(--border);${held || noFolder ? ' background:rgba(248,81,73,0.08);' : ''}">
-        <td style="padding:3px 6px; white-space:nowrap;">${o.ObservationDate ? escHtml(o.ObservationDate) : '&mdash;'}</td>
+        <td style="padding:3px 6px; white-space:nowrap;">${o.ObservationDate ? escHtml(o.ObservationDate) : '&mdash;'}${Number(o.IsMosaic) ? ' <span style="color:var(--warn);" title="Mosaic session (from the folder name)">Mosaic</span>' : ''}</td>
         <td style="padding:3px 6px; max-width:140px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${folderCell}</td>
         <td style="padding:3px 6px; white-space:nowrap;">${start}</td>
         <td style="padding:3px 6px; white-space:nowrap;">${end}</td>
@@ -1160,9 +1190,9 @@ function renderProjects(projects) {
   }
   list.innerHTML = projects.map((p, idx) => {
     const integStr = p.TotalIntegrationMins ? (parseFloat(p.TotalIntegrationMins) / 60).toFixed(1) + ' hrs' : '&mdash;';
-    const heading = projects.length > 1
-      ? `Project ${idx + 1} of ${projects.length}${p.IsMosaic ? ' &mdash; Mosaic' : ''}`
-      : (p.IsMosaic ? 'Project &mdash; Mosaic' : 'Project');
+    // Mosaic is a property of each session (its folder name), shown per
+    // observation below -- not of the Project.
+    const heading = projects.length > 1 ? `Project ${idx + 1} of ${projects.length}` : 'Project';
     return `
       <div style="background:var(--bg); border:1px solid var(--border); border-radius:var(--radius); padding:10px 14px;">
         <div style="font-weight:600; font-size:12px; color:var(--muted); margin-bottom:8px; text-transform:uppercase; letter-spacing:0.05em;">${heading}</div>
@@ -1434,9 +1464,9 @@ async function auditObservations({ silent = false } = {}) {
     }
 
     if (unrecognized.length > 0) {
-      html += `<div style="color:var(--muted); margin-bottom:4px;">${unrecognized.length} subfolder${unrecognized.length > 1 ? 's' : ''} skipped (name didn't match a known pattern):</div>`;
+      html += `<div style="color:var(--muted); margin-bottom:4px;">${unrecognized.length} session folder${unrecognized.length > 1 ? 's' : ''} not counted as observations:</div>`;
       html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
-      unrecognized.forEach(u => { html += `<li>${escHtml(u.Sub)}</li>`; });
+      unrecognized.forEach(u => { html += `<li>${escHtml(u.Sub)}${u.Reason ? ' &mdash; ' + escHtml(u.Reason) : ''}</li>`; });
       html += `</ul>`;
     }
 
@@ -1889,12 +1919,12 @@ async function aiGenerateBlurb() {
 // Gallery Images -- Sync Folder
 // ──────────────────────────────────────────────
 
-async function syncFolder(extraHints = {}) {
+async function syncFolder(extraHints = {}, deleteGone = false) {
   const dsoKey = document.getElementById('f_DSOKey').value.trim();
   if (!dsoKey || !currentObject) { toast('Create the DSO first before syncing.', 'err'); return; }
   await flushSave();   // so the re-render below doesn't drop unsaved edits
-  if (isSolarObjectType(document.getElementById('f_ObjectTypeID').value)) {
-    toast('Sync Folder is disabled for Sun/Moon \u2014 use the solar pipeline.', 'err');
+  if (usesSolarPipeline()) {
+    toast('Sync Folder is disabled for the Sun, Moon and planets \u2014 use the solar pipeline.', 'err');
     return;
   }
   if (!requireLocal('Sync Folder')) return;
@@ -1907,7 +1937,7 @@ async function syncFolder(extraHints = {}) {
     const res  = await apiFetch('api_sync_folder.php', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ DSOKey: dsoKey, sessionDirHints: extraHints }),
+      body:    JSON.stringify({ DSOKey: dsoKey, sessionDirHints: extraHints, delete: deleteGone }),
     });
     const data = await res.json();
     if (data.localOnly) {
@@ -1917,7 +1947,10 @@ async function syncFolder(extraHints = {}) {
     }
     if (data.error) throw new Error(data.error);
 
-    const { inserted, updated, warnings, needs_session_dir, projectFolder, mode } = data;
+    const { inserted, updated, needs_session_dir, projectFolder, mode } = data;
+    const deleted       = data.deleted || [];
+    const toDelete      = data.toDelete || [];
+    const favOnly       = data.favWithoutFull || [];
     const misnamed      = data.misnamed || [];
     const dupsRemoved   = data.duplicatesRemoved || [];
     const staleProjects = data.staleProjects || [];
@@ -1926,63 +1959,13 @@ async function syncFolder(extraHints = {}) {
     const modeLabel = mode === 'local' ? '(local &mdash; WORKS_ROOT)' : '(remote &mdash; web images only)';
     html += `<div style="font-weight:600; margin-bottom:8px;">Sync result <span style="color:var(--muted); font-weight:400; font-size:11px;">${modeLabel}</span></div>`;
 
-    if (inserted.length === 0 && updated.length === 0 && warnings.length === 0 && (!needs_session_dir || needs_session_dir.length === 0) && misnamed.length === 0 && staleProjects.length === 0 && dupsRemoved.length === 0) {
+    if ((data.report || []).length === 0 && (!needs_session_dir || needs_session_dir.length === 0)) {
       html += `<div style="color:var(--muted);">No changes &mdash; already up to date.</div>`;
     }
 
-    if (inserted.length > 0) {
-      html += `<div style="color:var(--accent2); margin-bottom:4px;">&#x2714; Inserted ${inserted.length} new image${inserted.length > 1 ? 's' : ''}:</div>`;
-      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
-      inserted.forEach(r => {
-        const dateStr = r.DateCaptured || (r.needs_session ? '<em style="color:var(--warn)">needs session dir</em>' : '');
-        html += `<li>${escHtml(r.BaseName)} &mdash; ${dateStr} ${escHtml(r.Equipment || '')}${r.IsMosaic ? ' &middot; Mosaic' : ''}${r.IsFeature ? ' <strong>&#9733; Featured</strong>' : ''}</li>`;
-      });
-      html += `</ul>`;
-    }
-
-    if (updated.length > 0) {
-      html += `<div style="color:var(--accent); margin-bottom:4px;">&#x21bb; Updated ${updated.length} image${updated.length > 1 ? 's' : ''}:</div>`;
-      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
-      updated.forEach(r => {
-        html += `<li>${escHtml(r.BaseName)} &mdash; ${escHtml(r.DateCaptured || '')} ${escHtml(r.Equipment || '')}${r.IsMosaic ? ' &middot; Mosaic' : ''}</li>`;
-      });
-      html += `</ul>`;
-    }
-
-    if (warnings.length > 0) {
-      html += `<div style="color:var(--danger); margin-bottom:4px;">&#x2716; Deleted ${warnings.length} image${warnings.length > 1 ? 's' : ''} whose fav file is no longer in public/images/fav/:</div>`;
-      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
-      warnings.forEach(w => {
-        html += `<li>${escHtml(w.BaseName)}</li>`;
-      });
-      html += `</ul>`;
-    }
-
-    if (dupsRemoved.length > 0) {
-      html += `<div style="color:var(--warn); margin-bottom:4px;">&#x2716; Removed ${dupsRemoved.length} duplicate gallery row${dupsRemoved.length > 1 ? 's' : ''} (same Base Name as another row):</div>`;
-      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
-      dupsRemoved.forEach(d => {
-        html += `<li>${escHtml(d.BaseName)} &mdash; row #${escHtml(String(d.GalleryImageID))} deleted, kept #${escHtml(String(d.KeptID))}</li>`;
-      });
-      html += `</ul>`;
-    }
-
-    if (misnamed.length > 0) {
-      html += `<div style="color:var(--warn); margin-bottom:4px;">&#x26A0; ${misnamed.length} fav file${misnamed.length > 1 ? 's' : ''} in myWorks can't be synced &mdash; name doesn't start with ${escHtml(dsoKey.toLowerCase())}:</div>`;
-      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
-      misnamed.forEach(m => {
-        html += `<li>${escHtml(m.ProjectFolder)}\\${escHtml(m.SessionDir)}\\<strong>${escHtml(m.File)}</strong></li>`;
-      });
-      html += `</ul>`;
-    }
-
-    if (staleProjects.length > 0) {
-      html += `<div style="color:var(--warn); margin-bottom:4px;">&#x26A0; Project folder${staleProjects.length > 1 ? 's' : ''} missing from myWorks (skipped):</div>`;
-      html += `<ul style="margin:0 0 8px 16px; padding:0;">`;
-      staleProjects.forEach(sp => {
-        html += `<li>Project #${escHtml(String(sp.ProjectID))} &mdash; ${escHtml(sp.ProjectFolder || '(none)')}</li>`;
-      });
-      html += `</ul>`;
+    html += renderSyncReport(data);
+    if (toDelete.length > 0) {
+      html += `<button class="btn danger" style="font-size:11px; padding:3px 12px; margin:2px 0 8px;" onclick="confirmSyncDelete(${toDelete.length})">Remove ${toDelete.length === 1 ? 'this image' : 'these ' + toDelete.length + ' images'} from the gallery&hellip;</button>`;
     }
 
     if (needs_session_dir && needs_session_dir.length > 0) {
@@ -2047,6 +2030,120 @@ function dismissSyncResult() {
   const p = document.getElementById('gi-sync-result');
   p.style.display = 'none';
   p.innerHTML = '';
+}
+
+// Sync Folder lists rows whose _full is gone; deleting them is a second,
+// confirmed sync.
+function confirmSyncDelete(n) {
+  if (!confirm(`Remove ${n} image${n > 1 ? 's' : ''} from the gallery? Their _full is no longer on the website. This can't be undone.`)) return;
+  syncFolder({}, true);
+}
+
+// The plain-language lines gallery_sync.php builds (r.report), grouped by
+// session folder. Used by Sync Folder and Sync All.
+const SYNC_KIND = {
+  add:    ['&#x2714;', 'var(--accent2)'],
+  update: ['&#x21bb;', 'var(--accent)'],
+  delete: ['&#x2716;', 'var(--danger)'],
+  warn:   ['&#x26A0;', 'var(--warn)'],
+  info:   ['&#x2139;', 'var(--muted)'],
+};
+function renderSyncReport(r) {
+  const lines = r.report || [];
+  const li = l => {
+    const [icon, color] = SYNC_KIND[l.kind] || SYNC_KIND.info;
+    return `<li><span style="color:${color}">${icon}</span> ${escHtml(l.text)}</li>`;
+  };
+  let html = '';
+  const general = lines.filter(l => !l.session);
+  if (general.length) html += `<ul style="margin:0 0 6px 16px; padding:0;">${general.map(li).join('')}</ul>`;
+  [...new Set(lines.filter(l => l.session).map(l => l.session))].sort().forEach(s => {
+    html += `<div style="margin:4px 0 2px; font-weight:600;">Session ${escHtml(s)}</div>`
+          + `<ul style="margin:0 0 6px 16px; padding:0;">${lines.filter(l => l.session === s).map(li).join('')}</ul>`;
+  });
+  return html;
+}
+
+// ──────────────────────────────────────────────
+// Sync All Galleries -- Sync Folder for every DSO (api_sync_all.php,
+// same code as scripts/sync_gallery.php) plus the forgot-to-publish check.
+// ──────────────────────────────────────────────
+
+async function syncAll(deleteGone = false) {
+  if (!requireLocal('Sync All Galleries')) return;
+  if (deleteGone) {
+    const n = syncAll.toDeleteCount || 0;
+    if (!confirm(`Remove ${n} image${n > 1 ? 's' : ''} from the gallery? Their _full is no longer on the website. This can't be undone.`)) return;
+  }
+  await flushSave();
+  const dlg  = document.getElementById('sync-all-dialog');
+  const body = document.getElementById('sync-all-body');
+  const delBtn = document.getElementById('sync-all-delete');
+  delBtn.style.display = 'none';
+  body.innerHTML = '<span class="muted">Syncing every DSO&hellip;</span>';
+  if (!dlg.open) dlg.showModal();
+
+  try {
+    const res  = await apiFetch('api_sync_all.php', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ delete: deleteGone }),
+    });
+    const data = await res.json();
+    if (data.localOnly) { dlg.close(); showLocalOnlyDialog('Sync All Galleries'); return; }
+    if (data.error) throw new Error(data.error);
+
+    const li = s => `<li>${s}</li>`;
+    let html = '', quiet = 0, toDel = 0;
+    const tot = { ins: 0, upd: 0, del: 0 };
+    for (const [key, r] of Object.entries(data.results)) {
+      if (!r.success) {
+        html += `<h4>${escHtml(key)}</h4><ul>${li(`<span style="color:var(--danger)">&#x2716; couldn't be synced: ${escHtml(r.error)}</span>`)}</ul>`;
+        continue;
+      }
+      tot.ins += r.inserted.length; tot.upd += r.updated.length; tot.del += r.deleted.length;
+      toDel += r.toDelete.length;
+      if (r.report && r.report.length) {
+        html += `<h4>${escHtml(key)} <span style="font-weight:400">${escHtml(r.commonName || '')}</span> <span class="muted" style="font-weight:400">&mdash; folder ${escHtml(r.projectFolder)}</span></h4>` + renderSyncReport(r);
+      } else quiet++;
+    }
+
+    if (data.unclaimed && data.unclaimed.length) {
+      html += `<h4>On the website but not in the gallery</h4><ul>${data.unclaimed.map(u => li(escHtml(u.message))).join('')}</ul>`;
+    }
+    const up = data.unpublished;
+    if (up && (up.missing.length || up.outdated.length || up.duplicates.length)) {
+      const where = m => `${escHtml(m.Project)}\\${escHtml(m.SessionDir)}\\<strong>${escHtml(m.File)}</strong>${m.Note ? ` <span class="muted">(${escHtml(m.Note)})</span>` : ''}`;
+      html += `<h4>Forgot to publish? <span class="muted" style="font-weight:400">&mdash; run publish_images.py</span></h4><ul>`;
+      up.missing.forEach(m => { html += li(where(m) + ': not on the website'); });
+      up.outdated.forEach(m => { html += li(where(m) + ': newer than the copy on the website'); });
+      up.duplicates.forEach(d => { html += li(`<strong>${escHtml(d.File)}</strong>: the same name is in more than one session, so it isn't published &mdash; rename one: ${d.Sessions.map(escHtml).join(' &middot; ')}`); });
+      html += `</ul>`;
+    }
+
+    const n = Object.keys(data.results).length;
+    const summary = `${n} DSOs checked, ${quiet} already up to date &mdash; ${tot.ins} image${tot.ins === 1 ? '' : 's'} added, ${tot.upd} updated${tot.del ? `, ${tot.del} removed` : ''}${toDel ? `; ${toDel} no longer ha${toDel === 1 ? 's' : 've'} a _full on the website` : ''}.`;
+    body.innerHTML = `<div style="margin-bottom:6px;">${summary}</div>` + (html || '<div class="muted">Everything is in step.</div>');
+
+    syncAll.toDeleteCount = toDel;
+    if (toDel) {
+      delBtn.textContent = `Remove ${toDel} image${toDel > 1 ? 's' : ''} without a _full from the gallery…`;
+      delBtn.style.display = '';
+    }
+
+    fetchList(document.getElementById('search').value.trim());
+    if (currentObject) {
+      const key = document.getElementById('f_DSOKey').value.trim();
+      const r = await apiFetch(`api_search.php?q=${encodeURIComponent(key)}`);
+      const rows = await r.json();
+      const row = Array.isArray(rows) ? rows.find(x => x.DSOKey === key) : null;
+      if (row) {
+        renderGalleryImages(row.GalleryImages || []);
+        gallerySigSnapshot = gallerySig(getGalleryImageRows());
+      }
+    }
+  } catch (e) {
+    body.innerHTML = `<span style="color:var(--danger)">Sync All failed: ${escHtml(e.message)}</span>`;
+  }
 }
 
 // ──────────────────────────────────────────────
@@ -2149,7 +2246,7 @@ function addGalleryImageCard(img = {}) {
     ? parseInt(img.PaletteID)
     : paletteIdFromBaseName(img.BaseName || '');
   const sortOrder  = img.SortOrder !== undefined ? parseInt(img.SortOrder) : list.children.length;
-  const isMosaic   = img.IsMosaic  ? 1 : 0;
+  const isMosaic   = Number(img.IsMosaic) ? 1 : 0;   // from the session folder name (read-only)
   const equipment  = img.Equipment  || '';
   const sessionDir = img.SessionDir || '';
   const baseName   = img.BaseName || '';
@@ -2220,10 +2317,6 @@ function addGalleryImageCard(img = {}) {
     </div>
     <div class="gi-card-actions">
       <input type="hidden" class="gi-sortorder" value="${sortOrder}">
-      <label style="font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; cursor:pointer;">
-        <input type="checkbox" class="gi-ismosaic" ${isMosaic ? 'checked' : ''}>
-        Mosaic
-      </label>
       <label style="font-size:12px; color:var(--muted); display:flex; align-items:center; gap:6px; cursor:pointer;">
         <input type="checkbox" class="gi-isfeature" ${isFeature ? 'checked' : ''}>
         Featured image (gallery card)
@@ -2450,7 +2543,6 @@ function getGalleryImageRows() {
     IsOwn:          parseInt(card.querySelector('.gi-isown').value),
     Attribution:    card.querySelector('.gi-attribution').value.trim()    || null,
     Equipment:      card.querySelector('.gi-equipment').value.trim()      || null,
-    IsMosaic:       card.querySelector('.gi-ismosaic').checked ? 1 : 0,
     SessionDir:     card.querySelector('.gi-sessiondir').value.trim()     || null,
     SortOrder:      parseInt(card.querySelector('.gi-sortorder').value) || 0,
     IsFeature:      card.querySelector('.gi-isfeature').checked ? 1 : 0,

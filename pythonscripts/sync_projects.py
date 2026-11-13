@@ -40,10 +40,9 @@ and a separate mosaic framing) -- matching is by ProjectFolder, not by
 whether the DSO already has some other Project, so a second folder for an
 already-registered DSO is still correctly proposed as a new row.
 
-IsMosaic is intentionally left out of the INSERT -- it has a DB-side
-default (and per DB_REWORK_PLAN.md is intended to become a generated
-column derived from ProjectFolder), so this script never sets it
-directly.
+Projects have no IsMosaic: mosaic is a property of each session,
+computed from the session folder name (Observations/GalleryImages.IsMosaic,
+see dsodb/migrations/migrate_mosaic_to_sessions.py).
 
 SAFE BY DEFAULT: prints every planned change and creates nothing until
 you pass --apply, matching every other maintenance script in this repo.

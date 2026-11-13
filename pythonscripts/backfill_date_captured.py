@@ -7,9 +7,11 @@ For each GalleryImages row, locates the image file under:
 From the containing session directory it infers and updates:
     DateCaptured  — YYYY-MM-DD from the 8-digit dir prefix
     Equipment     — e.g. "S30" or "S50" from trailing _S## token in dir name
-    IsMosaic      — 1 if "mosaic" appears in session dir or project folder name
     PaletteID     — inferred from palette token in fav filename (_hso_, _sho_,
                     _hoo_, _hos_, _ohs_, _starless_, _mono_); 0 = Natural
+
+(GalleryImages.IsMosaic is computed by the database from SessionDir, so
+this script no longer sets it.)
 
 Only overwrites fields that are currently NULL / 0-default, UNLESS --force
 is passed, in which case all fields are re-inferred for every row.
@@ -76,13 +78,6 @@ def infer_equipment(session_dir_name):
     m = re.search(r'_(S\d+P?)$', session_dir_name, re.IGNORECASE)
     return m.group(1).upper() if m else None
 
-def infer_is_mosaic(session_dir_name, project_folder):
-    """
-    Returns 1 if 'mosaic' appears in the session dir name or project folder name.
-    """
-    combined = (session_dir_name + '_' + project_folder).lower()
-    return 1 if 'mosaic' in combined else 0
-
 def find_session_for_image(base_name, project_folders):
     """
     Walks MyWorks/<project_folder>/<YYYYMMDD_*>/ looking for <base_name>_fav.jpg
@@ -118,7 +113,7 @@ def find_session_for_image(base_name, project_folders):
                 if lower.startswith(base_name.lower()) and lower.endswith('_fav.jpg')
             ]
 
-            # The plain fav (no palette token) takes priority for date/equipment/mosaic
+            # The plain fav (no palette token) takes priority for date/equipment
             # since all palette variants share the same session
             if not matching_favs:
                 continue
@@ -126,7 +121,6 @@ def find_session_for_image(base_name, project_folders):
             yyyy, mm, dd = m.groups()
             date_str  = f"{yyyy}-{mm}-{dd}"
             equipment = infer_equipment(session_dir)
-            is_mosaic = infer_is_mosaic(session_dir, folder)
 
             # For palette: find the specific fav file for this base_name
             # The exact match (base_name + _fav.jpg) = Natural
@@ -144,7 +138,6 @@ def find_session_for_image(base_name, project_folders):
             return {
                 'DateCaptured': date_str,
                 'Equipment':    equipment,
-                'IsMosaic':     is_mosaic,
                 'PaletteID':    palette_id,
                 'session_dir':  session_dir,
                 'project_folder': folder,
@@ -160,7 +153,7 @@ if FORCE:
     cur.execute("""
         SELECT gi.GalleryImageID AS "GalleryImageID", gi.DSOKey AS "DSOKey", gi.BaseName AS "BaseName",
                gi.DateCaptured AS "DateCaptured", gi.Equipment AS "Equipment",
-               gi.IsMosaic AS "IsMosaic", gi.PaletteID AS "PaletteID",
+               gi.PaletteID AS "PaletteID",
                p.ProjectFolder AS "ProjectFolder"
         FROM GalleryImages gi
         JOIN Projects p ON gi.DSOKey = p.DSOKey
@@ -170,20 +163,19 @@ else:
     cur.execute("""
         SELECT gi.GalleryImageID AS "GalleryImageID", gi.DSOKey AS "DSOKey", gi.BaseName AS "BaseName",
                gi.DateCaptured AS "DateCaptured", gi.Equipment AS "Equipment",
-               gi.IsMosaic AS "IsMosaic", gi.PaletteID AS "PaletteID",
+               gi.PaletteID AS "PaletteID",
                p.ProjectFolder AS "ProjectFolder"
         FROM GalleryImages gi
         JOIN Projects p ON gi.DSOKey = p.DSOKey
         WHERE gi.DateCaptured IS NULL OR gi.DateCaptured = ''
            OR gi.Equipment    IS NULL OR gi.Equipment    = ''
-           OR gi.IsMosaic     IS NULL
         ORDER BY gi.DSOKey, gi.BaseName
     """)
 
 rows = cur.fetchall()
 
 if not rows:
-    print("Nothing to update — all rows already have DateCaptured, Equipment, and IsMosaic.")
+    print("Nothing to update — all rows already have DateCaptured and Equipment.")
     sys.exit(0)
 
 # Group by GalleryImageID (multiple project folders possible per DSO)
@@ -196,7 +188,6 @@ for row in rows:
     by_id[gid]['current']        = {
         'DateCaptured': row['DateCaptured'],
         'Equipment':    row['Equipment'],
-        'IsMosaic':     row['IsMosaic'],
         'PaletteID':    row['PaletteID'],
     }
     if row['ProjectFolder'] not in by_id[gid]['folders']:
@@ -221,7 +212,6 @@ for gid, info in sorted(by_id.items()):
     # Only overwrite fields that are NULL/empty (unless --force)
     new_date      = result['DateCaptured'] if (FORCE or not cur_vals['DateCaptured']) else cur_vals['DateCaptured']
     new_equipment = result['Equipment']    if (FORCE or not cur_vals['Equipment'])    else cur_vals['Equipment']
-    new_ismosaic  = result['IsMosaic']     if (FORCE or cur_vals['IsMosaic'] is None) else cur_vals['IsMosaic']
     new_palette   = result['PaletteID']    if (FORCE or cur_vals['PaletteID'] is None) else cur_vals['PaletteID']
 
     updates.append({
@@ -230,7 +220,6 @@ for gid, info in sorted(by_id.items()):
         'BaseName':       info['BaseName'],
         'DateCaptured':   new_date,
         'Equipment':      new_equipment,
-        'IsMosaic':       new_ismosaic,
         'PaletteID':      new_palette,
         'session_dir':    result['session_dir'],
     })
@@ -238,12 +227,12 @@ for gid, info in sorted(by_id.items()):
 # ── Preview ───────────────────────────────────────────────────────────────────
 if updates:
     w = 28  # BaseName column width
-    print(f"  {'ID':<5} {'DSOKey':<14} {'Date':<12} {'Equip':<6} {'Mos':<4} {'Pal':<4} {'Session Dir':<32} BaseName")
+    print(f"  {'ID':<5} {'DSOKey':<14} {'Date':<12} {'Equip':<6} {'Pal':<4} {'Session Dir':<32} BaseName")
     print("  " + "-" * 105)
     for u in updates:
         print(
             f"  {u['GalleryImageID']:<5} {u['DSOKey']:<14} {u['DateCaptured']:<12} "
-            f"{str(u['Equipment'] or ''):<6} {str(u['IsMosaic']):<4} {str(u['PaletteID']):<4} "
+            f"{str(u['Equipment'] or ''):<6} {str(u['PaletteID']):<4} "
             f"{u['session_dir']:<32} {u['BaseName']}"
         )
 
@@ -268,11 +257,10 @@ cur.executemany("""
     UPDATE GalleryImages
     SET DateCaptured = ?,
         Equipment    = ?,
-        IsMosaic     = ?,
         PaletteID    = ?
     WHERE GalleryImageID = ?
 """, [
-    (u['DateCaptured'], u['Equipment'], u['IsMosaic'], u['PaletteID'], u['GalleryImageID'])
+    (u['DateCaptured'], u['Equipment'], u['PaletteID'], u['GalleryImageID'])
     for u in updates
 ])
 conn.commit()
