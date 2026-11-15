@@ -5,9 +5,17 @@
 //   (rewrite in public/.htaccess)
 //
 // Shows every session's _fav / _full / _wall / _4k image for one DSO side
-// by side in a grid, with 1–5 stars and a note per image (ImageRatings
+// by side in a grid (walls are the _full turned to landscape on the fly,
+// clockwise for _cw_ -- see lib.php), with 1–5 stars and a note per image (ImageRatings
 // table). The DSO is picked with a titling.py-style fragment (andro, m31,
 // wizard, ngc7380_mosaic). Data comes from api.php, pixels from img.php.
+//
+// The All tab (/lightbox/<fragment>/all) shows one image's Fav, Full and Wall
+// side by side -- a pairing -- with arrows to step between the DSO's pairings.
+//
+// On the hosted site (no MyWorks), or with ?site=1, it shows the published
+// copies in public/images instead -- see lib.php. The tag next to the title
+// says which, and switches between the two when both are available.
 // ============================================================
 
 require_once __DIR__ . '/../admin/auth.php';
@@ -17,6 +25,7 @@ $init = [
     'base' => $base,
     'q'    => (string)($_GET['q'] ?? ''),
     'type' => (string)($_GET['type'] ?? ''),
+    'site' => !empty($_GET['site']) ? 1 : 0,
 ];
 ?>
 <!DOCTYPE html>
@@ -53,6 +62,11 @@ $init = [
     border-bottom: 1px solid var(--border); backdrop-filter: blur(6px);
   }
   .brand { color: var(--accent); font-weight: 600; font-size: 15px; text-decoration: none; white-space: nowrap; }
+  .mode {
+    font-size: 12px; color: var(--muted); text-decoration: none; white-space: nowrap;
+    border: 1px solid var(--border); border-radius: 10px; padding: 2px 9px;
+  }
+  a.mode[href]:hover { border-color: var(--accent); color: var(--text); }
   .picker { display: flex; align-items: center; gap: 6px; }
   .navbtn {
     width: 32px; height: 34px; border-radius: var(--radius); cursor: pointer;
@@ -160,6 +174,18 @@ $init = [
   }
   .note:focus { border-color: var(--accent); }
 
+  /* All tab: one pairing (fav + full + wall) at a time */
+  .grid.pairmode { display: block; }
+  .pnav { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+  .pwhere { color: var(--muted); font-size: 13px; }
+  .pwhere b { color: #e6edf3; margin-right: 8px; }
+  .pwhere code { color: var(--text); background: var(--raised); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
+  .pair { display: flex; gap: 16px; align-items: flex-start; }
+  .pair > * { flex: 0 0 auto; }
+  .ghost { border: 1px dashed var(--border); border-radius: 8px; overflow: hidden; }
+  .ghost .frame { background: none; cursor: default; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  .chip.kind { color: #e6edf3; }
+
   .empty { padding: 60px 18px; color: var(--muted); text-align: center; grid-column: 1 / -1; }
   .keys { padding: 0 18px 24px; color: #6e7681; font-size: 12px; }
   kbd {
@@ -212,6 +238,7 @@ $init = [
 
 <header class="bar">
   <a class="brand" href="<?= htmlspecialchars($base) ?>/">🔭 Lightbox</a>
+  <a class="mode" id="mode" hidden></a>
   <div class="picker">
     <button class="navbtn" id="prevDso" title="Previous DSO (←)">‹</button>
     <div class="search">
@@ -229,6 +256,7 @@ $init = [
         <option value="date">Oldest first</option>
         <option value="date-desc">Newest first</option>
         <option value="rating">Rating</option>
+        <option value="gallery">Gallery order</option>
       </select>
     </label>
     <label title="Tile size">Size <input type="range" id="optSize" min="160" max="900" step="10"></label>
@@ -244,7 +272,7 @@ $init = [
 <main class="grid" id="grid"></main>
 <div class="keys">
   <kbd>←</kbd> <kbd>→</kbd> DSO &nbsp; <kbd>↑</kbd> <kbd>↓</kbd> image type &nbsp; <kbd>/</kbd> search &nbsp;
-  <kbd>h</kbd> show hidden &nbsp;·&nbsp; in the viewer:
+  <kbd>h</kbd> show hidden &nbsp;·&nbsp; All tab: <kbd>←</kbd> <kbd>→</kbd> image, <kbd>Shift</kbd>+arrow DSO &nbsp;·&nbsp; in the viewer:
   <kbd>←</kbd> <kbd>→</kbd> image &nbsp; <kbd>1</kbd>–<kbd>5</kbd> rate &nbsp; <kbd>0</kbd> clear &nbsp;
   <kbd>z</kbd> 100% &nbsp; <kbd>n</kbd> note &nbsp; <kbd>Esc</kbd> close
 </div>
@@ -273,8 +301,10 @@ $init = [
 <script>
 const INIT = <?= json_encode($init, JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP) ?>;
 const BASE = INIT.base;
-const TYPES = ['fav', 'full', 'wall', '4k'];
-const TYPE_LABEL = { fav: 'Fav', full: 'Full', wall: 'Wall', '4k': '4K' };
+const SITE = INIT.site ? { site: 1 } : {};   // ?site=1: the published images, not MyWorks
+const TYPES = ['fav', 'full', 'wall', '4k', 'all'];
+const PAIR_TYPES = ['fav', 'full', 'wall'];   // what the All tab shows side by side
+const TYPE_LABEL = { fav: 'Fav', full: 'Full', wall: 'Wall', '4k': '4K', all: 'All' };
 const TYPE_RATIO = { fav: '4 / 5', full: '9 / 16', wall: '16 / 9', '4k': '16 / 9' };
 const TYPE_TILE  = { fav: 300, full: 240, wall: 520, '4k': 520 };
 const RATIOS = [[4,5],[1,1],[5,4],[9,16],[16,9],[3,4],[4,3],[2,3],[3,2]];
@@ -294,15 +324,27 @@ const state = {
   sort: store.get('sort', 'date'),
   data: null,
   view: [],          // images in display order
+  pairs: [],         // All tab: [{ key, session, base, date, fav, full, wall }]
+  pIndex: 0,         // All tab: the pairing on screen
   vIndex: -1,
   zoom: false,
   reqId: 0,
 };
 
+// The All tab keeps its own sort setting, and starts in the gallery order set
+// in DSO Admin; the other tabs share one, and start oldest first.
+const sortKey = () => (state.type === 'all' ? 'sortAll' : 'sort');
+function loadSort() {
+  state.sort = store.get(sortKey(), state.type === 'all' ? 'gallery' : 'date');
+  $('optSort').value = state.sort;
+}
+// Gallery order: images that aren't in the gallery (no order) go last, by date.
+const galleryPos = x => (x.order === null || x.order === undefined ? 1e9 : x.order);
+
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 async function api(params, body) {
-  const url = BASE + '/api.php?' + new URLSearchParams(params);
+  const url = BASE + '/api.php?' + new URLSearchParams({ ...params, ...SITE });
   const opts = body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) } : {};
   const r = await fetch(url, opts);
   const j = await r.json().catch(() => ({ error: 'Bad response (' + r.status + ')' }));
@@ -311,7 +353,7 @@ async function api(params, body) {
 }
 
 const imgUrl = (img, full) => BASE + '/img.php?' + new URLSearchParams({
-  p: state.data.project, s: img.session, f: img.file, ...(full ? { size: 'full' } : {}), v: img.mtime || 0,
+  p: state.data.project, s: img.session, f: img.file, ...(full ? { size: 'full' } : {}), ...SITE, v: img.mtime || 0,
 });
 
 // ── Formatting ─────────────────────────────────────────────
@@ -427,6 +469,7 @@ function stepType(delta) {
 function setType(t) {
   if (t === state.type) return;
   state.type = t; store.set('type', t);
+  loadSort();
   applyTileSize();
   load();
 }
@@ -452,7 +495,8 @@ $('nextDso').addEventListener('click', () => stepDso(1));
 // ── Options ────────────────────────────────────────────────
 function applyTileSize() {
   const sizes = store.get('tile', {});
-  const px = sizes[state.type] || TYPE_TILE[state.type];
+  const px = sizes[state.type] || TYPE_TILE[state.type] || 300;
+  $('optSize').disabled = state.type === 'all';   // a pairing is sized to fit the window
   document.documentElement.style.setProperty('--tile', px + 'px');
   $('optSize').value = px;
 }
@@ -463,15 +507,15 @@ $('optSize').addEventListener('input', e => {
   document.documentElement.style.setProperty('--tile', e.target.value + 'px');
 });
 $('optHid').checked = state.showHidden;
-$('optSort').value = state.sort;
+loadSort();
 $('optHid').addEventListener('change', e => { state.showHidden = e.target.checked; store.set('showHidden', state.showHidden); load(); });
-$('optSort').addEventListener('change', e => { state.sort = e.target.value; store.set('sort', state.sort); render(); });
+$('optSort').addEventListener('change', e => { state.sort = e.target.value; store.set(sortKey(), state.sort); render(); });
 
 // ── Loading & rendering ────────────────────────────────────
 async function load() {
   renderTypes();
   const id = ++state.reqId;
-  history.replaceState(null, '', `${BASE}/${encodeURIComponent(state.folder)}/${state.type}`);
+  history.replaceState(null, '', `${BASE}/${encodeURIComponent(state.folder)}/${state.type}${INIT.site ? '?site=1' : ''}`);
   const d = byFolder(state.folder);
   $('title').textContent = d ? (d.name ? `${d.token} — ${d.name}` : d.folder) : state.folder;
   document.title = `Lightbox · ${d ? d.token : state.folder} · ${TYPE_LABEL[state.type]}`;
@@ -495,6 +539,7 @@ function sortedImages() {
   const byDate = (a, b) => (a.session < b.session ? -1 : a.session > b.session ? 1 : a.file.localeCompare(b.file));
   if (state.sort === 'date-desc') imgs.sort((a, b) => -byDate(a, b));
   else if (state.sort === 'rating') imgs.sort((a, b) => (b.rating || 0) - (a.rating || 0) || byDate(a, b));
+  else if (state.sort === 'gallery') imgs.sort((a, b) => galleryPos(a) - galleryPos(b) || byDate(a, b));
   else imgs.sort(byDate);
   return imgs;
 }
@@ -507,32 +552,115 @@ function render() {
   $('banner').textContent = data.ratingsError || '';
 
   const withImg = data.sessions.filter(s => s.count > 0).length;
-  const suffix = `_${data.type}`;
-  $('sub').innerHTML = `<code>${esc(data.project)}</code> &nbsp; ${data.sessions.length} session${data.sessions.length === 1 ? '' : 's'}, ${withImg} with a ${esc(suffix)}`;
+  const all = data.type === 'all';
+  const suffix = all ? 'images' : `_${data.type}`;
+  $('sub').innerHTML = `<code>${esc(data.project)}</code> &nbsp; ${data.sessions.length} session${data.sessions.length === 1 ? '' : 's'}, ${withImg} with ${all ? '' : 'a '}${esc(suffix)}`;
   const missing = data.sessions.filter(s => s.count === 0);
   $('missing').innerHTML = missing.length
     ? 'No ' + esc(suffix) + ' in: ' + missing.map(s => `<span>${esc(s.session)}${s.ignored ? ' (ignored)' : ''}${s.hidden ? ` (${s.hidden} hidden)` : ''}</span>`).join(', ')
     : '';
 
-  state.view = sortedImages();
-  const best = Math.max(0, ...state.view.map(i => i.rating || 0));
+  $('grid').classList.toggle('pairmode', all);
+  if (all) buildPairs(); else state.view = sortedImages();
+  const best = bestRating();
   if (!state.view.length) {
-    $('grid').innerHTML = `<div class="empty">No ${esc(suffix)} images for this DSO.</div>`;
+    $('grid').innerHTML = `<div class="empty">No ${all ? '' : esc(suffix) + ' '}images for this DSO.</div>`;
     return;
   }
-  $('grid').innerHTML = state.view.map((img, i) => `
+  if (all) { renderPair(); return; }
+  $('grid').innerHTML = state.view.map((img, i) => tileHtml(img, i, best, `aspect-ratio:${TYPE_RATIO[data.type]}`)).join('');
+}
+
+// Best rating on the page (its tiles get the gold border). Not used in the
+// All tab, where a Fav, a Full and a Wall aren't competing.
+function bestRating() {
+  return state.data.type === 'all' ? 0 : Math.max(0, ...state.view.map(i => i.rating || 0));
+}
+
+// ── All tab: pairings ──────────────────────────────────────
+// A pairing is one image's Fav, Full and Wall: same session, same base name.
+function buildPairs() {
+  const keep = state.pairs[state.pIndex] ? state.pairs[state.pIndex].key : null;
+  const map = new Map();
+  for (const img of state.data.images) {
+    const key = img.session + '/' + img.base;
+    if (!map.has(key)) map.set(key, { key, session: img.session, base: img.base, date: img.date, order: img.order });
+    map.get(key)[img.type] = img;
+  }
+  const pairs = [...map.values()];
+  const rating = p => Math.max(0, ...PAIR_TYPES.map(t => (p[t] && p[t].rating) || 0));
+  const byDate = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+  if (state.sort === 'date-desc') pairs.sort((a, b) => -byDate(a, b));
+  else if (state.sort === 'rating') pairs.sort((a, b) => rating(b) - rating(a) || byDate(a, b));
+  else if (state.sort === 'gallery') pairs.sort((a, b) => galleryPos(a) - galleryPos(b) || byDate(a, b));
+  else pairs.sort(byDate);
+  state.pairs = pairs;
+  // the viewer steps through this: each pairing's three, then the next pairing
+  state.view = pairs.flatMap(p => PAIR_TYPES.map(t => p[t]).filter(Boolean));
+  state.pIndex = Math.max(0, pairs.findIndex(p => p.key === keep));
+}
+
+// width / height of a pairing's slot: the image's own, or the type's usual shape if it's missing
+function pairRatio(p, t) {
+  const img = p[t];
+  if (img && img.width && img.height) return img.width / img.height;
+  const [w, h] = TYPE_RATIO[t].split('/').map(Number);
+  return w / h;
+}
+
+function renderPair() {
+  const p = state.pairs[state.pIndex];
+  const n = state.pairs.length;
+  const btn = (d, ch, tip) => n > 1 ? `<button class="navbtn" data-pstep="${d}" title="${tip}">${ch}</button>` : '';
+  const cells = PAIR_TYPES.map(t => p[t]
+    ? tileHtml(p[t], state.view.indexOf(p[t]), 0, `aspect-ratio:${pairRatio(p, t)}`)
+    : `<div class="ghost"><div class="frame" style="aspect-ratio:${pairRatio(p, t)}">no _${t}</div></div>`).join('');
+  $('grid').innerHTML = `
+    <div class="pnav">
+      ${btn(-1, '‹', 'Previous image (←)')}
+      <span class="pwhere"><b>${state.pIndex + 1} / ${n}</b> ${esc(fmtDate(p.date))} &nbsp; <code>${esc(p.session)}</code> &nbsp; ${esc(p.base)}</span>
+      ${btn(1, '›', 'Next image (→)')}
+    </div>
+    <div class="pair">${cells}</div>`;
+  sizePair();
+}
+
+// Give the three the same picture height, as tall as fits the window and the page width.
+function sizePair() {
+  if (!state.data || state.data.type !== 'all' || !state.pairs.length) return;
+  const p = state.pairs[state.pIndex];
+  const ratios = PAIR_TYPES.map(t => pairRatio(p, t));
+  const availW = $('grid').clientWidth - 36 - 32 - 6;      // grid padding, two gaps, borders
+  const availH = Math.max(240, window.innerHeight - 350);  // top bar, heading, arrows, stars and note
+  const h = Math.min(availH, availW / ratios.reduce((a, b) => a + b, 0));
+  [...$('grid').querySelectorAll('.pair > *')].forEach((el, k) => { el.style.width = Math.floor(h * ratios[k]) + 'px'; });
+}
+window.addEventListener('resize', sizePair);
+
+function stepPair(delta) {
+  const n = state.pairs.length;
+  if (n < 2) return;
+  state.pIndex = (state.pIndex + delta + n) % n;
+  renderPair();
+}
+
+function tileHtml(img, i, best, frameStyle) {
+  const data = state.data, ro = !!data.ratingsError;
+  return `
     <article class="tile ${best && img.rating === best ? 'top' : ''}" data-i="${i}">
-      <div class="frame" style="aspect-ratio:${TYPE_RATIO[data.type]}">
+      <div class="frame" style="${frameStyle}">
         <span class="badge">★ Best</span>
         <img loading="lazy" src="${esc(imgUrl(img))}" alt="${esc(img.file)}">
       </div>
       <div class="meta">
         <div class="row1">
+          ${data.type === 'all' ? `<span class="chip kind">${TYPE_LABEL[img.type]}</span>` : ''}
           <span class="date">${esc(fmtDate(img.date))}</span>
           ${img.rig ? `<span class="chip rig">${esc(img.rig)}</span>` : ''}
           ${img.mosaic ? `<span class="chip">mosaic</span>` : ''}
           ${img.palette ? `<span class="chip pal">${esc(img.palette)}</span>` : ''}
-          ${img.onSite ? `<span class="chip site" title="Same file name is in public/images">on site</span>` : ''}
+          ${img.rotate ? `<span class="chip" title="Made from the _full, turned ${img.rotate > 0 ? 'clockwise (_cw_)' : 'counterclockwise'}">${img.rotate > 0 ? '↻ CW' : '↺ CCW'}</span>` : ''}
+          ${img.onSite && !state.hosted ? `<span class="chip site" title="${data.type === 'wall' ? 'Its _full is' : 'Same file name is'} in public/images">on site</span>` : ''}
           ${img.ignored ? `<span class="chip ign">ignored</span>` : ''}
           ${img.hidden ? `<span class="chip ign" title="Hidden in DSO Admin (GalleryImages.IsHidden)">hidden</span>` : ''}
         </div>
@@ -540,11 +668,11 @@ function render() {
           img.frames ? `${img.frames} × ${img.exposure}s` : '',
           fmtMinutes(img.minutes), aspect(img.width, img.height), fmtBytes(img.bytes),
         ].filter(Boolean).map(esc).join(' · ')}</div>
-        <div class="file" title="${esc(img.session + '\\' + img.file)}">${esc(img.file)}</div>
+        <div class="file" title="${esc(img.session + '\\' + (img.source || img.file))}">${esc(img.source || img.file)}</div>
         ${starsHtml(img.rating, ro)}
         <textarea class="note" rows="1" placeholder="Note…" ${ro ? 'readonly' : ''}>${esc(img.note)}</textarea>
       </div>
-    </article>`).join('');
+    </article>`;
 }
 
 function starsHtml(rating, ro) {
@@ -584,7 +712,7 @@ function setNote(img, text, statusEl) {
 }
 
 function refreshTile(i) {
-  const best = Math.max(0, ...state.view.map(x => x.rating || 0));
+  const best = bestRating();
   $('grid').querySelectorAll('.tile').forEach(t => {
     const img = state.view[+t.dataset.i];
     t.classList.toggle('top', !!best && img.rating === best);
@@ -595,6 +723,8 @@ function refreshTile(i) {
 }
 
 $('grid').addEventListener('click', e => {
+  const ps = e.target.closest('[data-pstep]');
+  if (ps) { stepPair(+ps.dataset.pstep); return; }
   const tile = e.target.closest('.tile');
   if (!tile) return;
   const img = state.view[+tile.dataset.i];
@@ -620,6 +750,10 @@ function closeViewer() {
   $('viewer').hidden = true;
   document.body.style.overflow = '';
   $('vImg').removeAttribute('src');
+  if (state.data && state.data.type === 'all') {      // show the pairing the viewer ended on
+    const at = state.pairs.findIndex(p => PAIR_TYPES.some(t => p[t] === state.view[state.vIndex]));
+    if (at >= 0 && at !== state.pIndex) { state.pIndex = at; renderPair(); }
+  }
   const t = $('grid').querySelector(`.tile[data-i="${state.vIndex}"]`);
   if (t) t.scrollIntoView({ block: 'nearest' });
   state.vIndex = -1;
@@ -644,8 +778,9 @@ function showViewerImage() {
   $('vOpen').href = imgUrl(img, true);
   const d = byFolder(state.folder);
   $('vTitle').textContent = `${d ? d.token : ''} · ${fmtDate(img.date)}`;
-  $('vInfo').textContent = [img.rig, img.palette, img.frames ? `${img.frames} × ${img.exposure}s` : '',
-                            fmtMinutes(img.minutes), aspect(img.width, img.height), img.file].filter(Boolean).join(' · ');
+  $('vInfo').textContent = [state.data.type === 'all' ? TYPE_LABEL[img.type] : '', img.rig, img.palette, img.frames ? `${img.frames} × ${img.exposure}s` : '',
+                            fmtMinutes(img.minutes), aspect(img.width, img.height), img.source || img.file,
+                            img.rotate ? (img.rotate > 0 ? 'turned CW' : 'turned CCW') : ''].filter(Boolean).join(' · ');
   $('vCount').textContent = `${state.vIndex + 1} / ${state.view.length}`;
   refreshViewerMeta(true);
 }
@@ -739,8 +874,10 @@ document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && document.activeElement.classList.contains('note')) document.activeElement.blur();
     return;
   }
-  if (e.key === 'ArrowLeft') stepDso(-1);
-  else if (e.key === 'ArrowRight') stepDso(1);
+  // All tab: the arrows step between pairings; Shift+arrow (or the ‹ › buttons) changes DSO
+  const pairKeys = state.data && state.data.type === 'all' && state.pairs.length > 1 && !e.shiftKey;
+  if (e.key === 'ArrowLeft') pairKeys ? stepPair(-1) : stepDso(-1);
+  else if (e.key === 'ArrowRight') pairKeys ? stepPair(1) : stepDso(1);
   else if (e.key === 'ArrowUp') stepType(-1);
   else if (e.key === 'ArrowDown') stepType(1);
   else if (e.key === '/') $('q').focus();
@@ -753,7 +890,22 @@ document.addEventListener('keydown', e => {
 (async () => {
   applyTileSize();
   try {
-    state.dsos = (await api({ action: 'dsos' })).dsos;
+    const first = await api({ action: 'dsos' });
+    state.dsos = first.dsos;
+    state.hosted = !!first.hosted;
+    const m = $('mode');
+    m.hidden = false;
+    m.textContent = state.hosted ? 'Published images' : 'MyWorks sessions';
+    if (first.canLocal) {
+      m.href = '#';
+      m.title = state.hosted ? 'Showing public/images. Click for the MyWorks sessions.'
+                             : 'Showing the MyWorks sessions. Click for the published images (public/images).';
+      m.addEventListener('click', e => {
+        e.preventDefault();
+        const where = state.folder ? `${encodeURIComponent(state.folder)}/${state.type}` : '';
+        location.href = `${BASE}/${where}${state.hosted ? '' : '?site=1'}`;
+      });
+    }
   } catch (err) {
     $('title').textContent = 'Lightbox';
     $('grid').innerHTML = `<div class="empty">${esc(err.message)}</div>`;

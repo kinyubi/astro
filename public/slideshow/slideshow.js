@@ -8,7 +8,7 @@
  * By default only each card's featured image is shown; the star button (or
  * A) switches to every image. The choice is remembered.
  *
- * Keys: Right/Left = next/previous, Space = pause/play, I = overlay on/off,
+ * Keys: Right/Left = next/previous, Space = pause/play, C = caption on/off,
  * A = featured only / all images, F = fullscreen, Esc = back to the menu.
  */
 (function (global) {
@@ -154,11 +154,12 @@
 
     function onKey(e) {
         if (!running) return;
+        if (e.target && e.target.tagName === 'SELECT') return;   // the orientation dropdown
         switch (e.key) {
             case 'ArrowRight': next(); break;
             case 'ArrowLeft':  prev(); break;
             case ' ':          e.preventDefault(); setPaused(!paused); break;
-            case 'i': case 'I': toggleOverlay(); break;
+            case 'c': case 'C': toggleOverlay(); break;
             case 'a': case 'A': toggleFeatured(); break;
             case 'f': case 'F': toggleFullscreen(); break;
             case 'Escape':
@@ -222,6 +223,7 @@
         el.stage.addEventListener('touchend', onTouchEnd, { passive: true });
         document.addEventListener('keydown', onKey);
         window.addEventListener('resize', onResize);
+        window.addEventListener('astro-orientation', layout);
         window.addEventListener('orientationchange', function () { setTimeout(layout, 120); });
         document.addEventListener('fullscreenchange', function () { setTimeout(layout, 50); });
         document.addEventListener('visibilitychange', function () {

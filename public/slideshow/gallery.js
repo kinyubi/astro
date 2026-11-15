@@ -7,18 +7,31 @@
  *
  * Viewer: the image fills the screen with the caption overlay (overlay.js),
  * rotated on landscape screens like the Slideshow; arrows / swipe / the
- * filmstrip step through the card's images; object details below.
+ * filmstrip step through the card's images. The i button (or I) opens
+ * the information window: object details and the current image's line
+ * (caption, palette, photographer). It stays open while stepping.
  *
  * Downloads are made on the fly from the plain _full and _fav files:
  * plain or captioned, portrait (9:16), landscape (16:9, the _full rotated)
- * or square (the _fav).
+ * or square (the _fav). When publish_images.py made a 4K wallpaper there
+ * are also 4K Landscape (the file as is) and 4K Portrait (the wallpaper
+ * turned back upright, 2160 x 3840).
  *
- * Viewer keys: Right/Left = next/previous image, I = caption on/off,
- * D = downloads menu, Esc = close.
+ * The orientation dropdown (overlay.js) forces Landscape or Portrait
+ * layout regardless of the screen's shape; Auto follows the screen.
+ *
+ * Viewer keys: Right/Left = next/previous image, C = caption on/off,
+ * I = information window, D = downloads menu, Esc = close.
  *
  * The Solar System view (#solar, #solar/<object>) uses the same grid and
  * viewer with the solar cards from data.php (fav images only, no object
  * details).
+ *
+ * Run locally (window.GALLERY_EDIT, set by index.php) the gallery can be
+ * reordered by dragging: the cards (saved to Projects.GalleryRank through
+ * admin/api_gallery_rank.php) and, in the viewer, the filmstrip (the
+ * card's image order, admin/api_gallery_image.php action "order"; the
+ * first image becomes the card's picture).
  */
 (function (global) {
     'use strict';
@@ -29,6 +42,8 @@
     var cur = null, imgIdx = 0;
     var visible = false, openedFromGrid = false, built = {};
     var overlayOn = true;
+    var canEdit = !!global.GALLERY_EDIT;
+    var ADMIN = '../admin/';
 
     function $(id) { return document.getElementById(id); }
 
@@ -71,11 +86,13 @@
             a.href = '#' + view + '/' + card.key;
             a.setAttribute('data-search',
                 [card.name, card.dsoKey, card.info.catalogId || '', card.displayName].join(' ').toLowerCase());
+            a.setAttribute('data-key', card.key);
             a.addEventListener('click', function () { openedFromGrid = true; });
 
             var thumb = node('div', 'g-thumb');
             var img = node('img');
             img.alt = card.displayName;
+            img.draggable = false;
             img.loading = 'lazy';
             img.decoding = 'async';
             img.onload = function () { thumb.classList.add('loaded'); };
@@ -85,9 +102,23 @@
 
             if (card.images.length > 1) thumb.appendChild(node('span', 'g-badge g-count', card.images.length + ' images'));
             if (card.isMosaic) thumb.appendChild(node('span', 'g-badge g-mosaic', 'Mosaic'));
+            // 4K: any of the card's images has a 4K wallpaper to download.
+            if (card.images.some(function (im) { return im.wall4k; })) {
+                var k4 = node('span', 'g-badge g-4k', '4K');
+                k4.title = '4K wallpaper download available';
+                thumb.appendChild(k4);
+            }
 
             a.appendChild(thumb);
             a.appendChild(node('h3', 'g-title', card.displayName));
+            // Cards without a Project (key dso_...) have no rank to save.
+            if (canEdit && view === 'gallery' && card.key.charAt(0) === 'p') {
+                makeDraggable(a, el.grid, saveCardOrder, function () {
+                    if (!el.search.value.trim()) return true;
+                    toast('Clear the search box first, so every card is in view.', 'error');
+                    return false;
+                });
+            }
             frag.appendChild(a);
         });
         grid.appendChild(frag);
@@ -137,6 +168,8 @@
         el.fullOpts.forEach(function (o) { o.hidden = !im.hasFull; });
         el.landOpts.forEach(function (o) { o.hidden = !!cur.solar; });
         el.landHints.forEach(function (h) { h.textContent = im.hasFull ? '16:9' : '5:4'; });
+        // 4K wallpaper: only when publish_images.py made one for this image.
+        el.wallOpts.forEach(function (o) { o.hidden = !im.wall4k; });
         closeMenu();
 
         O.renderOverlay(el.overlay, O.metaFor(cur, im), O.signatureFor(im));
@@ -161,18 +194,174 @@
         el.strip.textContent = '';
         el.strip.hidden = cur.images.length < 2;
         el.prev.hidden = el.next.hidden = cur.images.length < 2;
+        el.more.hidden = cur.images.length < 2;     // only the filmstrip is below the picture
         cur.images.forEach(function (im, i) {
             var b = node('button', 'gm-thumb');
             b.type = 'button';
             b.setAttribute('aria-label', 'Image ' + (i + 1));
+            b.setAttribute('data-id', im.id);
             var t = node('img');
             t.alt = '';
             t.loading = 'lazy';
+            t.draggable = false;
             setPreview(t, im);
             b.appendChild(t);
-            b.addEventListener('click', function () { imgIdx = i; showImage(); });
+            b.addEventListener('click', function () {
+                imgIdx = Array.prototype.indexOf.call(el.strip.children, b);
+                showImage();
+            });
+            if (canEdit && !cur.solar && im.id) makeDraggable(b, el.strip, saveImageOrder);
             el.strip.appendChild(b);
         });
+    }
+
+    // ── Reordering (local only) ──────────────────────────────────────
+
+    var dragItem = null, toastTimer = null;
+
+    function toast(text, state) {
+        if (!el.toast) {
+            el.toast = node('div', 'g-toast');
+            el.toast.setAttribute('role', 'status');
+            document.body.appendChild(el.toast);
+        }
+        clearTimeout(toastTimer);
+        el.toast.textContent = text;
+        el.toast.className = 'g-toast show' + (state ? ' ' + state : '');
+        if (state !== 'saving') {
+            toastTimer = setTimeout(function () { el.toast.classList.remove('show'); }, state === 'error' ? 6000 : 1800);
+        }
+    }
+
+    function clearDropMarks() {
+        Array.prototype.forEach.call(document.querySelectorAll('.drop-before, .drop-after'), function (x) {
+            x.classList.remove('drop-before', 'drop-after');
+        });
+    }
+
+    // Drop on the right half of an item = after it (grid and strip both
+    // run left to right).
+    function isAfter(item, e) {
+        var r = item.getBoundingClientRect();
+        return e.clientX > r.left + r.width / 2;
+    }
+
+    // Drag item within container; onChange() runs after the DOM has moved.
+    // canStart() may refuse the drag.
+    function makeDraggable(item, container, onChange, canStart) {
+        item.draggable = true;
+        item.classList.add('can-drag');
+        item.addEventListener('dragstart', function (e) {
+            if (canStart && !canStart()) { e.preventDefault(); return; }
+            dragItem = item;
+            item.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', '');
+        });
+        item.addEventListener('dragend', function () {
+            item.classList.remove('dragging');
+            clearDropMarks();
+            dragItem = null;
+        });
+        item.addEventListener('dragover', function (e) {
+            if (!dragItem || dragItem.parentNode !== container) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = 'move';
+            if (dragItem === item) { clearDropMarks(); return; }
+            var after = isAfter(item, e);
+            if (!item.classList.contains(after ? 'drop-after' : 'drop-before')) {
+                clearDropMarks();
+                item.classList.add(after ? 'drop-after' : 'drop-before');
+            }
+        });
+        item.addEventListener('drop', function (e) {
+            if (!dragItem || dragItem.parentNode !== container) return;
+            e.preventDefault();
+            var moved = dragItem;
+            clearDropMarks();
+            if (moved === item) return;
+            var ref = isAfter(item, e) ? item.nextSibling : item;
+            if (ref === moved || moved.nextSibling === ref) return;   // same place
+            container.insertBefore(moved, ref);
+            onChange(moved);
+        });
+    }
+
+    function postJson(url, body) {
+        return fetch(url, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        }).then(function (r) {
+            return r.json().catch(function () { return { error: 'HTTP ' + r.status }; }).then(function (d) {
+                if (!r.ok || d.error || !d.success) throw new Error(d.error || ('HTTP ' + r.status));
+                return d;
+            });
+        });
+    }
+
+    var cardSeq = 0;
+
+    // The grid's DOM order is the new order: put cards[] in step and save
+    // the rank of every Project card (1..n).
+    function saveCardOrder(moved) {
+        var pos = {};
+        Array.prototype.forEach.call(el.grid.children, function (a, i) { pos[a.getAttribute('data-key')] = i; });
+        cards.sort(function (a, b) { return (pos[a.key] || 0) - (pos[b.key] || 0); });
+        var order = cards.filter(function (c) { return c.key.charAt(0) === 'p'; })
+                         .map(function (c) { return parseInt(c.key.slice(1), 10); });
+        moved.classList.add('just-moved');
+        setTimeout(function () { moved.classList.remove('just-moved'); }, 1200);
+
+        var seq = ++cardSeq;
+        toast('Saving the gallery order…', 'saving');
+        postJson(ADMIN + 'api_gallery_rank.php', { order: order })
+            .then(function () { if (seq === cardSeq) toast('✓ Gallery order saved', 'saved'); })
+            .catch(function (e) { if (seq === cardSeq) toast('⚠ Gallery order not saved: ' + e.message, 'error'); });
+    }
+
+    // The strip's DOM order is the card's new image order. The image on
+    // screen stays on screen; the first image becomes the card's picture.
+    function saveImageOrder() {
+        var card = cur, shown = curImage();
+        var byId = {};
+        card.images.forEach(function (im) { byId[im.id] = im; });
+        card.images = Array.prototype.map.call(el.strip.children, function (b, i) {
+            b.setAttribute('aria-label', 'Image ' + (i + 1));
+            return byId[b.getAttribute('data-id')];
+        });
+        imgIdx = Math.max(0, card.images.indexOf(shown));
+        showImage();
+        updateCardThumb(card);
+
+        toast('Saving the image order…', 'saving');
+        postJson(ADMIN + 'api_gallery_image.php', {
+            action: 'order',
+            order: card.images.map(function (im) { return im.id; })
+        }).then(function (d) {
+            var feat = {};
+            (d.images || []).forEach(function (r) { feat[r.GalleryImageID] = r.IsFeature; });
+            card.images.forEach(function (im) { if (im.id in feat) im.isFeature = feat[im.id]; });
+            card.isMosaic = card.images[0] ? card.images[0].isMosaic : 0;
+            updateCardThumb(card);
+            toast('✓ Image order saved', 'saved');
+        }).catch(function (e) {
+            toast('⚠ Image order not saved: ' + e.message, 'error');
+        });
+    }
+
+    // The grid card shows the card's first image (and its mosaic badge).
+    function updateCardThumb(card) {
+        var a = el.grid.querySelector('.g-card[data-key="' + card.key + '"]');
+        var first = card.images[0];
+        if (!a || !first) return;
+        var img = a.querySelector('.g-thumb img');
+        if (img) { img.style.visibility = ''; setPreview(img, first); }
+        var thumb = a.querySelector('.g-thumb');
+        var badge = thumb.querySelector('.g-mosaic');
+        if (card.isMosaic && !badge) thumb.appendChild(node('span', 'g-badge g-mosaic', 'Mosaic'));
+        if (!card.isMosaic && badge) badge.remove();
     }
 
     // Per-image line under the strip: palette, caption, mosaic, credit.
@@ -266,6 +455,7 @@
         el.modal.hidden = true;
         document.body.classList.remove('no-scroll');
         closeMenu();
+        closePanel();
         cur = null;
         openedFromGrid = false;
     }
@@ -286,8 +476,15 @@
 
     // ── Downloads ────────────────────────────────────────────────────
 
-    function toggleMenu() { el.menu.hidden = !el.menu.hidden; }
+    function toggleMenu() { el.menu.hidden = !el.menu.hidden; if (!el.menu.hidden) closePanel(); }
     function closeMenu() { if (el.menu) el.menu.hidden = true; }
+
+    // Information window (same corner as the downloads menu, so one at a time).
+    function togglePanel() {
+        el.panel.hidden = !el.panel.hidden;
+        if (!el.panel.hidden) { closeMenu(); el.panel.scrollTop = 0; }
+    }
+    function closePanel() { if (el.panel) el.panel.hidden = true; }
 
     function loadImage(src) {
         return new Promise(function (resolve, reject) {
@@ -329,13 +526,24 @@
         var im = curImage();
         if (!im) return;
         closeMenu();
-        var src = shape === 'square' || !im.hasFull ? im.fav : im.full;
-        var suffix = shape === 'square' ? '_fav' : (shape === 'landscape' ? '_landscape' : '_full');
+        var wall = shape === 'wall4k' || shape === 'wall4k-portrait';
+        var src = wall ? im.wall4k : (shape === 'square' || !im.hasFull ? im.fav : im.full);
+        var suffix = shape === 'wall4k' ? '_4k' : shape === 'wall4k-portrait' ? '_4k_portrait'
+                   : shape === 'square' ? '_fav' : (shape === 'landscape' ? '_landscape' : '_full');
+        if (!src) return;
         var filename = im.base + suffix + (kind === 'captioned' ? '_captioned' : '') + '.jpg';
+
+        // The 4K wallpaper of a portrait _full was turned to landscape
+        // (counter-clockwise, or clockwise for _cw_), so 4K Portrait turns it
+        // back the other way. A landscape _full's wallpaper isn't turned, so
+        // it's turned the way the gallery turns it on a portrait screen.
+        var clockwise = O.isClockwise(im.base);
+        if (shape === 'wall4k-portrait' && im.fullPortrait) clockwise = !clockwise;
+        var orientation = shape === 'square' ? null : shape === 'wall4k-portrait' ? 'portrait' : shape;
 
         el.modal.classList.add('busy');
         var work;
-        if (kind === 'plain' && shape !== 'landscape') {   // portrait or square: the file as is
+        if (kind === 'plain' && shape !== 'landscape' && shape !== 'wall4k-portrait') {   // portrait, square or 4K landscape: the file as is
             // The file itself, untouched.
             work = fetch(src).then(function (r) {
                 if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -344,8 +552,8 @@
         } else {
             work = Promise.all([loadImage(src), kind === 'captioned' ? O.loadFonts() : null]).then(function (res) {
                 var cv = O.renderCanvas(res[0], {
-                    orientation: shape === 'square' ? null : shape,
-                    clockwise: O.isClockwise(im.base),
+                    orientation: orientation,
+                    clockwise: clockwise,
                     caption: kind === 'captioned',
                     meta: O.metaFor(cur, im),
                     signature: O.signatureFor(im)
@@ -368,14 +576,18 @@
 
     function onKey(e) {
         if (!visible) return;
+        if (e.target && e.target.tagName === 'SELECT') return;   // the orientation dropdown
         if (!el.modal.hidden) {
             switch (e.key) {
                 case 'ArrowRight': step(1); break;
                 case 'ArrowLeft':  step(-1); break;
-                case 'i': case 'I': toggleOverlay(); break;
+                case 'c': case 'C': toggleOverlay(); break;
                 case 'd': case 'D': toggleMenu(); break;
+                case 'i': case 'I': togglePanel(); break;
                 case 'Escape':
-                    if (!el.menu.hidden) closeMenu(); else requestClose();
+                    if (!el.menu.hidden) closeMenu();
+                    else if (!el.panel.hidden) closePanel();
+                    else requestClose();
                     break;
                 default: return;
             }
@@ -411,6 +623,8 @@
         el.imgLine = $('gm-imgline');
         el.info    = $('gm-info');
         el.menu    = $('gm-menu');
+        el.panel   = $('gm-panel');
+        el.more    = $('gm-more');
         el.close   = $('gm-close');
         el.prev    = $('gm-prev');
         el.next    = $('gm-next');
@@ -418,6 +632,7 @@
         el.fullOpts = Array.prototype.slice.call(document.querySelectorAll('#gm-menu [data-shape="portrait"]'));
         el.landOpts = Array.prototype.slice.call(document.querySelectorAll('#gm-menu [data-shape="landscape"]'));
         el.landHints = Array.prototype.slice.call(document.querySelectorAll('#gm-menu [data-shape="landscape"] .hint'));
+        el.wallOpts = Array.prototype.slice.call(document.querySelectorAll('#gm-menu .gm-wall'));
 
         try { overlayOn = localStorage.getItem('ss.overlay') !== '0'; } catch (e) { overlayOn = true; }
         el.modal.classList.toggle('no-overlay', !overlayOn);
@@ -434,6 +649,8 @@
         el.next.addEventListener('click', function () { step(1); });
         $('gm-caption').addEventListener('click', toggleOverlay);
         $('gm-download').addEventListener('click', function (e) { e.stopPropagation(); toggleMenu(); });
+        $('gm-infobtn').addEventListener('click', function (e) { e.stopPropagation(); togglePanel(); });
+        $('gm-panel-close').addEventListener('click', closePanel);
         $('gm-more').addEventListener('click', function () {
             el.modal.scrollTo({ top: el.stage.offsetHeight - 40, behavior: 'smooth' });
         });
@@ -442,6 +659,10 @@
         });
         el.modal.addEventListener('click', function (e) {
             if (!el.menu.hidden && !el.menu.contains(e.target)) closeMenu();
+            // A click outside the information window closes it -- except on
+            // the arrows and the filmstrip, so it can stay open while stepping.
+            if (!el.panel.hidden && !el.panel.contains(e.target) && !el.prev.contains(e.target)
+                && !el.next.contains(e.target) && !el.strip.contains(e.target)) closePanel();
         });
 
         el.stage.addEventListener('touchstart', function (e) {
@@ -456,6 +677,11 @@
         var rt = null;
         window.addEventListener('resize', function () { clearTimeout(rt); rt = setTimeout(layout, 120); });
         window.addEventListener('orientationchange', function () { setTimeout(layout, 120); });
+        window.addEventListener('astro-orientation', layout);
+        // Clicking the dropdown shouldn't close the downloads menu's owner etc.
+        Array.prototype.forEach.call(el.modal.querySelectorAll('.orient-select'), function (s) {
+            s.addEventListener('click', function (e) { e.stopPropagation(); });
+        });
     }
 
     // view: 'gallery' (default) or 'solar'

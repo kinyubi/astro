@@ -6,7 +6,12 @@
 //   GET  ?action=resolve&q=andro            titling.py-style fragment match
 //   GET  ?action=images&project=<folder>&type=fav[&hidden=1]
 //        hidden=1 includes IGNORE/bust sessions and GalleryImages.IsHidden images
+//        type=all returns the fav, full and wall images together (the All tab)
 //   POST ?action=rate   JSON {project, session, file, rating (1-5|null), note}
+//
+// Add &site=1 to any of them for the published images (public/images)
+// instead of MyWorks; that is also what happens when MyWorks isn't there
+// (the hosted site). See lib.php.
 // ============================================================
 
 require_once __DIR__ . '/../admin/auth_api.php';
@@ -24,9 +29,10 @@ function lb_out(array $data, int $code = 200): void
 try {
     $action = $_GET['action'] ?? '';
 
-    if (!is_dir(lb_root())) {
-        lb_out(['error' => 'MyWorks folder not found: ' . lb_root()], 500);
+    if (lb_hosted() && !lb_site_root()) {
+        lb_out(['error' => 'The public/images folder was not found.'], 500);
     }
+    $mode = ['hosted' => lb_hosted(), 'canLocal' => is_dir(lb_root())];
 
     switch ($action) {
 
@@ -47,7 +53,7 @@ try {
                 'sessions' => $c['sessions'],
             ];
         }
-        lb_out(['dsos' => $out]);
+        lb_out(['dsos' => $out] + $mode);
 
     case 'resolve':
         lb_out(lb_resolve((string)($_GET['q'] ?? '')));
@@ -55,14 +61,16 @@ try {
     case 'images':
         $project = (string)($_GET['project'] ?? '');
         $type    = (string)($_GET['type'] ?? 'fav');
-        if (!lb_clean_name($project) || !is_dir(lb_join(lb_root(), $project))) {
+        if (!lb_clean_name($project) || !in_array($project, lb_project_dirs(), true)) {
             lb_out(['error' => "Unknown DSO folder: $project"], 404);
         }
-        if (!in_array($type, LB_TYPES, true)) lb_out(['error' => "Unknown type: $type"], 400);
+        if ($type !== 'all' && !in_array($type, LB_TYPES, true)) lb_out(['error' => "Unknown type: $type"], 400);
 
         $db = lb_try_db();
         $showHidden = !empty($_GET['hidden']) || !empty($_GET['ignored']);   // 'ignored' = old name
-        $res = lb_images($project, $type, $showHidden, lb_hidden_bases($db));
+        $res = $type === 'all'
+            ? lb_all_images($project, $showHidden, lb_hidden_bases($db))
+            : lb_images($project, $type, $showHidden, lb_hidden_bases($db));
         $token = lb_token($project);
 
         $ratings = [];
@@ -78,8 +86,10 @@ try {
         } else {
             $ratingsError = 'Database not reachable — ratings are read-only until it is.';
         }
+        $order = lb_gallery_order($db);   // DSO Admin's image order; null = not a gallery image
         foreach ($res['images'] as &$img) {
-            $r = $ratings[$img['session'] . '/' . $img['file']] ?? null;
+            $img['order'] = $order[$img['base']] ?? null;
+            $r = $ratings[strtolower($img['session'] . '/' . $img['file'])] ?? null;
             $img['rating'] = $r['rating'] ?? null;
             $img['note']   = $r['note'] ?? '';
         }
@@ -94,7 +104,7 @@ try {
             'images'       => $res['images'],
             'sessions'     => $res['sessions'],
             'ratingsError' => $ratingsError,
-        ]);
+        ] + $mode);
 
     case 'rate':
         if ($_SERVER['REQUEST_METHOD'] !== 'POST') lb_out(['error' => 'POST required'], 405);
@@ -103,7 +113,7 @@ try {
         $project = (string)($in['project'] ?? '');
         $session = (string)($in['session'] ?? '');
         $file    = (string)($in['file'] ?? '');
-        if (!lb_safe_path($project, $session, $file)) lb_out(['error' => 'Image not found'], 404);
+        if (!lb_image_source($project, $session, $file)) lb_out(['error' => 'Image not found'], 404);
         $rating = $in['rating'] ?? null;
         if ($rating !== null) {
             $rating = (int)$rating;

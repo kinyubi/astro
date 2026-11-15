@@ -28,6 +28,12 @@
 // A web fav with no web full is listed in favWithoutFull (publish the
 // _full, or remove the fav) and gets no row.
 //
+// Renamed renders (e.g. _cw_ added in MyWorks; publish_images.py then
+// replaces the old web copies): a web _full with no row, and a row whose
+// _full is gone, from the same MyWorks session folder are one image. The
+// row takes the new BaseName and keeps its caption, palette, place in the
+// card, featured and hidden settings (see gs_pair_renames()).
+//
 // Hidden images (IsHidden = 1) are matched and refreshed but never
 // un-hidden. Rows with the same BaseName (any case) are duplicates of one
 // image: the featured/oldest is kept and the others removed
@@ -36,6 +42,12 @@
 // Everything for one DSO runs in one transaction. With apply => false it
 // is rolled back at the end, so a dry run reports exactly what a real run
 // would do, and thumbs are left alone.
+//
+// If the caller already has a transaction open (scripts/sync_gallery.php
+// runs every DSO in one, shows the report, then asks before committing),
+// each DSO runs in a savepoint instead: nothing is committed or rolled
+// back here, a DSO that fails is undone on its own, and thumbs are left
+// to the caller (after it commits).
 // ============================================================
 
 require_once __DIR__ . '/../../shared/db.php';
@@ -273,6 +285,50 @@ function gs_repair_project_folders(PDO $db, string $dso_key, array $projects, ar
     return $projects;
 }
 
+/** A name's words, lower case, without a cw token: m42_cw_Orion -> m42_orion. */
+function gs_rename_key(string $base): string {
+    return implode('_', array_filter(explode('_', strtolower($base)), fn($t) => $t !== 'cw'));
+}
+
+/**
+ * Renames within one DSO: [lower(new base) => lower(old base)].
+ * Only rows whose _full is gone and new web fulls with no row are
+ * considered, and only within the same MyWorks session folder. Pairs
+ * whose names differ only by a cw token (or letter case) first; then, if
+ * exactly one new image and one gone row are left in that session, they
+ * are paired too (any other rename). Anything less clear is left alone:
+ * the new image is added and the old row reported as gone.
+ */
+function gs_pair_renames(array $fulls, array $existing, array $works_map): array {
+    $gone = [];   // lower(session) => [lower(old) => true]
+    foreach ($existing as $k => $row) {
+        if (isset($fulls[$k]) || trim((string)$row['SessionDir']) === '') continue;
+        $gone[strtolower(trim($row['SessionDir']))][$k] = true;
+    }
+    $new = [];    // lower(session) => [lower(new) => true]
+    foreach ($fulls as $k => $bn) {
+        if (isset($existing[$k]) || !isset($works_map[$k])) continue;
+        $new[strtolower($works_map[$k]['session'])][$k] = true;
+    }
+    $pairs = [];
+    foreach ($new as $session => $news) {
+        $olds = $gone[$session] ?? [];
+        foreach (array_keys($news) as $nk) {
+            foreach (array_keys($olds) as $ok) {
+                if (gs_rename_key($nk) === gs_rename_key($ok)) {
+                    $pairs[$nk] = $ok;
+                    unset($olds[$ok], $news[$nk]);
+                    break;
+                }
+            }
+        }
+        if (count($news) === 1 && count($olds) === 1) {
+            $pairs[array_key_first($news)] = array_key_first($olds);
+        }
+    }
+    return $pairs;
+}
+
 /** [lower(base) => base] for public/images/<kind>/<dsokey>_..._<kind>.jpg. */
 function gs_web_bases(string $kind, string $dso_key): array {
     $dir = gs_images_dir() . DIRECTORY_SEPARATOR . $kind;
@@ -328,7 +384,10 @@ function gallery_sync_dso(PDO $db, string $dso_key, array $opts = []): array {
     gs_labels($db);   // read the palette/equipment names before the transaction
 
     // One transaction for everything below; committed only when applying.
-    $db->beginTransaction();
+    // Inside the caller's transaction: a savepoint, and the caller decides.
+    $outer = $db->inTransaction();
+    if ($outer) $db->exec('SAVEPOINT gs_dso');
+    else        $db->beginTransaction();
     try {
         $local = gs_works_root_available();
         $mode  = $local ? 'local' : 'remote';
@@ -402,6 +461,18 @@ function gallery_sync_dso(PDO $db, string $dso_key, array $opts = []): array {
             }
         }
 
+        // Renamed renders: the row takes the new name and keeps its settings.
+        $renamed = [];   // lower(new base) => old BaseName
+        $ren = $db->prepare('UPDATE GalleryImages SET BaseName = ? WHERE GalleryImageID = ?');
+        foreach (gs_pair_renames($fulls, $existing, $works_map) as $nk => $ok) {
+            $row = $existing[$ok];
+            $ren->execute([$fulls[$nk], (int)$row['GalleryImageID']]);
+            $renamed[$nk] = $row['BaseName'];
+            $row['BaseName'] = $fulls[$nk];
+            unset($existing[$ok]);
+            $existing[$nk] = $row;
+        }
+
         $next_sort = 1000;   // after everything; gallery_normalize() renumbers
         $inserted = $updated = $needs_session_dir = $to_delete = $deleted = [];
         $ins = $db->prepare('
@@ -454,9 +525,15 @@ function gallery_sync_dso(PDO $db, string $dso_key, array $opts = []): array {
                 $before = [substr((string)$row['DateCaptured'], 0, 10), (string)$row['Equipment'],
                            (int)$row['PaletteID'], (string)$row['SessionDir'], (int)$row['ProjectID']];
                 $after  = [(string)$date, (string)$equipment, $palette_id, (string)$session_dir, (int)$project_id];
-                if ($before === $after) continue;
-                $upd->execute([$date, $equipment, $palette_id, $session_dir, $project_id, $id]);
+                $renamed_from = $renamed[$bn_key] ?? null;
+                if ($before === $after && $renamed_from === null) continue;
+                if ($before !== $after) {
+                    $upd->execute([$date, $equipment, $palette_id, $session_dir, $project_id, $id]);
+                }
                 $changes = [];
+                if ($renamed_from !== null) {
+                    $changes[] = "renamed from $renamed_from -- caption, palette, place in the card and featured setting kept";
+                }
                 if ($before[3] !== $after[3]) {
                     $changes[] = $before[3] === ''
                         ? "session set to $session_dir (date " . gs_date_label($date) . ")"
@@ -529,14 +606,22 @@ function gallery_sync_dso(PDO $db, string $dso_key, array $opts = []): array {
         foreach ($inserted as &$i) $i['IsFeature'] = $feat_by_id[(int)$i['GalleryImageID']] ?? 0;
         unset($i);
 
-        if ($apply) $db->commit();
-        else        $db->rollBack();
+        if ($outer)     $db->exec('RELEASE SAVEPOINT gs_dso');
+        elseif ($apply) $db->commit();
+        else            $db->rollBack();
     } catch (Throwable $e) {
-        if ($db->inTransaction()) $db->rollBack();
+        if ($outer) {
+            try {
+                $db->exec('ROLLBACK TO SAVEPOINT gs_dso');
+                $db->exec('RELEASE SAVEPOINT gs_dso');
+            } catch (Throwable $e2) { /* the caller's transaction reports it */ }
+        } elseif ($db->inTransaction()) {
+            $db->rollBack();
+        }
         throw $e;
     }
 
-    $thumbs = $apply ? gallery_thumbs_sync($db, $dso_key) : null;
+    $thumbs = ($apply && !$outer) ? gallery_thumbs_sync($db, $dso_key) : null;
 
     $result = [
         'success'           => true,
@@ -557,6 +642,7 @@ function gallery_sync_dso(PDO $db, string $dso_key, array $opts = []): array {
         'favWithoutFull'    => $fav_without_full,
         'fullWithoutFav'    => $full_without_fav,
         'thumbs'            => $thumbs,
+        'renamed'           => $renamed,
         'changed'           => (bool)($inserted || $updated || $deleted || $duplicates_removed || $folder_fixes),
     ];
     $result['report'] = gs_report($result);

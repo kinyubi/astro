@@ -3,8 +3,9 @@
  * Gallery data for the new slideshow / gallery app (public/slideshow/).
  *
  * Returns one card per Project (same grouping and order as the legacy
- * public/index.php): hand-ranked cards first (Projects.GalleryRank, set on
- * /gallery-order/), then unranked by display name, non-mosaic before mosaic.
+ * public/index.php): hand-ranked cards first (Projects.GalleryRank, set by
+ * dragging the cards in Browse Gallery when run locally), then unranked by
+ * display name, non-mosaic before mosaic.
  * Images within a card: featured first, then SortOrder, then GalleryImageID.
  * Hidden images (GalleryImages.IsHidden) are left out.
  *
@@ -101,6 +102,13 @@ function ss_load_cards(): array
                 ];
             }
             $bn = $r['BaseName'];
+            $wall = is_file("$imgRoot/wall4k/{$bn}_4k.jpg");
+            // The 4K Portrait download turns the 4K wallpaper back upright,
+            // so it needs to know which way the _full stands.
+            $fullPortrait = null;
+            if ($wall && ($sz = @getimagesize("$imgRoot/full/{$bn}_full.jpg"))) {
+                $fullPortrait = $sz[1] > $sz[0];
+            }
             $cards[$key]['images'][] = [
                 'id'          => (int)$r['GalleryImageID'],
                 'base'        => $bn,
@@ -119,6 +127,9 @@ function ss_load_cards(): array
                 'thumb'       => "$imgUrl/thumbs/{$bn}_thumb.jpg",
                 'hasFull'     => is_file("$imgRoot/full/{$bn}_full.jpg"),
                 'hasFav'      => is_file("$imgRoot/fav/{$bn}_fav.jpg"),
+                // 4K wallpaper (publish_images.py -k), offered as a download
+                'wall4k'      => $wall ? "$imgUrl/wall4k/{$bn}_4k.jpg" : null,
+                'fullPortrait' => $fullPortrait,
             ];
         }
 

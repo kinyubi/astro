@@ -176,6 +176,25 @@ a.tile:hover, a.tile:focus-visible {
 .ss-btn:hover, .ss-arrow:hover { background: rgba(74, 158, 255, 0.4); }
 .ss-btn svg, .ss-arrow svg { width: 24px; height: 24px; fill: #fff; }
 
+/* Screen orientation dropdown (Auto / Landscape / Portrait), slideshow and viewer */
+.orient-select {
+    height: 36px;
+    padding: 0 28px 0 12px;
+    border: 2px solid rgba(74, 158, 255, 0.7);
+    border-radius: 18px;
+    background: rgba(10, 13, 24, 0.45)
+        url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath fill='%23fff' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E")
+        no-repeat right 6px center / 18px;
+    color: #fff;
+    font: inherit;
+    font-size: 0.85em;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+}
+.orient-select:hover { background-color: rgba(74, 158, 255, 0.4); }
+.orient-select option { background: var(--panel); color: var(--text); }
+
 .ss-counter {
     padding: 4px 12px;
     border-radius: 12px;
@@ -206,4 +225,5 @@ a.tile:hover, a.tile:focus-visible {
     .ss-arrow { width: 44px; height: 44px; margin-top: -22px; }
     .ss-top-left  { top: 10px; left: 10px; }
     .ss-top-right { top: 10px; right: 10px; gap: 8px; }
+    .orient-select { height: 32px; font-size: 0.8em; padding: 0 24px 0 10px; }
 }

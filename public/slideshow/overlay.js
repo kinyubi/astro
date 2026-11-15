@@ -9,6 +9,11 @@
  * Also handles fitting an image to the screen, rotating it 90 degrees when
  * the image and screen orientations differ (counterclockwise by default,
  * clockwise when the BaseName has a "_cw_" token).
+ *
+ * Screen orientation: Auto (the screen's own shape -- the default),
+ * Landscape or Portrait, picked in the .orient-select dropdowns. The choice
+ * is kept in sessionStorage, so every new visit starts on Auto. Changing it
+ * fires an "astro-orientation" event on window so the views re-lay out.
  */
 (function (global) {
     'use strict';
@@ -103,15 +108,59 @@
         return overlayParts(meta).join(SEPARATOR);
     }
 
+    // ── Screen orientation (Auto / Landscape / Portrait) ──────────────
+
+    var ORIENT_KEY = 'ss.orient';
+    var ORIENTS = ['auto', 'landscape', 'portrait'];
+    var orientMode = 'auto';
+    try {
+        var saved = sessionStorage.getItem(ORIENT_KEY);
+        if (ORIENTS.indexOf(saved) !== -1) orientMode = saved;
+    } catch (e) { /* ignore */ }
+
+    function getOrientation() { return orientMode; }
+
+    function setOrientation(mode) {
+        if (ORIENTS.indexOf(mode) === -1) mode = 'auto';
+        orientMode = mode;
+        try { sessionStorage.setItem(ORIENT_KEY, mode); } catch (e) { /* ignore */ }
+        Array.prototype.forEach.call(document.querySelectorAll('.orient-select'), function (s) {
+            s.value = mode;
+        });
+        var ev;
+        try { ev = new Event('astro-orientation'); }
+        catch (e) { ev = document.createEvent('Event'); ev.initEvent('astro-orientation', false, false); }
+        global.dispatchEvent(ev);
+    }
+
+    // Wire up every .orient-select on the page (call once, after the DOM).
+    function bindOrientationSelects() {
+        Array.prototype.forEach.call(document.querySelectorAll('.orient-select'), function (s) {
+            s.value = orientMode;
+            s.addEventListener('change', function () {
+                setOrientation(s.value);
+                s.blur();   // give the arrow keys back to the viewer
+            });
+        });
+    }
+
+    // Is the screen to be treated as portrait?
+    function screenIsPortrait(boxW, boxH) {
+        if (orientMode === 'portrait') return true;
+        if (orientMode === 'landscape') return false;
+        return boxH > boxW;
+    }
+
     /*
      * Fit an image of natW x natH into a boxW x boxH area (contain), rotated
-     * 90 degrees when the image is portrait and the box landscape or vice
-     * versa. Returns the element size (before rotation), the rotation in
-     * degrees, and the visible rectangle (after rotation) within the box.
+     * 90 degrees when the image is portrait and the screen landscape or vice
+     * versa (the screen's shape as the orientation setting says). Returns
+     * the element size (before rotation), the rotation in degrees, and the
+     * visible rectangle (after rotation) within the box.
      */
     function fitImage(natW, natH, boxW, boxH, clockwise) {
         var rotate = 0;
-        if (natW !== natH && (natH > natW) !== (boxH > boxW)) {
+        if (natW !== natH && (natH > natW) !== screenIsPortrait(boxW, boxH)) {
             rotate = clockwise ? 90 : -90;
         }
         var visNatW = rotate ? natH : natW;
@@ -353,6 +402,9 @@
         fitWidth: fitWidth,
         overlaySize: overlaySize,
         applyLayout: applyLayout,
+        getOrientation: getOrientation,
+        setOrientation: setOrientation,
+        bindOrientationSelects: bindOrientationSelects,
         renderOverlay: renderOverlay,
         loadFonts: loadFonts,
         renderCanvas: renderCanvas

@@ -23,5 +23,8 @@ RewriteRule ^vis/all/?$ vis/index.php?all=1 [L,QSA]
 
 # /lightbox/<fragment>[/<type>] -> image lightbox for that DSO, e.g.
 # /lightbox/andro, /lightbox/m31/wall. Real files (api.php, img.php) pass through.
+# .php names are never rewritten: if the lightbox folder is missing, that gives
+# a plain 404 instead of rewriting index.php onto itself forever (a 500).
 RewriteCond %{REQUEST_FILENAME} !-f
-RewriteRule ^lightbox/([^/]+)(?:/(fav|full|wall|4k))?/?$ lightbox/index.php?q=$1&type=$2 [L,QSA]
+RewriteCond %{REQUEST_URI} !\.php$
+RewriteRule ^lightbox/([^/]+)(?:/(fav|full|wall|4k|all))?/?$ lightbox/index.php?q=$1&type=$2 [L,QSA]

@@ -14,15 +14,40 @@
  *                    #gallery/<k>  viewer for card <k> (e.g. p12)
  *                    #solar        Solar System grid
  *                    #solar/<k>    viewer for a solar object (e.g. solar-moon)
+ *
+ * Run locally (MyWorks on disk and the browser on this PC -- the same test
+ * the admin APIs use to skip the login), Browse Gallery can be reordered:
+ * drag the cards (Projects.GalleryRank) and drag the viewer's filmstrip
+ * (the card's image order). This replaced the old /gallery-order/ page.
  */
 require_once __DIR__ . '/data.php';
+require_once __DIR__ . '/../admin/config.php';
+
+$canEdit = defined('WORKS_ROOT') && is_dir(WORKS_ROOT)
+        && in_array($_SERVER['REMOTE_ADDR'] ?? '', ['127.0.0.1', '::1'], true);
+
+// Locally, first attach any image with no Project to the Project whose
+// folder holds it (the old Gallery Order page did this), so it gets a
+// rankable card.
+if ($canEdit) {
+    require_once __DIR__ . '/../admin/gallery_helpers.php';
+    try {
+        gallery_attach_orphans(get_db(), null, true);
+    } catch (Throwable $e) {
+        error_log('slideshow attach orphans: ' . $e->getMessage());
+    }
+}
 
 $jflags    = JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_SLASHES;
 $equipment = ss_equipment_names();
 $json      = json_encode(ss_load_cards(), $jflags);
 $solarJson = json_encode(ss_load_solar($equipment), $jflags);
 $equipJson = json_encode((object)$equipment, $jflags);
-$ver       = 9;
+$ver       = 17;
+$orientSelect = '<select class="orient-select" aria-label="Screen orientation" title="Screen orientation">'
+              . '<option value="auto">Auto</option>'
+              . '<option value="landscape">Landscape</option>'
+              . '<option value="portrait">Portrait</option></select>';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -89,12 +114,13 @@ $ver       = 9;
     </div>
     <div class="ss-ctl ss-top-right">
         <span class="ss-counter" id="ss-counter"></span>
+        <?= $orientSelect ?>
         <button class="ss-btn" id="ss-feat" type="button" aria-label="Showing featured images only" title="Featured images only (A)">
             <svg class="ic-feat" viewBox="0 0 24 24"><path d="M12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2 9.19 8.63 2 9.24l5.46 4.73L5.82 21z"/></svg>
             <svg class="ic-all" viewBox="0 0 24 24"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
         </button>
-        <button class="ss-btn" id="ss-info" type="button" aria-label="Show or hide caption" title="Caption (I)">
-            <svg viewBox="0 0 24 24"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+        <button class="ss-btn" id="ss-info" type="button" aria-label="Show or hide caption" title="Show/Hide caption (C)">
+            <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/></svg>
         </button>
         <button class="ss-btn" id="ss-play" type="button" aria-label="Pause slideshow" title="Pause (Space)">
             <svg class="ic-pause" viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
@@ -120,6 +146,9 @@ $ver       = 9;
         </a>
         <h1>Browse Gallery</h1>
         <input class="g-search" id="g-search" type="search" placeholder="Search by name or catalog ID" autocomplete="off" aria-label="Search the gallery">
+<?php if ($canEdit): ?>
+        <span class="g-edit-status" id="g-edit-status" title="Running locally: drag cards to change the gallery order, or drag the filmstrip in the viewer to change a card's image order">Drag to reorder</span>
+<?php endif; ?>
     </header>
     <div class="g-grid" id="g-grid"></div>
     <p class="g-none" id="g-none" hidden>No matching objects.</p>
@@ -149,11 +178,15 @@ $ver       = 9;
         </div>
         <span class="gm-counter" id="gm-counter"></span>
         <div class="gm-ctl gm-top-right">
-            <button class="ss-btn" id="gm-caption" type="button" aria-label="Show or hide caption" title="Caption (I)">
+            <?= $orientSelect ?>
+            <button class="ss-btn" id="gm-infobtn" type="button" aria-label="Show or hide object information" title="Show/Hide information (I)">
                 <svg viewBox="0 0 24 24"><path d="M11 7h2v2h-2zm0 4h2v6h-2zm1-9C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
             </button>
+            <button class="ss-btn" id="gm-caption" type="button" aria-label="Show or hide caption" title="Show/Hide caption (C)">
+                <svg viewBox="0 0 24 24"><path d="M20 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zM4 12h4v2H4v-2zm10 6H4v-2h10v2zm6 0h-4v-2h4v2zm0-4H10v-2h10v2z"/></svg>
+            </button>
             <button class="ss-btn" id="gm-download" type="button" aria-label="Download" title="Download (D)">
-                <svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>
+                <svg viewBox="0 0 24 24"><path fill-rule="evenodd" d="M10.5 2h3v8h4.5l-6 6.8L6 10h4.5zM2 15.5c0-.8.7-1.5 1.5-1.5h4.3l3.1 3.5c.6.7 1.6.7 2.2 0l3.1-3.5h4.3c.8 0 1.5.7 1.5 1.5v5c0 .8-.7 1.5-1.5 1.5h-17c-.8 0-1.5-.7-1.5-1.5zM19.7 18.3a1.2 1.2 0 1 1-2.4 0 1.2 1.2 0 0 1 2.4 0z"/></svg>
             </button>
         </div>
         <div class="gm-menu" id="gm-menu" hidden>
@@ -165,6 +198,15 @@ $ver       = 9;
             <button type="button" data-kind="plain" data-shape="portrait">Portrait<span class="hint">9:16</span></button>
             <button type="button" data-kind="plain" data-shape="landscape">Landscape<span class="hint">16:9</span></button>
             <button type="button" data-kind="plain" data-shape="square">Square<span class="hint">4:5</span></button>
+            <h4 class="gm-wall">4K wallpaper</h4>
+            <button type="button" class="gm-wall" data-kind="plain" data-shape="wall4k">Landscape<span class="hint">16:9</span></button>
+            <button type="button" class="gm-wall" data-kind="plain" data-shape="wall4k-portrait">Portrait<span class="hint">9:16</span></button>
+        </div>
+        <!-- Information window (the i button): object details + this image's line -->
+        <div class="gm-panel" id="gm-panel" role="dialog" aria-label="Object information" hidden>
+            <button class="gm-panel-close" id="gm-panel-close" type="button" aria-label="Close information" title="Close (Esc)">&times;</button>
+            <div class="gm-info" id="gm-info"></div>
+            <div class="gm-imgline" id="gm-imgline"></div>
         </div>
 
         <button class="gm-ctl ss-arrow ss-arrow-left" id="gm-prev" type="button" aria-label="Previous image" title="Previous">
@@ -173,19 +215,18 @@ $ver       = 9;
         <button class="gm-ctl ss-arrow ss-arrow-right" id="gm-next" type="button" aria-label="Next image" title="Next">
             <svg viewBox="0 0 24 24"><path d="M8.59 16.59 10 18l6-6-6-6-1.41 1.41L13.17 12z"/></svg>
         </button>
-        <button class="gm-more" id="gm-more" type="button" aria-label="Scroll to object details" title="Details">
+        <button class="gm-more" id="gm-more" type="button" aria-label="Scroll to this object's other images" title="More images">
             <svg viewBox="0 0 24 24"><path d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z"/></svg>
         </button>
     </div>
     <div class="gm-strip" id="gm-strip"></div>
-    <div class="gm-imgline" id="gm-imgline"></div>
-    <div class="gm-info" id="gm-info"></div>
 </div>
 
 <script>
 window.GALLERY_CARDS   = <?= $json ?>;
 window.SOLAR_CARDS     = <?= $solarJson ?>;
 window.EQUIPMENT_NAMES = <?= $equipJson ?>;
+window.GALLERY_EDIT    = <?= $canEdit ? 'true' : 'false' ?>;
 </script>
 <script src="overlay.js?ver=<?= $ver ?>"></script>
 <script src="slideshow.js?ver=<?= $ver ?>"></script>
@@ -196,6 +237,7 @@ window.EQUIPMENT_NAMES = <?= $equipJson ?>;
     var homeEl = document.getElementById('home');
     var current = null;
 
+    AstroOverlay.bindOrientationSelects();
     Slideshow.init(window.GALLERY_CARDS || []);
     Gallery.init(window.GALLERY_CARDS || [], window.SOLAR_CARDS || []);
 
