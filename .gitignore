@@ -5,6 +5,7 @@ public/images/*/*.jpg
 *.log
 *.bkp
 secrets.php
+.env.*
 /public/dso_visibility.log
 *.db
 

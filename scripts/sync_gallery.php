@@ -28,12 +28,13 @@
 //
 //   php sync_gallery.php              show the changes, then ask
 //   php sync_gallery.php -a           apply without asking (scheduled tasks; never publishes)
-//   php sync_gallery.php -n           report only, never ask, change nothing
+//   php sync_gallery.php --what-if    report only, never ask, change nothing
+//                                     (-w, -n and --dry-run also work; wins over -a)
 //   php sync_gallery.php -d           also remove from database images without a web _full
-//   php sync_gallery.php -k M31       just one DSO
+//   php sync_gallery.php m31 wizard   just these DSOs (one or more; -k M31 also works)
 //   php sync_gallery.php -v           also list DSOs with nothing to report
 //
-// Without -a or -n it always asks. Run where nobody can answer (a
+// Without -a or --what-if it always asks. Run where nobody can answer (a
 // scheduled task with no keyboard), the question gets no answer, which
 // counts as no -- nothing is changed.
 //
@@ -50,34 +51,62 @@ require_once __DIR__ . '/../public/admin/config.php';
 require_once __DIR__ . '/../public/admin/gallery_sync.php';
 
 $usage = <<<TXT
-Usage: php sync_gallery.php [-a | -n] [-d] [-k DSOKEY] [-v] [-h]
+Usage: php sync_gallery.php [DSO ...] [-a | -w] [-d] [-v] [-h]
 
-  (no -a or -n)    show the changes, then ask whether to apply them
+  DSO ...          only these DSOs (default: every DSO with a Project). Each is a
+                   DSO key or any of its catalog IDs (M42 or NGC1976), a Project
+                   folder (m42_orion_nebula) or a fragment of one: an exact match
+                   wins, then the folder's first token (m42), then any folder
+                   containing it. -k DSO also works.
+  (no -a or -w)    show the changes, then ask whether to apply them
   -a, --apply      apply without asking
-  -n, --dry-run    report only, never ask, change nothing
+  -w, --what-if    report only, never ask, change nothing (wins over -a;
+                   -n/--dry-run also work)
   -d, --delete     also remove from database images whose _full is gone from the
                    website (no files are deleted)
-  -k, --key KEY    only this DSO
   -v, --verbose    also list DSOs with nothing to report
   -h, --help       this help
 
+Options can go before or after the DSOs, and short ones can be combined (-ad).
+
 TXT;
 
-$o = getopt('andk:vh', ['apply', 'dry-run', 'delete', 'key:', 'verbose', 'help'], $rest);
-if (isset($o['h']) || isset($o['help'])) { echo $usage; exit(0); }
-if ($rest < count($argv)) {
-    fwrite(STDERR, "Unexpected argument: {$argv[$rest]}\n\n$usage");
-    exit(2);
+// Parsed by hand: getopt() stops at the first DSO, so "m42 -a" would ignore -a.
+$flags = [];
+$targets = [];
+$long = ['apply' => 'a', 'what-if' => 'w', 'dry-run' => 'n', 'delete' => 'd',
+         'verbose' => 'v', 'help' => 'h', 'key' => 'k'];
+$args = array_slice($argv, 1);
+for ($i = 0; $i < count($args); $i++) {
+    $arg = $args[$i];
+    if (substr($arg, 0, 2) === '--') {
+        [$name, $val] = array_pad(explode('=', substr($arg, 2), 2), 2, null);
+        if (!isset($long[$name])) { fwrite(STDERR, "Unknown option: $arg\n\n$usage"); exit(2); }
+        if ($long[$name] === 'k') { $targets[] = $val ?? ($args[++$i] ?? ''); continue; }
+        $flags[$long[$name]] = true;
+    } elseif (strlen($arg) > 1 && $arg[0] === '-') {
+        foreach (str_split(substr($arg, 1)) as $j => $c) {
+            if ($c === 'k') {             // -k DSO or -kDSO
+                $rest = substr($arg, 2 + $j);
+                $targets[] = $rest !== '' ? $rest : ($args[++$i] ?? '');
+                break;
+            }
+            if (!in_array($c, ['a', 'w', 'n', 'd', 'v', 'h'], true)) {
+                fwrite(STDERR, "Unknown option: -$c\n\n$usage"); exit(2);
+            }
+            $flags[$c] = true;
+        }
+    } else {
+        $targets[] = $arg;
+    }
 }
-$apply   = isset($o['a']) || isset($o['apply']);
-$dry     = isset($o['n']) || isset($o['dry-run']);
-$delete  = isset($o['d']) || isset($o['delete']);
-$only    = $o['k'] ?? $o['key'] ?? null;
-$verbose = isset($o['v']) || isset($o['verbose']);
-if ($apply && $dry) {
-    fwrite(STDERR, "-a and -n can't be used together.\n\n$usage");
-    exit(2);
-}
+if (!empty($flags['h'])) { echo $usage; exit(0); }
+$apply   = !empty($flags['a']);
+$dry     = !empty($flags['w']) || !empty($flags['n']);
+$delete  = !empty($flags['d']);
+$verbose = !empty($flags['v']);
+if ($dry) $apply = false;      // --what-if wins over -a
+$targets = array_values(array_filter(array_map('trim', $targets), 'strlen'));
 $console = function_exists('stream_isatty') ? stream_isatty(STDIN) && stream_isatty(STDOUT) : false;
 $ask     = !$apply && !$dry;   // always ask; with no keyboard the answer reads as "no"
 
@@ -87,15 +116,84 @@ if (!gs_works_root_available()) {
 }
 
 $db = get_db();
-echo ($apply ? "Syncing" : ($ask ? "Checking" : "Dry run --")) . " gallery images"
-   . ($only ? " for $only" : " for every DSO") . "\n\n";
+
+/**
+ * The DSO key for a target, matched as publish_images.py matches a project:
+ * an exact DSO key, catalog ID (CatalogIDs: NGC1976 -> M42) or Project folder,
+ * then the folder's first token (so "m1" is M1, not M101), then any folder
+ * containing the target. Exits with the choices when it's ambiguous, or when
+ * nothing matches.
+ */
+function sg_resolve(array $projects, array $aliases, string $target): string {
+    $t = strtolower($target);
+    $alias_key = $aliases[$t] ?? null;     // catalog ID -> DSO key
+    $tiers = [
+        fn($p) => strtolower($p['DSOKey']) === $t || strtolower($p['ProjectFolder']) === $t
+                  || ($alias_key !== null && strcasecmp($p['DSOKey'], $alias_key) === 0),
+        fn($p) => strtolower(explode('_', $p['ProjectFolder'])[0]) === $t,
+        fn($p) => strpos(strtolower($p['ProjectFolder']), $t) !== false,
+    ];
+    foreach ($tiers as $match) {
+        $hits = array_values(array_filter($projects, $match));
+        $keys = array_values(array_unique(array_map(fn($p) => $p['DSOKey'], $hits)));
+        if (count($keys) === 1) return $keys[0];
+        if (count($keys) > 1) {
+            fwrite(STDERR, "\"$target\" matches more than one DSO -- be more specific:\n");
+            foreach ($hits as $p) fwrite(STDERR, "  {$p['DSOKey']}  (folder {$p['ProjectFolder']})\n");
+            exit(2);
+        }
+    }
+    fwrite(STDERR, "No DSO with a Project matches \"$target\".\n");
+    exit(2);
+}
+
+$only_keys = [];
+if ($targets) {
+    $projects = $db->query('SELECT DSOKey AS "DSOKey", ProjectFolder AS "ProjectFolder" FROM Projects')
+                   ->fetchAll(PDO::FETCH_ASSOC);
+    $projects = array_values(array_filter($projects, fn($p) => $p['DSOKey'] && $p['ProjectFolder']));
+    $aliases = [];      // lower-case catalog ID (and spacing-free form) -> DSO key
+    foreach ($db->query('SELECT DSOKey AS "DSOKey", CatalogID AS "CatalogID" FROM CatalogIDs')
+                ->fetchAll(PDO::FETCH_ASSOC) as $c) {
+        if (!$c['CatalogID'] || !$c['DSOKey']) continue;
+        $aliases[strtolower($c['CatalogID'])] = $c['DSOKey'];
+        $aliases[strtolower(str_replace(' ', '', $c['CatalogID']))] = $c['DSOKey'];
+    }
+    foreach ($targets as $t) {
+        $k = sg_resolve($projects, $aliases, $t);
+        if (!in_array($k, $only_keys, true)) $only_keys[] = $k;
+    }
+}
+
+echo ($apply ? "Syncing" : ($ask ? "Checking" : "What-if --")) . " gallery images"
+   . ($only_keys ? " for " . implode(', ', $only_keys) : " for every DSO") . "\n\n";
 
 // One transaction around every DSO (each runs in its own savepoint), so the
 // report is what committing would do, and committing needs no second run.
 $progress = $console ? function ($key) { fwrite(STDERR, "\r  checking $key ...        "); } : null;
 $db->beginTransaction();
 try {
-    $all = gallery_sync_all($db, ['apply' => true, 'delete' => $delete, 'only' => $only], $progress);
+    if (!$only_keys) {
+        $all = gallery_sync_all($db, ['apply' => true, 'delete' => $delete], $progress);
+    } else {
+        // One DSO at a time (gallery_sync_all takes one), merged into one report.
+        $all = ['results' => [], 'unclaimed' => [], 'unpublished' => null];
+        $seen_dups = [];
+        foreach ($only_keys as $k) {
+            $one = gallery_sync_all($db, ['apply' => true, 'delete' => $delete, 'only' => $k], $progress);
+            $all['results'] += $one['results'];
+            if ($one['unpublished'] !== null) {
+                $all['unpublished'] ??= ['missing' => [], 'outdated' => [], 'duplicates' => []];
+                $all['unpublished']['missing']  = array_merge($all['unpublished']['missing'], $one['unpublished']['missing']);
+                $all['unpublished']['outdated'] = array_merge($all['unpublished']['outdated'], $one['unpublished']['outdated']);
+                foreach ($one['unpublished']['duplicates'] as $d) {
+                    if (isset($seen_dups[strtolower($d['File'])])) continue;
+                    $seen_dups[strtolower($d['File'])] = true;
+                    $all['unpublished']['duplicates'][] = $d;
+                }
+            }
+        }
+    }
 } catch (Throwable $e) {
     if ($db->inTransaction()) $db->rollBack();
     if ($progress) fwrite(STDERR, "\r" . str_repeat(' ', 40) . "\r");
@@ -239,6 +337,6 @@ if ($apply) {
     }
 } else {
     $db->rollBack();
-    echo "Report only -- nothing was changed.\n";
+    echo "What-if only -- nothing was changed.\n";
 }
 exit($tot['errors'] ? 1 : 0);

@@ -21,12 +21,18 @@
 // the response maps it to the new database ID so the admin page (which
 // autosaves) never inserts the same new row twice:
 //   { success, DSOKey, newGalleryImageIds: {tmp: id}, newLinkIds: {tmp: id},
-//     gallery: [ {GalleryImageID, SortOrder, IsFeature, IsHidden}, ... ] }
+//     gallery: [ {GalleryImageID, SortOrder, IsFeature, IsHidden}, ... ],
+//     visibilityRefresh: true when the save changed RA/Dec }
+//
+// When a save changes RAHours/DecDegrees (a new DSO, AI Populate or a hand
+// edit), the DSO's visibility windows (/vis/span/) are recalculated in the
+// background -- shared/visibility_refresh.php.
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
 require_once __DIR__ . '/db_logger.php';
 require_once __DIR__ . '/gallery_helpers.php';
+require_once __DIR__ . '/../../shared/visibility_refresh.php';
 
 header('Content-Type: application/json');
 
@@ -57,6 +63,15 @@ $gallery_state   = null;
 try {
     $db = get_db();
     $db->beginTransaction();
+
+    // Position before this save, to tell whether the visibility windows need redoing
+    $pos_cols = array_values(array_intersect(['RAHours', 'DecDegrees'], array_keys($body)));
+    $old_pos  = null;
+    if ($pos_cols) {
+        $s = $db->prepare('SELECT RAHours AS "RAHours", DecDegrees AS "DecDegrees" FROM Objects WHERE DSOKey = ?');
+        $s->execute([$dso_key]);
+        $old_pos = $s->fetch(PDO::FETCH_ASSOC) ?: ['RAHours' => null, 'DecDegrees' => null];
+    }
 
     // ── Objects table ─────────────────────────────────────────────────────────
 
@@ -285,6 +300,14 @@ try {
 
     $db->commit();
 
+    $pos_changed = false;
+    foreach ($pos_cols as $col) {
+        $new = ($body[$col] === '' || $body[$col] === null) ? null : (float) $body[$col];
+        $old = $old_pos[$col] === null ? null : (float) $old_pos[$col];
+        if (($new === null) !== ($old === null) || ($new !== null && abs($new - $old) > 1e-6)) $pos_changed = true;
+    }
+    if ($pos_changed) vr_start([$dso_key]);
+
     // Featured/BaseName/new rows may have changed: keep thumbs in step
     // (thumb_helpers.php). Only when this save touched GalleryImages.
     if ($gallery_state !== null) gallery_thumbs_sync($db, $dso_key);
@@ -295,6 +318,7 @@ try {
         'newGalleryImageIds' => (object)$new_gallery_ids,
         'newLinkIds'         => (object)$new_link_ids,
         'gallery'            => $gallery_state,
+        'visibilityRefresh'  => $pos_changed,
     ]);
 
 } catch (Throwable $e) {

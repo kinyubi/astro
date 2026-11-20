@@ -5,10 +5,21 @@
 // Accepts POST with JSON body: { "dso_id": "NGC1976" }
 // Calls the Anthropic API to look up the object from training knowledge
 // and returns structured field data as JSON.
+//
+// Sources first (shared/dso_sources.php): Telescopius's facts and the
+// object's Wikipedia article go into the prompt, the AI writes the blurb
+// from them only, and Telescopius's RA/Dec, magnitude, constellation,
+// size, name and (clear-cut) type replace the AI's in the returned fields.
+// The admin page only fills fields that are still empty. The response's
+// "telescopius_note" says where things came from, for the admin to show.
+// Nothing is saved here except Telescopius's answer (TelescopiusObjects);
+// the admin page saves the fields, and api_save.php then recalculates the
+// visibility windows if the position changed.
 // ============================================================
 
 require_once __DIR__ . '/auth_api.php';
 require_once __DIR__ . '/db_logger.php';
+require_once __DIR__ . '/../../shared/dso_sources.php';
 
 header('Content-Type: application/json');
 
@@ -67,15 +78,33 @@ if (preg_match('/^C(\d{4})-([A-Z]{2})$/', $dso_id)) {
 }
 
 // ------------------------------------------------------------------
+// Sources first: Telescopius and Wikipedia fill whatever the form left blank
+// ------------------------------------------------------------------
+$db = get_db();
+$form_object_size = $object_size;
+$form_distance    = $distance;
+$src = dso_sources($db, $dso_id, $primary_catalog_id !== $dso_id ? [$primary_catalog_id] : [], $object_type_id);
+$tl = $src['tl'];
+$truth = tl_ground_truth($tl['object'], $distance ?: null);
+if ($common_name === '' && $src['name'])                     $common_name   = $src['name'];
+if ($constellation === '' && isset($truth['constellation'])) $constellation = $truth['constellation'];
+if ($object_size === '' && isset($truth['size']))            $object_size   = $truth['size'];
+$sources_block = dso_sources_block($tl['object'], $src['wiki'], $common_name ?: $src['name']);
+
+// ------------------------------------------------------------------
 // Build the prompt for Claude
 // ------------------------------------------------------------------
-$common_name_label  = $common_name  ?: '(not set — infer from catalog ID)';
-$constellation_label = $constellation ?: '(not set — infer from catalog ID)';
-$distance_label     = $distance     ?: '(not set — infer from catalog ID)';
-$object_size_label  = $object_size  ?: '(not set — infer from catalog ID)';
+$common_name_label  = $common_name  ?: '(not set — take it from the SOURCES below, or null)';
+$constellation_label = $constellation ?: '(not set — take it from the SOURCES below)';
+$distance_label     = $distance     ?: '(not set — only as stated in the Wikipedia article, else null)';
+$object_size_label  = $object_size  ?: '(not set — take it from the SOURCES below)';
+$blurb_opening      = $common_name ? "The {$common_name} ({$lookup_catalog_id}) is" : "{$lookup_catalog_id} is";
+$blurb_rules        = dso_blurb_rules($blurb_opening, $src['wiki'] !== null);
 
 $prompt = <<<PROMPT
-You are an astronomy database assistant with extensive knowledge of deep sky objects. Return a JSON object with data about the deep sky object "{$lookup_catalog_id}".
+You are an astronomy database assistant. Return a JSON object with data about the deep sky object "{$lookup_catalog_id}".
+
+{$sources_block}
 
 GROUND TRUTH — these values are set by the user and must be used exactly as provided. Do not substitute, correct, or infer alternatives for any field that is set:
 COMMON NAME : {$common_name_label}
@@ -84,7 +113,7 @@ CONSTELLATION: {$constellation_label}
 DISTANCE    : {$distance_label}
 OBJECT SIZE : {$object_size_label}
 
-For the SocialBlurb, the first sentence MUST open with exactly: "The {$common_name_label} ({$lookup_catalog_id}) is..."
+For the SocialBlurb, the first sentence MUST open with exactly: "{$blurb_opening}..."
 
 Return ONLY valid JSON — no markdown fences, no explanation text — in this exact structure:
 
@@ -96,9 +125,9 @@ Return ONLY valid JSON — no markdown fences, no explanation text — in this e
   "DecDegrees": number — Declination in decimal degrees (-90.0 to +90.0),
   "Magnitude": number — apparent visual magnitude,
   "ObjectSize": "string — a plain-English size description covering three things: (1) the actual physical size in light-years, (2) the apparent angular size in arcminutes, and (3) a comparison to the full moon's diameter (the full moon is 30 arcminutes across). Example: '70 light-years across with an apparent diameter of 45-50 arcminutes, about 1.5 times the size of the full moon.' Keep it to one sentence.",
-  "DistanceLY": "string — human-readable distance, e.g. '~1,350 light-years'",
+  "DistanceLY": "string — human-readable distance, e.g. '~1,350 light-years', ONLY as stated in the Wikipedia article; null if it gives none",
   "SqArcMins": number — apparent area in square arcminutes. Calculate as follows: (1) If the angular size is given as a single diameter d (in any unit), convert to arcminutes then compute π × (d/2)². (2) If the angular size is given as two dimensions (width × height), convert both to arcminutes then compute width × height. Unit conversions: 1 degree = 60 arcminutes; 1 arcsecond = 1/60 arcminute. Round to two decimal places. Use null if angular size is unknown.,
-  "SocialBlurb": "string — two paragraphs of plain, factual prose about this deep sky object, written for a curious young adult with no astronomy background. The tone is matter-of-fact and informative, like a knowledgeable friend explaining something interesting — not a press release or a nature documentary narrator. The blurb has ALREADY been started for you — your job is to complete it. It must begin with EXACTLY this text (do not alter, paraphrase, or restate it): 'The {$common_name_label} ({$lookup_catalog_id}) is ' — then complete the sentence and continue as follows. Paragraph 1 must give: constellation, distance in light-years, physical size in light-years, and apparent size compared to the full moon (30 arcminutes = 1 full moon diameter). Paragraph 2 covers: what type of object it is and what it is made of; what powers or illuminates it; how it got its common name or what its shape suggests; when and by whom it was discovered or cataloged (if known); and one genuinely interesting or unusual fact specific to THIS object — not generic to its object type. STRICT RULES: (1) Under 220 words total. (2) No sentence longer than 25 words. (3) No superlatives. Forbidden words and phrases: stunning, breathtaking, magnificent, massive, vast, giant, incredible, remarkable, iconic, beautiful, glowing (use 'illuminated' or describe the specific emission process), cosmic tapestry, dance of stars, captivated, poetic, haunting, spooky, ghostly. (4) Do NOT say it is a favorite target for anyone. (5) Do NOT describe it as a stellar nursery unless that is its single most defining characteristic and no other description applies. (6) Do NOT use vague closing sentences about the universe, creation, or humanity's relationship with space. (7) Two paragraphs separated by \\n\\n. (8) If the discovery date or discoverer is unknown, omit that sentence entirely.",
+  "SocialBlurb": "string — {$blurb_rules}",
   "CatalogIDs": [
     { "CatalogID": "string — catalog identifier e.g. M42, NGC1976, IC434", "IsPrimary": 1 or 0 }
   ]
@@ -229,4 +258,54 @@ if (!empty($fields['SocialBlurb']) && $common_name && $primary_catalog_id) {
     }
 }
 
-echo json_encode(['success' => true, 'fields' => $fields]);
+// ------------------------------------------------------------------
+// Telescopius values replace the AI's. Not found by the key? Try the
+// AI's catalog IDs (cached for 30 days, so a repeat costs nothing).
+// ------------------------------------------------------------------
+$ai_ids = [];
+foreach (is_array($fields['CatalogIDs'] ?? null) ? $fields['CatalogIDs'] : [] as $entry) {
+    $cid = strtoupper(trim((string) ($entry['CatalogID'] ?? '')));
+    if ($cid !== '' && tl_norm($cid) !== tl_norm($dso_id)) $ai_ids[] = $cid;
+}
+if (!$tl['found'] && $ai_ids && !str_starts_with($tl['note'], 'Not looked up')
+    && !str_starts_with($tl['note'], "Couldn't check")) {
+    $retry = dso_sources($db, $dso_id, array_merge([$primary_catalog_id], $ai_ids), $fields['ObjectTypeID'] ?? $object_type_id);
+    if ($retry['tl']['found']) { $src = $retry; $tl = $retry['tl']; }
+}
+
+// Sources win over the AI for everything they have. (The admin page still
+// only fills fields that are empty in the form.)
+$kept = [];   // fields only the AI supplied -- named in the note to check
+if ($tl['found']) {
+    foreach ($tl['facts'] as $col => $v) $fields[$col] = $v;
+    $o = $tl['object'];
+    if ($form_object_size === '' && !empty($o['major_axis'])) {
+        $fields['ObjectSize'] = tl_size_text($fields['DistanceLY'] ?? ($distance ?: null), (float) $o['major_axis'],
+            !empty($o['minor_axis']) ? (float) $o['minor_axis'] : (float) $o['major_axis']);
+    }
+    try { tl_save($db, $dso_id, $o, $tl['by']); } catch (Throwable $e) { /* not essential */ }
+} else {
+    if ($form_object_size === '') $fields['ObjectSize'] = null;   // no catalog size: not the AI's guess
+    foreach (['RAHours' => 'position', 'ConstellationID' => 'constellation', 'Magnitude' => 'magnitude'] as $col => $label) {
+        if (($fields[$col] ?? null) !== null && $fields[$col] !== '') $kept[] = $label;
+    }
+}
+if ($src['name']) {
+    $fields['CommonName'] = $src['name'];
+} elseif (!empty($fields['CommonName']) && $common_name === '') {
+    $kept[] = 'name';
+}
+if ($src['type']) {
+    $fields['ObjectTypeID'] = $src['type'];
+} elseif (!empty($fields['ObjectTypeID']) && !$tl['found']) {
+    $kept[] = 'type';   // with Telescopius found, the AI chose it from Telescopius's classification
+}
+if (!$src['wiki'] && $form_distance === '') $fields['DistanceLY'] = null;   // no article: a distance would be memory
+// Catalog IDs: Telescopius's, in the house format (M31, NGC224, SH2-129); the
+// AI's only when Telescopius doesn't know it. (Used only if the form has none.)
+$ai_catalog = is_array($fields['CatalogIDs'] ?? null) ? $fields['CatalogIDs'] : [];
+$fields['CatalogIDs'] = dso_catalog_ids($dso_id, $tl['found'] ? $tl['object'] : null, $ai_catalog);
+if (!$tl['found'] && count($fields['CatalogIDs']) > 1) $kept[] = 'catalog IDs';
+
+echo json_encode(['success' => true, 'fields' => $fields, 'telescopius_note' => dso_sources_note($src, $kept),
+                  'wikipedia' => $src['wiki']['url'] ?? null]);

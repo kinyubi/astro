@@ -605,6 +605,37 @@ const fields = ['DSOKey','CommonName','ObjectTypeID','ConstellationID',
                 'RAHours','DecDegrees','Magnitude','ObjectSize','SqArcMins','DistanceLY',
                 'SocialBlurb','WantBetter','Notes'];
 
+// Autosave sends only the fields that changed since the DSO was loaded or
+// last saved. Sending every field let a stale copy of a DSO (another tab or
+// window, or a form loaded before an AI fill) blank fields saved elsewhere --
+// e.g. wipe a blurb when only the Dec was edited.
+const NUMERIC_FIELDS = ['RAHours','DecDegrees','Magnitude'];
+let savedFieldValues = {};
+function normFieldValue(f, v) {
+  if (v === null || v === undefined) return null;
+  v = String(v).trim();
+  if (v === '') return null;
+  return NUMERIC_FIELDS.includes(f) ? parseFloat(v) : v;
+}
+function formFieldValues() {
+  const out = {};
+  fields.filter(f => f !== 'DSOKey').forEach(f => {
+    const el = document.getElementById('f_' + f);
+    if (el) out[f] = normFieldValue(f, el.value);
+  });
+  return out;
+}
+function sameFieldValue(f, a, b) {
+  b = b === undefined ? null : b;
+  if (a === null || b === null) return a === b;
+  if (NUMERIC_FIELDS.includes(f)) return Math.abs(a - b) < 1e-9;
+  return a === b;
+}
+function rememberSavedFields(row) {
+  savedFieldValues = {};
+  fields.filter(f => f !== 'DSOKey').forEach(f => { savedFieldValues[f] = normFieldValue(f, row ? row[f] : null); });
+}
+
 // ──────────────────────────────────────────────
 // Fetch wrapper
 // ──────────────────────────────────────────────
@@ -1006,6 +1037,7 @@ function loadObject(row) {
   renderDSOLinks(row.DSOLinks || []);
   renderProjects(row.Projects || []);
   snapshotBlurbFields();
+  rememberSavedFields(row);
   listFieldsSnapshot = listFieldsNow();
   gallerySigSnapshot = gallerySig(getGalleryImageRows());
   refreshSidebarRow(row);
@@ -1044,6 +1076,7 @@ async function newObject() {
   renderDSOLinks([]);
   renderProjects([]);
   snapshotBlurbFields();
+  rememberSavedFields(null);
   document.getElementById('btn-create').style.display = '';
   setSaveStatus('idle');
 }
@@ -1099,7 +1132,9 @@ async function quickAddDSO() {
       return;
     }
 
-    toast((data.CommonName ? data.CommonName + ' (' + dsoKey + ')' : dsoKey) + ' added.', 'ok');
+    // note: where the position came from (Telescopius, or the AI -- check it)
+    toast((data.CommonName ? data.CommonName + ' (' + dsoKey + ')' : dsoKey) + ' added. ' + (data.note || ''),
+          data.position_checked === false ? 'info' : 'ok', 9000);
     await flushSave();
     await fetchList('');
     const row = await fetchOneByKey(dsoKey);
@@ -1640,15 +1675,11 @@ async function saveObject(silent = false) {
   const isNew = !currentObject;
 
   const payload = { DSOKey: dsoKey };
-  fields.filter(f => f !== 'DSOKey').forEach(f => {
-    const el = document.getElementById('f_' + f);
-    if (!el) return;
-    let v = el.value.trim();
-    if (['RAHours','DecDegrees','Magnitude'].includes(f)) {
-      payload[f] = v === '' ? null : parseFloat(v);
-    } else {
-      payload[f] = v === '' ? null : v;
-    }
+  // A new DSO sends every field; an existing one only what changed (see savedFieldValues)
+  const sentFields = {};
+  const now = formFieldValues();
+  Object.keys(now).forEach(f => {
+    if (isNew || !sameFieldValue(f, now[f], savedFieldValues[f])) { payload[f] = now[f]; sentFields[f] = now[f]; }
   });
   payload.CatalogIDs         = getCatalogRows();
   payload.CatalogIDsComplete = !isNew;   // full list -> removals/primary changes persist
@@ -1664,6 +1695,8 @@ async function saveObject(silent = false) {
       toast('Save failed: ' + (data.error || 'Unknown error'), 'err', 6000);
       return;
     }
+
+    Object.assign(savedFieldValues, sentFields);
 
     // Give new rows their database IDs so the next save updates them
     // instead of inserting them again.
@@ -1865,7 +1898,7 @@ async function aiPopulate() {
 
     toast('Auto-saving&#8230;', 'info', 3000);
     await saveNow();
-    toast('AI filled ' + populated + ' field(s) and saved', 'ok', 5000);
+    toast('AI filled ' + populated + ' field(s) and saved. ' + (data.telescopius_note || ''), 'ok', 9000);
 
   } catch (e) {
     toast('Network error: ' + e.message, 'err', 5000);
@@ -2592,11 +2625,12 @@ function getDSOLinkRows() {
 /** Decimal hours  →  "hh mm ss.s" */
 function raDecimalToHMS(h) {
   if (h === null || h === undefined || h === '' || isNaN(h)) return '';
-  h = parseFloat(h);
-  const hh = Math.floor(h);
-  const rem1 = (h - hh) * 60;
-  const mm = Math.floor(rem1);
-  const ss = (rem1 - mm) * 60;
+  // Round to tenths of a second first, then split with whole numbers, so
+  // 05h 35m 00s never comes back as 05 34 60.0 (floating-point remainder).
+  const t = Math.round(parseFloat(h) * 36000) % 864000;
+  const hh = Math.floor(t / 36000);
+  const mm = Math.floor((t % 36000) / 600);
+  const ss = (t % 600) / 10;
   return String(hh).padStart(2,'0') + ' '
        + String(mm).padStart(2,'0') + ' '
        + ss.toFixed(1).padStart(4,'0');
@@ -2606,12 +2640,13 @@ function raDecimalToHMS(h) {
 function decDecimalToDMS(d) {
   if (d === null || d === undefined || d === '' || isNaN(d)) return '';
   d = parseFloat(d);
-  const sign = d < 0 ? '-' : '+';
-  const abs = Math.abs(d);
-  const dd = Math.floor(abs);
-  const rem1 = (abs - dd) * 60;
-  const mm = Math.floor(rem1);
-  const ss = (rem1 - mm) * 60;
+  // Round to tenths of an arcsecond first, then split with whole numbers, so
+  // +60 11 00 never comes back as +60 10 60.0 (floating-point remainder).
+  const t = Math.round(Math.abs(d) * 36000);
+  const sign = (d < 0 && t > 0) ? '-' : '+';
+  const dd = Math.floor(t / 36000);
+  const mm = Math.floor((t % 36000) / 600);
+  const ss = (t % 600) / 10;
   return sign
        + String(dd).padStart(2,'0') + ' '
        + String(mm).padStart(2,'0') + ' '

@@ -46,14 +46,19 @@ def get_viewing_window(specified_date, ts, eph, observer):
     viewing_start = None
     viewing_end = None
 
+    # find_discrete gives the moment each phase BEGINS: times[i] is when
+    # events[i] starts. On the 1 -> 0 step, times[i] is when astronomical
+    # twilight begins (sun at -12) and times[i + 1] is when real darkness
+    # begins (sun at -18) -- the window starts at times[i + 1]. (It used to
+    # start at times[i], 35-60 minutes early, counting twilight as dark.)
     for i in range(len(times) - 1):
-        t = times[i]
         event = events[i]
         next_event = events[i + 1]
-        t_local = t.astimezone(tz)
+        dark_start = times[i + 1]
+        t_local = dark_start.astimezone(tz)
 
         if event == 1 and next_event == 0 and viewing_start is None and t_local.date() >= specified_date:
-            viewing_start = t
+            viewing_start = dark_start
 
         if viewing_start is not None and event == 0 and next_event == 1 and viewing_end is None:
             viewing_end = times[i + 1]
@@ -364,6 +369,27 @@ def find_planet_next_visible_date(target_key, base_date, max_days, ts, eph, obse
     return base_date + datetime.timedelta(days=exact_first)
 
 
+def _ensure_fingerprint_column(conn, table):
+    """Adds a Fingerprint TEXT column to a forecast cache table if it's missing
+    (works on both SQLite and Postgres; no-op once it exists).
+
+    The forecast caches used to be keyed only by profile name + object, so a
+    result stayed cached even after the profile's settings (location, minimum
+    altitude, azimuth range) or the object's RA/Dec changed -- e.g. a "no
+    window" computed from a wrong position stuck for 370 days. Each row now
+    stores a fingerprint of everything its result depends on; a row whose
+    fingerprint doesn't match the current one is treated as not cached."""
+    try:
+        conn.execute(f"SELECT Fingerprint FROM {table} WHERE 1=0")
+    except Exception:
+        try:
+            conn.rollback()      # Postgres: clear the failed statement
+        except Exception:
+            pass
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN Fingerprint TEXT")
+        conn.commit()
+
+
 def calculate_visibility(specified_date=None, profile_name='default', show_all=False):
     """
     Main function to calculate visibility of objects and output HTML with sorting capability.
@@ -408,6 +434,12 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
     minimum_altitude = profile['min_altitude']
     azimuth_minimum_degrees = profile['az_min']
     azimuth_maximum_degrees = profile['az_max']
+    # Everything a cached forecast depends on besides the object itself --
+    # see _ensure_fingerprint_column().
+    # 'w2' = viewing window starting at real darkness (bumped when the
+    # get_viewing_window() fix landed, so older cached dates are recomputed).
+    profile_fp = (f"w2:{float(latitude):.4f},{float(longitude):.4f},{float(minimum_altitude):g},"
+                  f"{float(azimuth_minimum_degrees):g},{float(azimuth_maximum_degrees):g}")
 
     # Setup Skyfield
     ts = load.timescale(builtin=True)
@@ -651,6 +683,8 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
                     PRIMARY KEY (ProfileName, PlanetName, ViewType)
                 )
             """)
+            planet_forecast_conn.commit()
+            _ensure_fingerprint_column(planet_forecast_conn, 'PlanetVisibilityForecast')
             pfcur = planet_forecast_conn.cursor()
             target_date_iso_planets = specified_date.strftime('%Y-%m-%d')
 
@@ -662,12 +696,16 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
                 tonight's direct check above already found it visible (this
                 function is only called when it didn't), or the prediction
                 needs to be recomputed for real."""
+                planet_fp = f"{profile_fp}|{float(min_alt):g},{float(az_min):g},{float(az_max):g}"
                 pfcur.execute(
-                    "SELECT NextVisibleDate AS \"NextVisibleDate\" FROM PlanetVisibilityForecast "
+                    "SELECT NextVisibleDate AS \"NextVisibleDate\", Fingerprint AS \"Fingerprint\" "
+                    "FROM PlanetVisibilityForecast "
                     "WHERE ProfileName=? AND PlanetName=? AND ViewType=?",
                     (profile_name, planet_name, view_type)
                 )
                 cached = pfcur.fetchone()
+                if cached and cached['Fingerprint'] != planet_fp:
+                    cached = None        # settings changed since it was cached
 
                 if cached and cached['NextVisibleDate']:
                     cached_next = datetime.datetime.strptime(cached['NextVisibleDate'], '%Y-%m-%d').date()
@@ -679,16 +717,17 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
                     min_alt, az_min, az_max, planet_viewing_window_cache
                 )
                 pfcur.execute("""
-                    INSERT INTO PlanetVisibilityForecast (ProfileName, PlanetName, ViewType, ComputedDate, NextVisibleDate, SearchDays)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO PlanetVisibilityForecast (ProfileName, PlanetName, ViewType, ComputedDate, NextVisibleDate, SearchDays, Fingerprint)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(ProfileName, PlanetName, ViewType) DO UPDATE SET
                         ComputedDate = excluded.ComputedDate,
                         NextVisibleDate = excluded.NextVisibleDate,
-                        SearchDays = excluded.SearchDays
+                        SearchDays = excluded.SearchDays,
+                        Fingerprint = excluded.Fingerprint
                 """, (
                     profile_name, planet_name, view_type, target_date_iso_planets,
                     next_date.strftime('%Y-%m-%d') if next_date else None,
-                    FORECAST_MAX_DAYS
+                    FORECAST_MAX_DAYS, planet_fp
                 ))
                 return next_date
 
@@ -830,12 +869,15 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
                 PRIMARY KEY (ProfileName, DSOKey)
             )
         """)
+        forecast_conn.commit()
+        _ensure_fingerprint_column(forecast_conn, 'VisibilityForecast')
         fcur = forecast_conn.cursor()
 
         viewing_window_cache = {}
 
         for row in dso_rows:
             name = row['DSOKey']
+            dso_fp = f"{profile_fp}|{float(row['RAHours']):.5f},{float(row['DecDegrees']):.5f}"
 
             # Objects visible tonight: first = today, reuse or compute season end.
             # Previously this branch always called find_visibility_window() (a full
@@ -847,10 +889,13 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
             # already used below for objects not visible tonight.
             if name in visible_names:
                 fcur.execute(
-                    "SELECT LastVisibleDate AS \"LastVisibleDate\" FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
+                    "SELECT LastVisibleDate AS \"LastVisibleDate\", Fingerprint AS \"Fingerprint\" "
+                    "FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
                     (profile_name, name)
                 )
                 cached = fcur.fetchone()
+                if cached and cached['Fingerprint'] != dso_fp:
+                    cached = None        # profile settings or RA/Dec changed since it was cached
 
                 last_date = None
                 need_compute = True
@@ -873,18 +918,19 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
                         viewing_window_cache
                     )
                     fcur.execute("""
-                        INSERT INTO VisibilityForecast (ProfileName, DSOKey, ComputedDate, FirstVisibleDate, LastVisibleDate, SearchDays)
-                        VALUES (?, ?, ?, ?, ?, ?)
+                        INSERT INTO VisibilityForecast (ProfileName, DSOKey, ComputedDate, FirstVisibleDate, LastVisibleDate, SearchDays, Fingerprint)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
                         ON CONFLICT(ProfileName, DSOKey) DO UPDATE SET
                             ComputedDate = excluded.ComputedDate,
                             FirstVisibleDate = excluded.FirstVisibleDate,
                             LastVisibleDate = excluded.LastVisibleDate,
-                            SearchDays = excluded.SearchDays
+                            SearchDays = excluded.SearchDays,
+                            Fingerprint = excluded.Fingerprint
                     """, (
                         profile_name, name, target_date_iso,
                         target_date_iso,
                         last_date.strftime('%Y-%m-%d') if last_date else None,
-                        FORECAST_MAX_DAYS
+                        FORECAST_MAX_DAYS, dso_fp
                     ))
 
                 forecast_objects.append({
@@ -902,11 +948,13 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
             # Not visible tonight: look up or compute next window
             fcur.execute(
                 "SELECT FirstVisibleDate AS \"FirstVisibleDate\", LastVisibleDate AS \"LastVisibleDate\", "
-                "ComputedDate AS \"ComputedDate\", SearchDays AS \"SearchDays\" "
+                "ComputedDate AS \"ComputedDate\", SearchDays AS \"SearchDays\", Fingerprint AS \"Fingerprint\" "
                 "FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
                 (profile_name, name)
             )
             cached = fcur.fetchone()
+            if cached and cached['Fingerprint'] != dso_fp:
+                cached = None            # profile settings or RA/Dec changed since it was cached
 
             first_date = None
             last_date = None
@@ -962,18 +1010,19 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
                 )
 
                 fcur.execute("""
-                    INSERT INTO VisibilityForecast (ProfileName, DSOKey, ComputedDate, FirstVisibleDate, LastVisibleDate, SearchDays)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    INSERT INTO VisibilityForecast (ProfileName, DSOKey, ComputedDate, FirstVisibleDate, LastVisibleDate, SearchDays, Fingerprint)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(ProfileName, DSOKey) DO UPDATE SET
                         ComputedDate = excluded.ComputedDate,
                         FirstVisibleDate = excluded.FirstVisibleDate,
                         LastVisibleDate = excluded.LastVisibleDate,
-                        SearchDays = excluded.SearchDays
+                        SearchDays = excluded.SearchDays,
+                        Fingerprint = excluded.Fingerprint
                 """, (
                     profile_name, name, target_date_iso,
                     first_date.strftime('%Y-%m-%d') if first_date else None,
                     last_date.strftime('%Y-%m-%d') if last_date else None,
-                    FORECAST_MAX_DAYS
+                    FORECAST_MAX_DAYS, dso_fp
                 ))
 
             if first_date is not None:

@@ -636,3 +636,39 @@ Note: entries for the Sept-Oct 2026 sessions (S50 Pro support, To Do List rewrit
 
 ### Status
 - Needs deploying to the VPS: `public/admin/thumb_helpers.php`, `gallery_helpers.php`, `api_gallery_image.php`, `api_save.php`, `api_sync_folder.php`.
+
+---
+
+## Session: 2026-11-18 (Telescopius API: client, relay, benchmark, DSO enrichment; two visibility-report bugs fixed)
+
+### Telescopius API -- what we learned
+- API v2.2, key in `.env.prod` as `TELESCOPIUS_PROD_API_KEY`, sent as `Authorization: Key ...`. **Only the VPS's IP is allowed** -- the PC goes through the relay (below).
+- Limits: **6,000 calls/month** (Carl's plan) and **60 calls/minute** (`x-ratelimit-*` headers, reset = Unix time).
+- Benchmarked from the VPS: small calls 70-125 ms; `/targets/search` with 120 results ~700-830 ms (~130 KB). `ephemeris=yearly` is cheap (77 ms); `compute_current` adds ~50 ms. PC-via-relay adds ~300 ms (dev only). Disk cache reads < 1 ms. **Rule: pages never wait on Telescopius -- scripts fetch, pages read the cache/DB.**
+- Coordinates are **J2000** (M33 came back at its exact J2000 position). The visibility script's `Star(ra, dec)` is J2000 too, and so is the Seestar app's custom-object entry (Carl tested: J2000 M33 centered exactly). So Objects RA/Dec = J2000 everywhere.
+- The yearly ephemeris is one alt/az sample per day at a fixed hour -- no visibility windows; not useful for the forecast. Per-night `tonight_visibility` windows are available per call if a spot-checker is ever wanted.
+- Carl's visibility profiles map to API params: NE+SE 20° = `az_quadrants=NE,SE&min_alt=20`, open 35° = `min_alt=35` (45° profile off for now). `types=DEEP_SKY_OBJECT` with magnitude sort returns star-dominated junk (VDB 36 first) -- a useful "tonight" list needs specific types + popularity sort. How `az_quadrants` treats an object that crosses quadrants is still unverified.
+
+### New files
+- **`shared/telescopius.php`** -- the one client. Reads settings from env, then `.env.local` (PC only), then `.env.prod` (strips a UTF-8 BOM -- the VPS `.env.prod` had one, which hid the key on line 1). Logs every call to `cache/telescopius/calls_YYYY-MM.jsonl` (the monthly counter), disk cache with TTL, budget guard (past 80% only `essential` calls; 100% none), per-minute throttle (waits up to 65 s in CLI / 5 s in web, state in `minute_limit.json`), observing site constant (43.6921, -116.4935, America/Boise) and `PROFILES`.
+- **`public/api/telescopius.php`** -- relay on the VPS: POST + `X-Relay-Key` header = `TELESCOPIUS_RELAY_KEY` (in `.env.prod` on both machines). Only the GET endpoints in `Telescopius::RELAY_PATHS`; `{"action":"usage"}` returns the VPS's monthly count. With relay mode the VPS does all logging/caching/budgeting -- one counter for both machines. Never relays to itself.
+- **`.env.local`** (PC only, gitignored by `.env.*`, **must not be uploaded**): `TELESCOPIUS_RELAY=https://astro.wiibopp.com/api/telescopius.php`.
+- **`scripts/telescopius_bench.php`** + `pythonScripts\telescopius_bench.cmd` -- times each call (default 10 calls x 3 = 30 calls), shows plan and asks; `-a`, `--what-if`, `-s N`, `-k`. Saves one sample response per call in `cache/telescopius/samples/` and a `bench_*.json` report.
+- **`dsodb/migrations/migrate_add_telescopius_objects.py`** -- new `TelescopiusObjects` table (one row per DSO, FK to objects ON DELETE/UPDATE CASCADE): names, all IDs, types, RA/Dec, mag, surface brightness, axes (arcsec), PA, popularity, URLs, raw JSONB, `matchstatus` matched/not_found. Dry run by default, `-a`. **Carl ran it.**
+- **`scripts/telescopius_enrich.php`** + `pythonScripts\telescopius_enrich.cmd` -- looks DSOs up (exact name, then each catalog ID, then a loose search; a hit must carry one of our IDs), saves to TelescopiusObjects, then proposes FILLS for blank Objects fields and numbered REPLACEMENTS (position > 1', magnitude >= 0.3, SqArcMins > 15%, constellation; never Common Name). Asks: save + fill [y/N], then which replacements (`1,3,5-7` / `all`). `-a` saves + fills only; `-o` with `-a` also replaces. Skips SOLAR_SYSTEM, comets, stars (SqArcMins 0). Lookups cached 30 days on the VPS. Named DSOs already saved are re-compared from saved data (no call).
+  - SqArcMins = major x minor arcmin (one axis squared) -- same rule as `migrate_add_sqarcmins.py`. A SqArcMins change brings a rewritten **ObjectSize** with it as one choice: angular size from Telescopius, Moon = 31', light-years = DistanceLY x angle (or the old text's light-years when DistanceLY isn't a number).
+  - Telescopius sizes can be just the core: M8 came back 45'x30' vs the usual ~90'x40' -- check size replacements before accepting.
+
+### Data found wrong so far
+- **LDN1228** (Fighting Dragons): stored Dec +37° vs real +77° (~40° off); SqArcMins 1,590 vs 400 (20'x20'). Common Name has a typo ("Cephus  Nebula").
+- **M8** (Lagoon): stored Dec -27°18' vs real -24°23' -- at -27.3° it peaks at 19.0° from Star, so it could never pass a 20° profile. Carl applied the position fix; SqArcMins to be set by hand (~3,600 = 90x40).
+- A full `telescopius_enrich --what-if` over all DSOs hasn't been run yet -- likely more position errors.
+
+### Visibility report fixes (`pythonscripts/todays_dsos_web.py`)
+1. **Forecast caches ignored changes.** `VisibilityForecast` / `PlanetVisibilityForecast` were keyed only by profile name + object, and a "no window" result stuck for 370 days. Each row now stores a **Fingerprint** (profile lat/lon/min-alt/az range + object RA/Dec, plus a version tag); a mismatch = recompute. The column is added automatically on first run (`_ensure_fingerprint_column`, SQLite and Postgres). So a coordinate fix (enrich or DSO Admin) or a profile edit shows up on the next load -- no manual cache clearing.
+2. **Night started in twilight.** `get_viewing_window()` took `times[i]` on the 1 -> 0 step (start of astronomical twilight, sun -12°) instead of `times[i + 1]` (start of darkness, -18°), so every night began 35-60 min early -- both tonight's table and the forecast. Fixed; fingerprint tag `w2:` forces old cached dates to recompute.
+- Verified on M8 with full_circle20: report now **May 10 - Aug 6**; Telescopius (1-hour rule) May 9 - Aug 7; independent astropy check May 10 - Aug 7 (the day's difference is refraction, which the script doesn't model).
+
+### Status / next
+- Deployed to the VPS by Carl: `shared/telescopius.php`, `public/api/telescopius.php`, `scripts/telescopius_bench.php`, `pythonscripts/todays_dsos_web.py` (enrich script runs from the PC).
+- Next: run `telescopius_enrich --what-if` over every DSO and work through the fixes. Ideas raised, not built: run enrich automatically for new DSOs (dso_add.py / DSO Admin save); ObjectSize light-years as "a x b" when the angular size has two dimensions; a Telescopius spot-checker for the forecast; a "tonight" planning page using the profile searches (cached nightly).
