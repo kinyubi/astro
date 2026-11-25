@@ -2,13 +2,20 @@
  * overlay.js -- shared on-the-fly annotation for the slideshow app.
  *
  * Replaces the pre-rendered _annotated files: the caption (name, DSO key,
- * equipment, date) and signature are drawn over the plain image in the
- * browser -- on screen as HTML (renderOverlay), and into downloaded files
- * on a canvas (renderCanvas), so both always match.
+ * equipment, date) is drawn over the plain image in the browser -- on
+ * screen as HTML (renderOverlay), and into downloaded files on a canvas
+ * (renderCanvas), so both always match.
+ *
+ * Your own images carry a faint "C Baker" signature watermark in the
+ * image file itself (publish_images.py adds it), so no signature is drawn
+ * over them. Another photographer's image (IsOwn = 0) has no watermark;
+ * their name is drawn where the signature goes (signatureFor).
  *
  * Also handles fitting an image to the screen, rotating it 90 degrees when
  * the image and screen orientations differ (counterclockwise by default,
- * clockwise when the BaseName has a "_cw_" token).
+ * clockwise when the BaseName has a "_cw_" token). When the BaseName has a
+ * "_fw_" token, a rotated image is also flipped left to right (after
+ * turning, as seen on the screen); an image that isn't rotated never is.
  *
  * Screen orientation: Auto (the screen's own shape -- the default),
  * Landscape or Portrait, picked in the .orient-select dropdowns. The choice
@@ -72,14 +79,20 @@
         return EQUIPMENT[c.toLowerCase()] || c;
     }
 
-    // True when any "_"-separated token of the base name is "cw".
-    function isClockwise(base) {
+    // True when any "_"-separated token of the base name is token.
+    function hasToken(base, token) {
         var parts = String(base || '').toLowerCase().split('_');
         for (var i = 0; i < parts.length; i++) {
-            if (parts[i] === 'cw') return true;
+            if (parts[i] === token) return true;
         }
         return false;
     }
+
+    // "_cw_": rotate clockwise instead of counterclockwise.
+    function isClockwise(base) { return hasToken(base, 'cw'); }
+
+    // "_fw_": once rotated, flip left to right as well.
+    function isFlipped(base) { return hasToken(base, 'fw'); }
 
     // Caption fields for a gallery card + image (data.php shapes). Solar
     // shots carry their own title ("Waning Gibbous Moon") and no DSO key.
@@ -87,10 +100,11 @@
         return { name: im.title || card.name, key: card.dsoKey, equipment: im.equipment, date: im.date };
     }
 
-    // Your images get the signature; another photographer's image in the
-    // gallery (IsOwn = 0) gets their name instead (blank if none recorded).
+    // Your images already have the signature watermarked into the file, so
+    // nothing is drawn; another photographer's image in the gallery
+    // (IsOwn = 0) gets their name instead (blank if none recorded).
     function signatureFor(im) {
-        if (!im || im.isOwn === undefined || im.isOwn) return undefined;
+        if (!im || im.isOwn === undefined || im.isOwn) return '';
         return im.attribution || '';
     }
 
@@ -154,11 +168,13 @@
     /*
      * Fit an image of natW x natH into a boxW x boxH area (contain), rotated
      * 90 degrees when the image is portrait and the screen landscape or vice
-     * versa (the screen's shape as the orientation setting says). Returns
-     * the element size (before rotation), the rotation in degrees, and the
-     * visible rectangle (after rotation) within the box.
+     * versa (the screen's shape as the orientation setting says), and then
+     * flipped left to right when flip is true (only if it was rotated).
+     * Returns the element size (before rotation), the rotation in degrees,
+     * whether it's flipped, and the visible rectangle (after rotation)
+     * within the box.
      */
-    function fitImage(natW, natH, boxW, boxH, clockwise) {
+    function fitImage(natW, natH, boxW, boxH, clockwise, flip) {
         var rotate = 0;
         if (natW !== natH && (natH > natW) !== screenIsPortrait(boxW, boxH)) {
             rotate = clockwise ? 90 : -90;
@@ -170,6 +186,7 @@
         var visH = visNatH * scale;
         return {
             rotate: rotate,
+            flip: !!(rotate && flip),
             elW: natW * scale,
             elH: natH * scale,
             visW: visW,
@@ -196,6 +213,7 @@
         var visH = Math.min(h, boxH);
         return {
             rotate: 0,
+            flip: false,
             elW: boxW,
             elH: h,
             visW: boxW,
@@ -210,19 +228,22 @@
      * bottom edge of the visible picture. The overlay itself never rotates.
      * opts.fillWidth: use fitWidth() (full width, top/bottom clipped)
      * instead of fitting the whole image, rotated if need be.
+     * opts.flip: flip left to right after rotating (the "_fw_" token).
      */
     function applyLayout(img, overlayEl, box, clockwise, opts) {
         if (!img.naturalWidth || !img.naturalHeight) return null;
         var boxW = box.clientWidth, boxH = box.clientHeight;
         var L = opts && opts.fillWidth
             ? fitWidth(img.naturalWidth, img.naturalHeight, boxW, boxH)
-            : fitImage(img.naturalWidth, img.naturalHeight, boxW, boxH, clockwise);
+            : fitImage(img.naturalWidth, img.naturalHeight, boxW, boxH, clockwise, opts && opts.flip);
 
         img.style.width = L.elW + 'px';
         img.style.height = L.elH + 'px';
         img.style.left = '50%';
         img.style.top = '50%';
-        img.style.transform = 'translate(-50%, -50%) rotate(' + L.rotate + 'deg)';
+        // scaleX before rotate in the list = mirrored after turning, on screen.
+        img.style.transform = 'translate(-50%, -50%)' + (L.flip ? ' scaleX(-1)' : '')
+                            + ' rotate(' + L.rotate + 'deg)';
 
         if (overlayEl) {
             overlayEl.style.left = L.left + 'px';
@@ -364,8 +385,10 @@
     /*
      * Draw img onto a new canvas, rotated to the requested orientation
      * ('portrait' / 'landscape'; anything else keeps it as is), with the
-     * caption when opts.caption is true. Returns the canvas.
-     *   opts: { orientation, clockwise, caption, meta, signature }
+     * caption when opts.caption is true. Returns the canvas. When it's
+     * rotated and opts.flip is true, it's also flipped left to right (after
+     * turning); the caption is never mirrored.
+     *   opts: { orientation, clockwise, flip, caption, meta, signature }
      */
     function renderCanvas(img, opts) {
         opts = opts || {};
@@ -382,6 +405,7 @@
         var c = cv.getContext('2d');
         c.save();
         c.translate(W / 2, H / 2);
+        if (rot && opts.flip) c.scale(-1, 1);   // mirrored after turning
         c.rotate(rot * Math.PI / 180);
         c.drawImage(img, -w / 2, -h / 2);
         c.restore();
@@ -394,6 +418,7 @@
         formatDate: formatDate,
         equipmentLabel: equipmentLabel,
         isClockwise: isClockwise,
+        isFlipped: isFlipped,
         metaFor: metaFor,
         signatureFor: signatureFor,
         overlayParts: overlayParts,

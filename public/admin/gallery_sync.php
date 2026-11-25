@@ -28,7 +28,7 @@
 // A web fav with no web full is listed in favWithoutFull (publish the
 // _full, or remove the fav) and gets no row.
 //
-// Renamed renders (e.g. _cw_ added in MyWorks; publish_images.py then
+// Renamed renders (e.g. _cw_ or _fw_ added in MyWorks; publish_images.py then
 // replaces the old web copies): a web _full with no row, and a row whose
 // _full is gone, from the same MyWorks session folder are one image. The
 // row takes the new BaseName and keeps its caption, palette, place in the
@@ -285,16 +285,16 @@ function gs_repair_project_folders(PDO $db, string $dso_key, array $projects, ar
     return $projects;
 }
 
-/** A name's words, lower case, without a cw token: m42_cw_Orion -> m42_orion. */
+/** A name's words, lower case, without cw/fw tokens: m42_cw_fw_Orion -> m42_orion. */
 function gs_rename_key(string $base): string {
-    return implode('_', array_filter(explode('_', strtolower($base)), fn($t) => $t !== 'cw'));
+    return implode('_', array_filter(explode('_', strtolower($base)), fn($t) => $t !== 'cw' && $t !== 'fw'));
 }
 
 /**
  * Renames within one DSO: [lower(new base) => lower(old base)].
  * Only rows whose _full is gone and new web fulls with no row are
  * considered, and only within the same MyWorks session folder. Pairs
- * whose names differ only by a cw token (or letter case) first; then, if
+ * whose names differ only by a cw or fw token (or letter case) first; then, if
  * exactly one new image and one gone row are left in that session, they
  * are paired too (any other rename). Anything less clear is left alone:
  * the new image is added and the old row reported as gone.

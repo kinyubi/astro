@@ -398,7 +398,7 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
         specified_date: datetime.date object or None for today
         profile_name: Name of location profile to use
         show_all: If False (default), only the core DSO report is computed/shown --
-            the main visible-tonight table plus the Visibility Dates forecast.
+            the main visible-tonight table plus the Visibility Span page.
             Alignment Stars and Planets & Moon are skipped entirely (not just
             hidden) to keep the everyday report fast. If True, the full report
             is computed, same as this script's original behavior.
@@ -846,255 +846,20 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
         print(f"<p>Error reading data: {e}</p>")
         return
 
-    # ── Visibility Dates table — all DSOs (visible tonight + upcoming) ──────────────
-    # Part of the core DSO report (same as the main visible-tonight table),
-    # so this always runs regardless of show_all -- only Alignment Stars and
-    # Planets & Moon are held back for /all. Each DSO's range is cached in
-    # VisibilityForecast and only recomputed once the cached window has
-    # fully elapsed, so this stays cheap on the default path too.
-    forecast_objects = []
-    try:
-        visible_names = {o['name'] for o in visible_objects}
-        target_date_iso = specified_date.strftime('%Y-%m-%d')
-
-        forecast_conn = get_connection()
-        forecast_conn.execute("""
-            CREATE TABLE IF NOT EXISTS VisibilityForecast (
-                ProfileName      TEXT NOT NULL,
-                DSOKey           TEXT NOT NULL,
-                ComputedDate     TEXT NOT NULL,
-                FirstVisibleDate TEXT,
-                LastVisibleDate  TEXT,
-                SearchDays       INTEGER NOT NULL DEFAULT 370,
-                PRIMARY KEY (ProfileName, DSOKey)
-            )
-        """)
-        forecast_conn.commit()
-        _ensure_fingerprint_column(forecast_conn, 'VisibilityForecast')
-        fcur = forecast_conn.cursor()
-
-        viewing_window_cache = {}
-
-        for row in dso_rows:
-            name = row['DSOKey']
-            dso_fp = f"{profile_fp}|{float(row['RAHours']):.5f},{float(row['DecDegrees']):.5f}"
-
-            # Objects visible tonight: first = today, reuse or compute season end.
-            # Previously this branch always called find_visibility_window() (a full
-            # coarse-then-refine search up to FORECAST_MAX_DAYS days out) on EVERY request for
-            # EVERY object visible that night, regardless of whether the season-end
-            # date was already known and still valid -- the main cost driver on
-            # nights with many visible objects. Now checks VisibilityForecast first,
-            # same "only recompute once the cached window has fully elapsed" rule
-            # already used below for objects not visible tonight.
-            if name in visible_names:
-                fcur.execute(
-                    "SELECT LastVisibleDate AS \"LastVisibleDate\", Fingerprint AS \"Fingerprint\" "
-                    "FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
-                    (profile_name, name)
-                )
-                cached = fcur.fetchone()
-                if cached and cached['Fingerprint'] != dso_fp:
-                    cached = None        # profile settings or RA/Dec changed since it was cached
-
-                last_date = None
-                need_compute = True
-                if cached and cached['LastVisibleDate']:
-                    cached_last = datetime.datetime.strptime(cached['LastVisibleDate'], '%Y-%m-%d').date()
-                    if specified_date <= cached_last:
-                        last_date = cached_last
-                        need_compute = False
-
-                if need_compute:
-                    try:
-                        star = Star(ra=Angle(hours=float(row['RAHours'])),
-                                    dec=Angle(degrees=float(row['DecDegrees'])))
-                    except Exception:
-                        continue
-                    _, last_date = find_visibility_window(
-                        star, specified_date - datetime.timedelta(days=1),
-                        FORECAST_MAX_DAYS, ts, eph, observer, observer_pos,
-                        minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees,
-                        viewing_window_cache
-                    )
-                    fcur.execute("""
-                        INSERT INTO VisibilityForecast (ProfileName, DSOKey, ComputedDate, FirstVisibleDate, LastVisibleDate, SearchDays, Fingerprint)
-                        VALUES (?, ?, ?, ?, ?, ?, ?)
-                        ON CONFLICT(ProfileName, DSOKey) DO UPDATE SET
-                            ComputedDate = excluded.ComputedDate,
-                            FirstVisibleDate = excluded.FirstVisibleDate,
-                            LastVisibleDate = excluded.LastVisibleDate,
-                            SearchDays = excluded.SearchDays,
-                            Fingerprint = excluded.Fingerprint
-                    """, (
-                        profile_name, name, target_date_iso,
-                        target_date_iso,
-                        last_date.strftime('%Y-%m-%d') if last_date else None,
-                        FORECAST_MAX_DAYS, dso_fp
-                    ))
-
-                forecast_objects.append({
-                    'do_me': '&#9733;' if row['WantBetter'] else '',
-                    'name': name,
-                    'aka': row['CommonName'] or name,
-                    'first_visible': target_date_iso,
-                    'last_visible': last_date.strftime('%Y-%m-%d') if last_date else target_date_iso,
-                    'first_visible_sort': specified_date.toordinal(),
-                    'visible_tonight': True,
-                    'no_window': False,
-                })
-                continue
-
-            # Not visible tonight: look up or compute next window
-            fcur.execute(
-                "SELECT FirstVisibleDate AS \"FirstVisibleDate\", LastVisibleDate AS \"LastVisibleDate\", "
-                "ComputedDate AS \"ComputedDate\", SearchDays AS \"SearchDays\", Fingerprint AS \"Fingerprint\" "
-                "FROM VisibilityForecast WHERE ProfileName=? AND DSOKey=?",
-                (profile_name, name)
-            )
-            cached = fcur.fetchone()
-            if cached and cached['Fingerprint'] != dso_fp:
-                cached = None            # profile settings or RA/Dec changed since it was cached
-
-            first_date = None
-            last_date = None
-            need_compute = True
-
-            if cached and cached['FirstVisibleDate']:
-                cached_first = datetime.datetime.strptime(cached['FirstVisibleDate'], '%Y-%m-%d').date()
-                cached_last = (datetime.datetime.strptime(cached['LastVisibleDate'], '%Y-%m-%d').date()
-                               if cached['LastVisibleDate'] else None)
-                # Reuse the cached window as long as we haven't passed the end of it.
-                # Only recompute once the window has fully elapsed (i.e. next year's
-                # window is needed) -- so each DSO's range is calculated once per
-                # season instead of on every report run.
-                if cached_last is not None and specified_date <= cached_last:
-                    first_date = cached_first
-                    last_date = cached_last
-                    need_compute = False
-            elif cached and cached['ComputedDate']:
-                # A previous search found NO window at all within SearchDays of
-                # ComputedDate -- e.g. a seasonal target between windows (like
-                # M16 in late summer/fall), or one that genuinely never meets
-                # this profile's criteria. Before this fix, a null result was
-                # never cached as valid, so this branch recomputed the full
-                # forward search on EVERY single report run forever. Now it's
-                # only re-checked once specified_date has moved far enough past
-                # ComputedDate that the search window would actually cover new
-                # ground -- same "don't recompute until necessary" rule used
-                # for found windows above.
-                computed_date = datetime.datetime.strptime(cached['ComputedDate'], '%Y-%m-%d').date()
-                search_days = cached['SearchDays'] or FORECAST_MAX_DAYS
-                # Only trust the cached null result if it was searched over at
-                # least as many days as the script searches now -- otherwise a
-                # null result cached under a shorter, now-stale search range
-                # (e.g. everything computed before FORECAST_MAX_DAYS was raised
-                # from 180) would block the new, wider search from ever running
-                # until the old range's ComputedDate+SearchDays happened to age
-                # out on its own.
-                if search_days >= FORECAST_MAX_DAYS and specified_date < computed_date + datetime.timedelta(days=search_days):
-                    need_compute = False
-                    # first_date/last_date stay None -- correctly represents "no window found"
-
-            if need_compute:
-                try:
-                    star = Star(ra=Angle(hours=float(row['RAHours'])),
-                                dec=Angle(degrees=float(row['DecDegrees'])))
-                except Exception:
-                    continue
-
-                first_date, last_date = find_visibility_window(
-                    star, specified_date, FORECAST_MAX_DAYS, ts, eph, observer, observer_pos,
-                    minimum_altitude, azimuth_minimum_degrees, azimuth_maximum_degrees,
-                    viewing_window_cache
-                )
-
-                fcur.execute("""
-                    INSERT INTO VisibilityForecast (ProfileName, DSOKey, ComputedDate, FirstVisibleDate, LastVisibleDate, SearchDays, Fingerprint)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                    ON CONFLICT(ProfileName, DSOKey) DO UPDATE SET
-                        ComputedDate = excluded.ComputedDate,
-                        FirstVisibleDate = excluded.FirstVisibleDate,
-                        LastVisibleDate = excluded.LastVisibleDate,
-                        SearchDays = excluded.SearchDays,
-                        Fingerprint = excluded.Fingerprint
-                """, (
-                    profile_name, name, target_date_iso,
-                    first_date.strftime('%Y-%m-%d') if first_date else None,
-                    last_date.strftime('%Y-%m-%d') if last_date else None,
-                    FORECAST_MAX_DAYS, dso_fp
-                ))
-
-            if first_date is not None:
-                forecast_objects.append({
-                    'do_me': '&#9733;' if row['WantBetter'] else '',
-                    'name': name,
-                    'aka': row['CommonName'] or name,
-                    'first_visible': first_date.strftime('%Y-%m-%d'),
-                    'last_visible': last_date.strftime('%Y-%m-%d') if last_date else '',
-                    'first_visible_sort': first_date.toordinal(),
-                    'visible_tonight': False,
-                    'no_window': False,
-                })
-            else:
-                # No window found within FORECAST_MAX_DAYS -- shown explicitly
-                # rather than silently dropped, so a DSO that's simply between
-                # seasons (or unreachable under the current alt/az criteria)
-                # doesn't just vanish from the report with no explanation.
-                forecast_objects.append({
-                    'do_me': '&#9733;' if row['WantBetter'] else '',
-                    'name': name,
-                    'aka': row['CommonName'] or name,
-                    'first_visible': '',
-                    'last_visible': '',
-                    'first_visible_sort': 99999999,  # sorts after every real date
-                    'visible_tonight': False,
-                    'no_window': True,
-                })
-
-        _lap('forecast_loop')
-        forecast_conn.commit()
-        forecast_conn.close()
-    except Exception as e:
-        with open('dso_visibility.log', 'a') as log_file:
-            log_file.write(f"{datetime.datetime.now().isoformat()} - Forecast error: {e}\n")
-        forecast_objects = []
-
-    forecast_json = json.dumps([{
-        'do_me': o['do_me'],
-        'name': o['name'],
-        'aka': o['aka'],
-        'first_visible': o['first_visible'],
-        'last_visible': o['last_visible'],
-        'first_visible_sort': o['first_visible_sort'],
-        'visible_tonight': o['visible_tonight'],
-        'no_window': o.get('no_window', False),
-    } for o in forecast_objects])
-
+    # ── Visibility Span ─────────────────────────────────────────────────────
+    # Replaces the old Visibility Dates table (VisibilityForecast cache).
+    # The whole /vis/span/ page (Ending soon, Coming up, timeline) is shown
+    # here in embed mode, for this report's date and profile, compared with
+    # backyard35 (or default when this profile is backyard35). It reads the
+    # VisibilityWindows tables live, so it's current even when this report
+    # comes from the cache. The page reports its height (forecast_script).
+    span_other = 'default' if profile_name == 'backyard35' else 'backyard35'
+    span_src = (f"/vis/span/?a={profile_name}&amp;b={span_other}"
+                f"&amp;date={specified_date.strftime('%Y-%m-%d')}&amp;embed=1")
     forecast_table_html = f"""
-    <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Visibility Dates</h2>
-    <p style="color:#b8c5d6;">All DSOs with known coordinates. Objects visible tonight show today as first date. Others show next window within {FORECAST_MAX_DAYS} days.</p>
-    <div class="controls" style="margin-top:10px;">
-        <label for="forecastSort">Sort by:</label>
-        <select id="forecastSort" onchange="sortForecast()">
-            <option value="first_visible">Date First Visible</option>
-            <option value="name">Name (A-Z)</option>
-            <option value="aka">Friendly Name (A-Z)</option>
-        </select>
-    </div>
-    <table id="forecastTable">
-        <thead>
-            <tr>
-                <th>Priority</th>
-                <th>Tonight</th>
-                <th>Name</th>
-                <th>Also Known As</th>
-                <th>Date First Visible</th>
-                <th>Date Last Visible</th>
-            </tr>
-        </thead>
-        <tbody id="forecastBody"></tbody>
-    </table>
+    <h2 style="color:#4a9eff; border-bottom: 2px solid #4a9eff; padding-bottom: 10px; margin-top: 40px;">Visibility Span</h2>
+    <iframe id="span-frame" src="{span_src}" title="Visibility Span" loading="lazy"
+            style="width:100%; height:1400px; border:0; display:block; background:transparent;"></iframe>
 """
 
     alignment_table_html = ''
@@ -1301,8 +1066,8 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
     # ── Extra-sections script (Alignment Stars / Planets & Moon) — built only
     # when show_all is True. On the default path these tables aren't in the
     # DOM at all, so their render/sort JS is omitted rather than emitted-but-
-    # inert. Visibility Dates (forecast_script, below) is part of the core
-    # DSO report and is always emitted regardless of show_all.
+    # inert. The embedded Visibility Span page is part of the core DSO report
+    # and is always shown regardless of show_all.
     extra_sections_script = ''
     if show_all:
         extra_sections_script = """
@@ -1450,64 +1215,14 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
     </script>
 """
 
-    # ── Visibility Dates (forecast) script — always emitted, part of the
-    # core DSO report regardless of show_all.
+    # The embedded Visibility Span page tells us its height; size the frame to fit.
     forecast_script = """
     <script>
-        // -- Visibility Dates table ----------------------------------------
-        const forecastData = """ + forecast_json + """;
-
-        function renderForecast(data) {
-            const tbody = document.getElementById('forecastBody');
-            if (!tbody) return;
-            tbody.innerHTML = '';
-            data.forEach(obj => {
-                const row = tbody.insertRow();
-                const tonightCell = obj.visible_tonight
-                    ? '<span style="color:#7ec8a3; font-weight:600;">&#10003;</span>'
-                    : '';
-                if (obj.no_window) {
-                    row.innerHTML = `
-                        <td class="priority">${obj.do_me}</td>
-                        <td style="text-align:center;">${tonightCell}</td>
-                        <td><strong>${obj.name}</strong></td>
-                        <td>${obj.aka}</td>
-                        <td colspan="2" style="color:#8b9dc3; font-style:italic;">No window in next """ + str(FORECAST_MAX_DAYS) + """ days</td>
-                    `;
-                } else {
-                    row.innerHTML = `
-                        <td class="priority">${obj.do_me}</td>
-                        <td style="text-align:center;">${tonightCell}</td>
-                        <td><strong>${obj.name}</strong></td>
-                        <td>${obj.aka}</td>
-                        <td class="time">${obj.first_visible}</td>
-                        <td class="time">${obj.last_visible}</td>
-                    `;
-                }
-            });
-        }
-
-        function sortForecast() {
-            const sortSelect = document.getElementById('forecastSort');
-            if (!sortSelect) return;
-            const sortBy = sortSelect.value;
-            const sorted = [...forecastData];
-            switch (sortBy) {
-                case 'first_visible':
-                    sorted.sort((a, b) => a.first_visible_sort - b.first_visible_sort);
-                    break;
-                case 'name':
-                    sorted.sort((a, b) => a.name.localeCompare(b.name));
-                    break;
-                case 'aka':
-                    sorted.sort((a, b) => a.aka.localeCompare(b.aka));
-                    break;
-            }
-            renderForecast(sorted);
-        }
-
-        // Initial forecast render
-        sortForecast();
+        addEventListener('message', ev => {
+            const f = document.getElementById('span-frame');
+            if (f && ev.origin === location.origin && ev.data && ev.data.visSpanHeight)
+                f.style.height = (ev.data.visSpanHeight + 4) + 'px';
+        });
     </script>
 """
 
@@ -1792,7 +1507,7 @@ def calculate_visibility(specified_date=None, profile_name='default', show_all=F
         <p><strong>Location:</strong> {location_name}</p>
         <p><strong>Viewing Window:</strong> {start_local.strftime('%H:%M %Z')} to {end_local.strftime('%H:%M %Z')}</p>
         <p><strong>Criteria:</strong> Altitude &gt;= {minimum_altitude}&deg;, Azimuth {azimuth_minimum_degrees}&deg;-{azimuth_maximum_degrees}&deg;</p>
-        <p><strong>View:</strong> {"Full report (adds Alignment Stars &amp; Planets/Moon)" if show_all else "DSOs &amp; Visibility Dates"} &mdash; <a href="{'/vis' if show_all else '/vis/all'}?date={target_date_str}&amp;profile={profile_name}" style="color:#7ec8ff;">{"Switch to DSO Only" if show_all else "Switch to Full Report"}</a></p>
+        <p><strong>View:</strong> {"Full report (adds Alignment Stars &amp; Planets/Moon)" if show_all else "DSOs &amp; Visibility Span"} &mdash; <a href="{'/vis' if show_all else '/vis/all'}?date={target_date_str}&amp;profile={profile_name}" style="color:#7ec8ff;">{"Switch to DSO Only" if show_all else "Switch to Full Report"}</a></p>
     </div>
 
     <div class="controls">

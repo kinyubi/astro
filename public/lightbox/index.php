@@ -659,7 +659,7 @@ function tileHtml(img, i, best, frameStyle) {
           ${img.rig ? `<span class="chip rig">${esc(img.rig)}</span>` : ''}
           ${img.mosaic ? `<span class="chip">mosaic</span>` : ''}
           ${img.palette ? `<span class="chip pal">${esc(img.palette)}</span>` : ''}
-          ${img.rotate ? `<span class="chip" title="Made from the _full, turned ${img.rotate > 0 ? 'clockwise (_cw_)' : 'counterclockwise'}">${img.rotate > 0 ? '↻ CW' : '↺ CCW'}</span>` : ''}
+          ${img.rotate ? `<span class="chip" title="Made from the _full, turned ${img.rotate > 0 ? 'clockwise (_cw_)' : 'counterclockwise'}${img.flip ? ' and flipped (_fw_)' : ''}">${img.rotate > 0 ? '↻ CW' : '↺ CCW'}${img.flip ? ' ⇋' : ''}</span>` : ''}
           ${img.onSite && !state.hosted ? `<span class="chip site" title="${data.type === 'wall' ? 'Its _full is' : 'Same file name is'} in public/images">on site</span>` : ''}
           ${img.ignored ? `<span class="chip ign">ignored</span>` : ''}
           ${img.hidden ? `<span class="chip ign" title="Hidden in DSO Admin (GalleryImages.IsHidden)">hidden</span>` : ''}
@@ -780,7 +780,7 @@ function showViewerImage() {
   $('vTitle').textContent = `${d ? d.token : ''} · ${fmtDate(img.date)}`;
   $('vInfo').textContent = [state.data.type === 'all' ? TYPE_LABEL[img.type] : '', img.rig, img.palette, img.frames ? `${img.frames} × ${img.exposure}s` : '',
                             fmtMinutes(img.minutes), aspect(img.width, img.height), img.source || img.file,
-                            img.rotate ? (img.rotate > 0 ? 'turned CW' : 'turned CCW') : ''].filter(Boolean).join(' · ');
+                            img.rotate ? (img.rotate > 0 ? 'turned CW' : 'turned CCW') + (img.flip ? ', flipped' : '') : ''].filter(Boolean).join(' · ');
   $('vCount').textContent = `${state.vIndex + 1} / ${state.view.length}`;
   refreshViewerMeta(true);
 }

@@ -11,8 +11,9 @@
 // big to decode, the original is served instead.
 //
 // A _wall file name is made from the session's _full, turned to landscape
-// (lib.php lb_image_source(): counterclockwise, or clockwise for _cw_).
-// Both its preview and its size=full version are cached turned.
+// (lib.php lb_image_source(): counterclockwise, or clockwise for _cw_, then
+// flipped left to right for _fw_). Both its preview and its size=full
+// version are cached turned.
 // ============================================================
 
 require_once __DIR__ . '/../admin/auth_api.php';
@@ -30,6 +31,7 @@ if ($source === null) {
 }
 $path   = $source['path'];
 $rotate = $source['rotate'];        // degrees clockwise
+$flip   = !empty($source['flip']);  // flipped left to right after turning
 $full   = ($_GET['size'] ?? '') === 'full';
 
 function lb_send_file(string $file): void
@@ -55,7 +57,7 @@ if ($full && !$rotate) {
 
 $cacheDir = __DIR__ . '/../cache/lightbox';
 $key = md5(strtolower($path) . '|' . filemtime($path) . '|' . filesize($path) . '|'
-         . ($full ? 'full' : LB_PREVIEW_MAX) . '|r' . $rotate);
+         . ($full ? 'full' : LB_PREVIEW_MAX) . '|r' . $rotate . ($flip ? '|f' : ''));
 $cached = $cacheDir . DIRECTORY_SEPARATOR . $key . '.jpg';
 
 if (is_file($cached)) {
@@ -89,6 +91,7 @@ if ($rotate) {
     imagedestroy($dst);
     if (!$turned) lb_send_file($path);
     $dst = $turned;
+    if ($flip) imageflip($dst, IMG_FLIP_HORIZONTAL);
 }
 $quality = $full ? 92 : LB_PREVIEW_QUALITY;
 

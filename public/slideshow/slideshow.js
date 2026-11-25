@@ -3,7 +3,8 @@
  *
  * Plays every visible gallery image's plain _full file in the hand-ranked
  * gallery order, with the overlay drawn on top (overlay.js). On a landscape
- * screen the portrait image is rotated 90 degrees to fill it.
+ * screen the portrait image is rotated 90 degrees to fill it (and flipped
+ * left to right too when its name has "_fw_").
  *
  * By default only each card's featured image is shown; the star button (or
  * A) switches to every image. The choice is remembered.
@@ -41,6 +42,7 @@
                 out.push({
                     src: im.full,
                     clockwise: O.isClockwise(im.base),
+                    flip: O.isFlipped(im.base),
                     meta: O.metaFor(card, im),
                     signature: O.signatureFor(im)
                 });
@@ -51,7 +53,7 @@
 
     function layout() {
         if (!slides.length) return;
-        O.applyLayout(el.img, el.overlay, el.stage, slides[idx].clockwise);
+        O.applyLayout(el.img, el.overlay, el.stage, slides[idx].clockwise, { flip: slides[idx].flip });
     }
 
     function show(i) {

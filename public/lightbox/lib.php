@@ -12,9 +12,10 @@
 // downloaded from the gallery) or in public/images. The Wall type is made
 // on the fly from each session's _full, turned to landscape the way the
 // gallery turns it (slideshow/overlay.js): 90 degrees counterclockwise, or
-// clockwise when the name has a "_cw_" token. A landscape _full is left as
-// is. Each one is listed under a virtual name, <base>_wall.jpg, so its
-// rating is kept apart from the _full's. Real _wall files are ignored.
+// clockwise when the name has a "_cw_" token, then flipped left to right
+// when the name has a "_fw_" token. A landscape _full is left as is. Each
+// one is listed under a virtual name, <base>_wall.jpg, so its rating is
+// kept apart from the _full's. Real _wall files are ignored.
 //
 // Hosted mode (lb_hosted()): on the hosted site there is no MyWorks, so the
 // published copies in public/images (fav/, full/, wall4k/) are shown
@@ -238,6 +239,14 @@ function lb_is_clockwise(string $name): bool
     return in_array('cw', explode('_', $stem), true);
 }
 
+/** True when a "_"-separated token of the name is "fw": flipped left to right
+ *  once turned (as overlay.js isFlipped()). */
+function lb_is_flipped(string $name): bool
+{
+    $stem = strtolower(preg_replace('/\.jpe?g$/i', '', $name));
+    return in_array('fw', explode('_', $stem), true);
+}
+
 /** "X_full.jpg" -> "X_wall.jpg" (the virtual wall name), and back. */
 function lb_wall_name(string $fullFile): string
 {
@@ -418,9 +427,11 @@ function lb_images(string $project, string $type, bool $showHidden, array $hidde
             $h = $size[1] ?? null;
             $file = $f;
             $rotate = 0;
+            $flip = false;
             if ($type === 'wall') {
                 $file = lb_wall_name($f);
                 $rotate = lb_wall_rotation($f, $w, $h);
+                $flip = $rotate !== 0 && lb_is_flipped($f);
                 if ($rotate) [$w, $h] = [$h, $w];
             }
             $siteDir = LB_SITE_DIRS[$type];
@@ -429,6 +440,7 @@ function lb_images(string $project, string $type, bool $showHidden, array $hidde
                 'file'    => $file,        // the rating key; a virtual _wall name for walls
                 'source'  => $f,           // the file on disk
                 'rotate'  => $rotate,      // degrees clockwise img.php turns it
+                'flip'    => $flip,        // then flipped left to right (_fw_)
                 'base'    => $c['base'],
                 'palette' => $c['palette'],
                 'hidden'  => $isHidden,
@@ -487,8 +499,9 @@ function lb_safe_path(string $project, string $session, string $file): ?string
 
 /**
  * Where a Lightbox image's pixels come from, or null if the request is bad:
- * ['path' => absolute path, 'rotate' => degrees clockwise]. A _wall name
- * is always made from the session's _full (see the top of this file).
+ * ['path' => absolute path, 'rotate' => degrees clockwise, 'flip' => flipped
+ * left to right after turning]. A _wall name is always made from the
+ * session's _full (see the top of this file).
  */
 function lb_image_source(string $project, string $session, string $file): ?array
 {
@@ -499,10 +512,12 @@ function lb_image_source(string $project, string $session, string $file): ?array
         $full = lb_safe_path($project, $session, lb_full_name($file));
         if ($full === null) return null;
         $size = @getimagesize($full);
-        return ['path' => $full, 'rotate' => lb_wall_rotation(basename($full), $size[0] ?? null, $size[1] ?? null)];
+        $rotate = lb_wall_rotation(basename($full), $size[0] ?? null, $size[1] ?? null);
+        return ['path' => $full, 'rotate' => $rotate,
+                'flip' => $rotate !== 0 && lb_is_flipped(basename($full))];
     }
     $path = lb_safe_path($project, $session, $file);
-    return $path === null ? null : ['path' => $path, 'rotate' => 0];
+    return $path === null ? null : ['path' => $path, 'rotate' => 0, 'flip' => false];
 }
 
 /**

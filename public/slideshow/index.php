@@ -43,7 +43,7 @@ $equipment = ss_equipment_names();
 $json      = json_encode(ss_load_cards(), $jflags);
 $solarJson = json_encode(ss_load_solar($equipment), $jflags);
 $equipJson = json_encode((object)$equipment, $jflags);
-$ver       = 17;
+$ver       = 18;
 $orientSelect = '<select class="orient-select" aria-label="Screen orientation" title="Screen orientation">'
               . '<option value="auto">Auto</option>'
               . '<option value="landscape">Landscape</option>'

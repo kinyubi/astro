@@ -12,6 +12,10 @@
  * Only the plain _full and _fav variants (plus thumbs) are used -- the
  * overlay annotation is drawn in the browser, so annotated/wall/4k files
  * are ignored. Image URLs are relative to /slideshow/ ("../images/...").
+ *
+ * An image's 'title' is its custom caption title (titles.py; the
+ * GalleryImageTitles view picks the image's own, else its session's, else
+ * its DSO's), or null -- then the caption uses the card's common name.
  */
 
 require_once __DIR__ . '/../../shared/db.php';
@@ -42,6 +46,7 @@ function ss_load_cards(): array
                 gi.Equipment      AS \"Equipment\",
                 gi.SortOrder      AS \"SortOrder\",
                 gi.IsFeature      AS \"IsFeature\",
+                {TITLE}           AS \"Title\",
                 o.CommonName      AS \"CommonName\",
                 con.Name          AS \"ConstellationName\",
                 o.DistanceLY      AS \"DistanceLY\",
@@ -56,14 +61,30 @@ function ss_load_cards(): array
             LEFT JOIN PaletteTreatments pt ON gi.PaletteID      = pt.PaletteID
             LEFT JOIN CatalogIDs c         ON o.DSOKey          = c.DSOKey AND c.IsPrimary = 1
             LEFT JOIN Constellations con   ON o.ConstellationID = con.ConstellationID
+            {TITLE_JOIN}
             WHERE COALESCE(gi.IsHidden, 0) = 0
             ORDER BY o.CommonName, o.DSOKey, gi.ProjectID, gi.SortOrder, gi.GalleryImageID
         ";
-        try {
-            $rows = $db->query(str_replace('{RANK}', 'p.GalleryRank', $sql))->fetchAll(PDO::FETCH_ASSOC);
-        } catch (PDOException $e) {
-            // GalleryRank migration not run: alphabetical order instead.
-            $rows = $db->query(str_replace('{RANK}', 'NULL', $sql))->fetchAll(PDO::FETCH_ASSOC);
+        // Fall back gracefully if a migration hasn't been run: without
+        // GalleryRank the cards go in alphabetical order; without the
+        // GalleryImageTitles view (migrate_add_titles.py) there are no
+        // custom titles.
+        $title_join = 'LEFT JOIN GalleryImageTitles git ON git.GalleryImageID = gi.GalleryImageID';
+        $variants = [
+            ['p.GalleryRank', 'git.Title', $title_join],
+            ['p.GalleryRank', 'NULL', ''],
+            ['NULL', 'git.Title', $title_join],
+            ['NULL', 'NULL', ''],
+        ];
+        $rows = null;
+        foreach ($variants as $i => [$rank, $title, $join]) {
+            try {
+                $q = str_replace(['{RANK}', '{TITLE}', '{TITLE_JOIN}'], [$rank, $title, $join], $sql);
+                $rows = $db->query($q)->fetchAll(PDO::FETCH_ASSOC);
+                break;
+            } catch (PDOException $e) {
+                if ($i === count($variants) - 1) throw $e;
+            }
         }
 
         $links = [];
@@ -112,6 +133,7 @@ function ss_load_cards(): array
             $cards[$key]['images'][] = [
                 'id'          => (int)$r['GalleryImageID'],
                 'base'        => $bn,
+                'title'       => ($r['Title'] ?? '') !== '' ? $r['Title'] : null,
                 'caption'     => $r['Caption'],
                 'palette'     => ((int)$r['PaletteID'] > 0) ? $r['PaletteName'] : null,
                 'date'        => $r['DateCaptured'],

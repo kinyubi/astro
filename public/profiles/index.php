@@ -4,6 +4,15 @@
  * Create, edit, and delete location profiles for DSO visibility reports
  */
 
+// Saving a profile recalculates its visibility windows (/vis/span/) in the
+// background; deleting one removes them.
+require_once dirname(dirname(__DIR__)) . DIRECTORY_SEPARATOR . 'shared' . DIRECTORY_SEPARATOR . 'visibility_refresh.php';
+$spanNote = function (string $profile): string {
+    return vr_start_profile($profile)
+        ? '<br>Visibility Span windows for it are being recalculated in the background (about a minute).'
+        : '<br>⚠️ Couldn\'t start the Visibility Span recalculation; run <code>visibility_windows.py -p ' . htmlspecialchars($profile) . ' -a</code>.';
+};
+
 // Paths — pythonscripts is two levels up from public/profiles/
 $pythonDir = dirname(dirname(__DIR__)) . DIRECTORY_SEPARATOR . 'pythonscripts';
 $profileManagerScript = $pythonDir . DIRECTORY_SEPARATOR . 'profile_cli.py';
@@ -120,7 +129,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ));
             $result = json_decode($output, true);
             if ($result && isset($result['success']) && $result['success']) {
-                $message = sprintf("✅ Profile '<strong>%s</strong>' created successfully!", htmlspecialchars($profileName));
+                $message = sprintf("✅ Profile '<strong>%s</strong>' created successfully!", htmlspecialchars($profileName))
+                         . $spanNote($profileName);
                 $messageType = 'success';
             } else {
                 $message = "❌ Failed to create profile: " . htmlspecialchars($result['error'] ?? "Unknown error occurred");
@@ -147,7 +157,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ));
             $result = json_decode($output, true);
             if ($result && isset($result['success']) && $result['success']) {
-                $message = sprintf("✅ Profile '<strong>%s</strong>' updated successfully!", htmlspecialchars($profileName));
+                $message = sprintf("✅ Profile '<strong>%s</strong>' updated successfully!", htmlspecialchars($profileName))
+                         . $spanNote($profileName);
                 $messageType = 'success';
                 $editProfile = null;
             } else {
@@ -171,6 +182,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ));
             $result = json_decode($output, true);
             if ($result && isset($result['success']) && $result['success']) {
+                vr_forget_profile($profileName);
                 $message = sprintf("✅ Profile '<strong>%s</strong>' deleted successfully!", htmlspecialchars($profileName));
                 $messageType = 'success';
             } else {

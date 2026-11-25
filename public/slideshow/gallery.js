@@ -144,7 +144,8 @@
         var im = curImage();
         if (!im || el.modal.hidden) return;
         // Sun and Moon: full width, centred, top and bottom clipped, never rotated.
-        O.applyLayout(el.img, el.overlay, el.stage, O.isClockwise(im.base), { fillWidth: !!cur.solar });
+        O.applyLayout(el.img, el.overlay, el.stage, O.isClockwise(im.base),
+                      { fillWidth: !!cur.solar, flip: O.isFlipped(im.base) });
     }
 
     function showImage() {
@@ -535,10 +536,13 @@
 
         // The 4K wallpaper of a portrait _full was turned to landscape
         // (counter-clockwise, or clockwise for _cw_), so 4K Portrait turns it
-        // back the other way. A landscape _full's wallpaper isn't turned, so
-        // it's turned the way the gallery turns it on a portrait screen.
+        // back the other way. One that was also flipped (_fw_) is put back
+        // upright by turning it the same way and flipping it again. A
+        // landscape _full's wallpaper isn't turned, so it's turned (and
+        // flipped) the way the gallery does it on a portrait screen.
         var clockwise = O.isClockwise(im.base);
-        if (shape === 'wall4k-portrait' && im.fullPortrait) clockwise = !clockwise;
+        var flip = O.isFlipped(im.base);
+        if (shape === 'wall4k-portrait' && im.fullPortrait && !flip) clockwise = !clockwise;
         var orientation = shape === 'square' ? null : shape === 'wall4k-portrait' ? 'portrait' : shape;
 
         el.modal.classList.add('busy');
@@ -554,6 +558,7 @@
                 var cv = O.renderCanvas(res[0], {
                     orientation: orientation,
                     clockwise: clockwise,
+                    flip: flip,
                     caption: kind === 'captioned',
                     meta: O.metaFor(cur, im),
                     signature: O.signatureFor(im)
