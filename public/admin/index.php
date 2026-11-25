@@ -298,6 +298,9 @@ $is_local_mode = defined('WORKS_ROOT') && is_dir(WORKS_ROOT);
     <a href="/vis/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Visibility</a>
     <a href="/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Slideshow</a>
     <a href="/slideshow/#gallery" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'" title="Browse Gallery -- run locally, drag the cards (or a card's filmstrip) into the order you want">Gallery Order</a>
+<?php if ($is_local_mode): ?>
+    <a href="/lightbox/" id="nav-lightbox" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'" title="Lightbox -- compare and rate this DSO's session images (opens the DSO you have loaded; shown only when running locally)">Lightbox</a>
+<?php endif; ?>
     <a href="/todo/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">To Do</a>
     <a href="/check-missing/" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Complete?</a>
     <a href="logout.php" style="font-size:12px; color:var(--muted); text-decoration:none; border:1px solid var(--border); border-radius:var(--radius); padding:5px 12px;" onmouseover="this.style.color='var(--accent)'; this.style.borderColor='var(--accent)'" onmouseout="this.style.color='var(--muted)'; this.style.borderColor='var(--border)'">Sign out</a>
@@ -553,6 +556,20 @@ let searchTimer   = null;
 // True when PHP can see WORKS_ROOT (see top of file). Sync Folder,
 // Add Project and Audit Observations only work in local mode.
 const LOCAL_MODE = <?= json_encode($is_local_mode) ?>;
+
+// Header Lightbox button (local only): open the loaded DSO's Project folder
+// in the Lightbox (/lightbox/<folder>), or the Lightbox's own pick when no
+// DSO with a Project is loaded. The link is filled in just before it's
+// followed, so it always matches what's on screen.
+(function () {
+  const a = document.getElementById('nav-lightbox');
+  if (!a) return;
+  const update = () => {
+    const p = currentObject && (currentObject.Projects || []).find(p => p.ProjectFolder);
+    a.href = p ? '/lightbox/' + encodeURIComponent(p.ProjectFolder) : '/lightbox/';
+  };
+  ['mousedown', 'focus', 'touchstart'].forEach(ev => a.addEventListener(ev, update, { passive: true }));
+})();
 
 // Shows the "available only when run locally" dialog for actionName.
 function showLocalOnlyDialog(actionName) {

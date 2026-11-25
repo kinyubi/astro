@@ -188,6 +188,9 @@ $init = [
 
   .empty { padding: 60px 18px; color: var(--muted); text-align: center; grid-column: 1 / -1; }
   .keys { padding: 0 18px 24px; color: #6e7681; font-size: 12px; }
+  /* No pictures on screen (loading another DSO, nothing found, an error):
+     hide the key help so it doesn't sit across the top of the page. */
+  #grid:not(:has(.tile)) + .keys { display: none; }
   kbd {
     font-family: inherit; font-size: 11px; padding: 0 5px; border-radius: 4px;
     border: 1px solid var(--border); background: var(--raised); color: var(--text);
